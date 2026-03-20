@@ -476,7 +476,7 @@ def _row(content=""):
 
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
                   stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                  warnings, delta_t):
+                  warnings, delta_t, loud=False, text=None, fp=None):
     """Print one packet to terminal inside an 80-column box.
 
     Layout:
@@ -580,6 +580,30 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
         print(_row())
 
+    # Hex dump, ASCII, SHA256 — only in loud mode
+    if loud:
+        print(f"{C_DIM}{MID}{C_END}")
+        print(_row())
+
+        hex_str = raw.hex(' ')
+        parts = hex_str.split(" ")
+        for i in range(0, len(parts), 20):
+            chunk = " ".join(parts[i:i + 20])
+            if i == 0:
+                print(_row(f"  {C_GREEN}HEX{C_END}     {chunk}"))
+            else:
+                print(_row(f"          {chunk}"))
+
+        print(_row())
+
+        if text:
+            print(_row(f"  {C_DIM}ASCII{C_END}   {C_DIM}{text}{C_END}"))
+
+        if fp:
+            print(_row(f"  {C_DIM}SHA256{C_END}  {C_DIM}{fp}{C_END}"))
+
+        print(_row())
+
     print(f"{C_DIM}{BOT}{C_END}")
 
 
@@ -605,11 +629,14 @@ def main():
                         help="Disable logging to disk (display only)")
     parser.add_argument("--quiet", action="store_true",
                         help="Suppress terminal display (log only, faster throughput)")
+    parser.add_argument("--loud", action="store_true",
+                        help="Show hex dump, ASCII, and SHA256 in terminal display")
     args = parser.parse_args()
 
     context, sock = init_zmq(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
     log = None if args.no_log else SessionLog(LOG_DIR, ZMQ_ADDR)
     quiet = args.quiet
+    loud = args.loud
 
     packet_count = 0
     last_arrival = None
@@ -723,7 +750,7 @@ def main():
                 render_packet(
                     packet_count, gs_ts, frame_type, raw, inner_payload,
                     stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                    warnings, delta_t,
+                    warnings, delta_t, loud, text, fp,
                 )
 
     except KeyboardInterrupt:
