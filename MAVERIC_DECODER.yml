@@ -1,0 +1,29 @@
+name: MAVERIC
+norad: 0
+
+data:
+  &tlm Telemetry:
+    unknown: {}
+
+transmitters:
+  19k2 FSK AX.25 G3RUH downlink:
+    frequency: 437.250e+6
+    modulation: FSK
+    baudrate: 19200
+    framing: AX.25 G3RUH
+    data:
+      - *tlm
+  4k8 FSK AX.25 G3RUH downlink:
+    frequency: 437.250e+6
+    modulation: FSK
+    baudrate: 4800
+    framing: AX.25 G3RUH
+    data:
+      - *tlm
+  4k8 FSK AX100 ASM+Golay downlink:
+    frequency: 437.250e+6
+    modulation: FSK
+    baudrate: 4800
+    framing: AX100 ASM+Golay
+    data:
+      - *tlm
