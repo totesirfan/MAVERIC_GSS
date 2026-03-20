@@ -213,42 +213,36 @@ def try_extract_timestamp(payload):
 
 def scan_numeric(payload):
     """
-    Interpret leading bytes of payload as various numeric types.
-    Returns dict with both little-endian and big-endian interpretations,
-    or None if payload is too short.
+    Interpret payload bytes as various numeric types at every 4-byte offset.
+    Returns a list of dicts, one per offset, or None if payload is too short.
 
-    Useful for packed binary telemetry. Not meaningful when the payload
-    is ASCII text (the current test beacon format). Both byte orders
-    are shown because CSP uses big-endian but flight software may differ.
-    Drop the unused endianness once the byte order is confirmed.
+    Each entry contains u32 and f32 in both byte orders. Scans every
+    4-byte aligned offset in the payload, giving visibility into the
+    entire packet rather than just the first few bytes.
+
+    Both byte orders are shown because CSP uses big-endian but flight
+    software may differ. Drop the unused endianness once confirmed.
     """
-    if len(payload) < 8:
+    if len(payload) < 4:
         return None
 
     def safe_float(fmt, data):
         val = struct.unpack(fmt, data)[0]
         if -1e6 < val < 1e6 and val == val:  # exclude NaN
-            return f"{val:<12.4f}"
+            return f"{val:.4f}"
         return "---"
 
-    return {
-        "le": {
-            "u8":  struct.unpack("<B", payload[0:1])[0],
-            "u16": struct.unpack("<H", payload[0:2])[0],
-            "u32": struct.unpack("<I", payload[0:4])[0],
-            "u64": struct.unpack("<Q", payload[0:8])[0],
-            "f32": safe_float("<f", payload[0:4]),
-            "f64": safe_float("<d", payload[0:8]),
-        },
-        "be": {
-            "u8":  struct.unpack(">B", payload[0:1])[0],
-            "u16": struct.unpack(">H", payload[0:2])[0],
-            "u32": struct.unpack(">I", payload[0:4])[0],
-            "u64": struct.unpack(">Q", payload[0:8])[0],
-            "f32": safe_float(">f", payload[0:4]),
-            "f64": safe_float(">d", payload[0:8]),
-        },
-    }
+    results = []
+    for off in range(0, len(payload) - 3, 4):
+        chunk = payload[off:off + 4]
+        results.append({
+            "off":    off,
+            "le_u32": struct.unpack("<I", chunk)[0],
+            "be_u32": struct.unpack(">I", chunk)[0],
+            "le_f32": safe_float("<f", chunk),
+            "be_f32": safe_float(">f", chunk),
+        })
+    return results
 
 
 def clean_text(data: bytes) -> str:
@@ -350,15 +344,14 @@ class SessionLog:
             lines.append(f"  SAT TIME    --")
 
         if scan:
-            le, be = scan["le"], scan["be"]
             lines.append(
-                f"  SCAN little-endian   u8: {le['u8']:<3} | u16: {le['u16']:<5} | "
-                f"u32: {le['u32']:<10} | f32: {le['f32']}"
+                f"  SCAN  off   u32 LE      u32 BE       f32 LE      f32 BE"
             )
-            lines.append(
-                f"  SCAN big-endian      u8: {be['u8']:<3} | u16: {be['u16']:<5} | "
-                f"u32: {be['u32']:<10} | f32: {be['f32']}"
-            )
+            for s in scan:
+                lines.append(
+                    f"  [{s['off']:02d}]  {s['le_u32']:<11} {s['be_u32']:<12} "
+                    f"{s['le_f32']:<11} {s['be_f32']}"
+                )
 
         lines.append(f"  HEX         {raw.hex(' ')}")
         if text:
@@ -517,23 +510,19 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
     print(_row())
 
-    # Scanner
+    # Scanner — one compact line per 4-byte offset
     if scan:
-        le, be = scan["le"], scan["be"]
         print(_row(
-            f"  {C_DIM}SCAN LE{C_END}     "
-            f"u8 {C_BOLD}{le['u8']:<3}{C_END}   "
-            f"u16 {C_BOLD}{le['u16']:<5}{C_END}   "
-            f"u32 {C_BOLD}{le['u32']:<10}{C_END}   "
-            f"f32 {C_BOLD}{le['f32']}{C_END}"
+            f"  {C_DIM}SCAN    off   u32 LE      u32 BE       f32 LE      f32 BE{C_END}"
         ))
-        print(_row(
-            f"  {C_DIM}SCAN BE{C_END}     "
-            f"u8 {C_BOLD}{be['u8']:<3}{C_END}   "
-            f"u16 {C_BOLD}{be['u16']:<5}{C_END}   "
-            f"u32 {C_BOLD}{be['u32']:<10}{C_END}   "
-            f"f32 {C_BOLD}{be['f32']}{C_END}"
-        ))
+        for s in scan:
+            print(_row(
+                f"  {C_DIM}[{s['off']:02d}]{C_END}  "
+                f"{C_BOLD}{s['le_u32']:<11}{C_END} "
+                f"{C_BOLD}{s['be_u32']:<12}{C_END} "
+                f"{C_BOLD}{s['le_f32']:<11}{C_END} "
+                f"{C_BOLD}{s['be_f32']}{C_END}"
+            ))
         print(_row())
 
     # Hex dump and ASCII
