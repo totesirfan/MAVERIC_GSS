@@ -1,5 +1,7 @@
 """
 MAVERIC GSS — Ground Station Software
+Author:  Irfan Annuar
+USC ISI SERC
 
 Packet monitor for the MAVERIC CubeSat mission. Subscribes to decoded PDUs
 from a GNU Radio / gr-satellites flowgraph over ZMQ PUB/SUB and displays
@@ -10,9 +12,6 @@ independently — the monitor will idle and resume when packets arrive.
 
 Raw hex is ground truth. All parsed fields (CSP, timestamps, scanner)
 are diagnostic heuristics until the telemetry map is finalized.
-
-Author:  Irfan Annuar
-Org:     USC ISI SERC
 """
 
 import zmq
