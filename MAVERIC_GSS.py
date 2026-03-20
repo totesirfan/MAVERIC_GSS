@@ -62,6 +62,10 @@ C_DIM     = "\033[2m"
 C_BOLD    = "\033[1m"
 C_END     = "\033[0m"
 
+# Precompiled regex patterns — avoids recompiling on every call.
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+_TS_RE   = re.compile(rb"\d{13}")
+
 
 # =============================================================================
 #  TRANSPORT
@@ -210,7 +214,7 @@ def try_extract_timestamp(payload):
     Search for a plausible 13-digit epoch-ms timestamp in the payload.
     Returns (dt_utc, dt_local, raw_ms) or None.
     """
-    for match in re.finditer(rb"\d{13}", payload):
+    for match in _TS_RE.finditer(payload):
         ms = int(match.group())
         if TS_MIN_MS <= ms <= TS_MAX_MS:
             try:
@@ -311,7 +315,7 @@ def fingerprint(data: bytes) -> str:
 
 def strip_ansi(s):
     """Remove ANSI escape codes, return visible text only."""
-    return re.sub(r"\033\[[0-9;]*m", "", s)
+    return _ANSI_RE.sub("", s)
 
 
 class SessionLog:
@@ -326,7 +330,7 @@ class SessionLog:
       .txt   — human-readable plain text, for review and sharing
     """
 
-    def __init__(self, log_dir, zmq_addr):
+    def __init__(self, log_dir, zmq_addr, flush_every=10):
         os.makedirs(log_dir, exist_ok=True)
         session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.jsonl_path = os.path.join(log_dir, f"maveric_{session_ts}.jsonl")
@@ -334,6 +338,8 @@ class SessionLog:
 
         self._jsonl_f = open(self.jsonl_path, "a")
         self._text_f  = open(self.text_path, "w")
+        self._flush_every = flush_every
+        self._writes_since_flush = 0
 
         # Write text log header
         self._text_f.write(f"{'='*80}\n")
@@ -343,11 +349,21 @@ class SessionLog:
         self._text_f.write(f"{'='*80}\n\n")
         self._text_f.flush()
 
+    def _maybe_flush(self):
+        """Flush log files every N packets instead of every write.
+        Reduces I/O overhead during bursts while still ensuring
+        data reaches disk regularly."""
+        self._writes_since_flush += 1
+        if self._writes_since_flush >= self._flush_every:
+            self._jsonl_f.flush()
+            self._text_f.flush()
+            self._writes_since_flush = 0
+
     def write_jsonl(self, record):
         """Append one JSON-lines record. Contains raw_hex (ground truth),
         payload_hex (after stripping), and all candidate parse results."""
         self._jsonl_f.write(json.dumps(record) + "\n")
-        self._jsonl_f.flush()
+        self._maybe_flush()
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
                    stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
@@ -405,7 +421,6 @@ class SessionLog:
         lines.append("")
 
         self._text_f.write("\n".join(lines) + "\n")
-        self._text_f.flush()
 
     def write_summary(self, packet_count, session_start, first_pkt_ts, last_pkt_ts):
         """Write session summary to the text log."""
@@ -588,10 +603,13 @@ def main():
     parser = argparse.ArgumentParser(description="MAVERIC GSS — Ground Station Packet Monitor")
     parser.add_argument("--no-log", action="store_true",
                         help="Disable logging to disk (display only)")
+    parser.add_argument("--quiet", action="store_true",
+                        help="Suppress terminal display (log only, faster throughput)")
     args = parser.parse_args()
 
     context, sock = init_zmq(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
     log = None if args.no_log else SessionLog(LOG_DIR, ZMQ_ADDR)
+    quiet = args.quiet
 
     packet_count = 0
     last_arrival = None
@@ -603,17 +621,18 @@ def main():
     spinner = ["█", "▓", "▒", "░", "▒", "▓"]
     spin_idx = 0
 
-    print(f"\n{C_BOLD}┌──────────────────────────────────────────────────────────┐")
-    print(f"│                       MAVERIC GSS                        │")
-    print(f"│                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           │")
-    print(f"└──────────────────────────────────────────────────────────┘{C_END}")
-    print(f" ZMQ:  {C_BOLD}{ZMQ_ADDR}{C_END}")
-    if log:
-        print(f" Logs: {C_BOLD}{log.text_path}{C_END}  (human-readable)")
-        print(f"       {C_BOLD}{log.jsonl_path}{C_END}  (machine)")
-    else:
-        print(f" Logs: {C_DIM}disabled{C_END}")
-    print()
+    if not quiet:
+        print(f"\n{C_BOLD}┌──────────────────────────────────────────────────────────┐")
+        print(f"│                       MAVERIC GSS                        │")
+        print(f"│                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           │")
+        print(f"└──────────────────────────────────────────────────────────┘{C_END}")
+        print(f" ZMQ:  {C_BOLD}{ZMQ_ADDR}{C_END}")
+        if log:
+            print(f" Logs: {C_BOLD}{log.text_path}{C_END}  (human-readable)")
+            print(f"       {C_BOLD}{log.jsonl_path}{C_END}  (machine)")
+        else:
+            print(f" Logs: {C_DIM}disabled{C_END}")
+        print()
 
     try:
         while True:
@@ -621,25 +640,23 @@ def main():
 
             if result is None:
                 # --- IDLE / WAITING ---
-                # Watchdog tracks time since last packet OR since startup.
-                # Color shifts: cyan (<10s) → yellow (<30s) → red (>30s).
-                # This is normal during gaps between passes — the monitor
-                # is designed to run continuously.
-                elapsed = time.time() - last_watchdog
-                tc = C_CYAN if elapsed <= 10 else (C_YELLOW if elapsed <= 30 else C_RED)
-                pkt_str = f" | {C_DIM}{packet_count} pkts{C_END}" if packet_count > 0 else ""
-                sys.stdout.write(
-                    f"\r{C_BOLD}{C_CYAN} {spinner[spin_idx]} {C_END} "
-                    f"Waiting... {tc}[SILENCE: {elapsed:04.1f}s]{C_END}{pkt_str}  "
-                )
-                sys.stdout.flush()
-                spin_idx = (spin_idx + 1) % len(spinner)
+                if not quiet:
+                    elapsed = time.time() - last_watchdog
+                    tc = C_CYAN if elapsed <= 10 else (C_YELLOW if elapsed <= 30 else C_RED)
+                    pkt_str = f" | {C_DIM}{packet_count} pkts{C_END}" if packet_count > 0 else ""
+                    sys.stdout.write(
+                        f"\r{C_BOLD}{C_CYAN} {spinner[spin_idx]} {C_END} "
+                        f"Waiting... {tc}[SILENCE: {elapsed:04.1f}s]{C_END}{pkt_str}  "
+                    )
+                    sys.stdout.flush()
+                    spin_idx = (spin_idx + 1) % len(spinner)
                 continue
 
             # --- PACKET RECEIVED ---
             meta, raw = result
             now = time.time()
-            sys.stdout.write("\r" + " " * 80 + "\r")
+            if not quiet:
+                sys.stdout.write("\r" + " " * 80 + "\r")
 
             delta_t = (now - last_arrival) if last_arrival is not None else None
             last_arrival = now
@@ -701,12 +718,13 @@ def main():
                     text, warnings, delta_t, fp,
                 )
 
-            # Phase 4: Display
-            render_packet(
-                packet_count, gs_ts, frame_type, raw, inner_payload,
-                stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                warnings, delta_t,
-            )
+            # Phase 4: Display (unless --quiet)
+            if not quiet:
+                render_packet(
+                    packet_count, gs_ts, frame_type, raw, inner_payload,
+                    stripped_hdr, csp, csp_plausible, ts_result, cmd,
+                    warnings, delta_t,
+                )
 
     except KeyboardInterrupt:
         if log:
