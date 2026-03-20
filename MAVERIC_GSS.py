@@ -1,7 +1,5 @@
 """
 MAVERIC GSS — Ground Station Software
-Author:  Irfan Annuar
-USC ISI SERC
 
 Packet monitor for the MAVERIC CubeSat mission. Subscribes to decoded PDUs
 from a GNU Radio / gr-satellites flowgraph over ZMQ PUB/SUB and displays
@@ -12,6 +10,9 @@ independently — the monitor will idle and resume when packets arrive.
 
 Raw hex is ground truth. All parsed fields (CSP, timestamps, scanner)
 are diagnostic heuristics until the telemetry map is finalized.
+
+Author:  Irfan Annuar
+Org:     USC ISI SERC
 """
 
 import zmq
@@ -249,9 +250,11 @@ def scan_numeric(payload):
 
 
 def clean_text(data: bytes) -> str:
-    """Extract printable ASCII from payload."""
-    text = data.decode("ascii", errors="ignore")
-    return "".join(c for c in text if c.isprintable()).strip()
+    """Convert payload bytes to a readable ASCII string.
+    Printable characters are kept as-is, non-printable bytes
+    (including nulls and control characters) are shown as '·'
+    so field boundaries and structure remain visible."""
+    return "".join(chr(b) if 32 <= b < 127 else "·" for b in data)
 
 
 # =============================================================================
