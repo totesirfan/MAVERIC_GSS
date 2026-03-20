@@ -23,6 +23,8 @@ import sys
 import time
 import json
 import os
+import hashlib
+import argparse
 from datetime import datetime, timezone
 
 # --- CONFIGURATION ---
@@ -257,6 +259,13 @@ def clean_text(data: bytes) -> str:
     return "".join(chr(b) if 32 <= b < 127 else "·" for b in data)
 
 
+def fingerprint(data: bytes) -> str:
+    """Return a short SHA-256 fingerprint of the raw PDU.
+    First 12 hex characters (48 bits) — enough to identify
+    unique vs duplicate packets at cubesat beacon rates."""
+    return hashlib.sha256(data).hexdigest()[:12]
+
+
 # =============================================================================
 #  LOGGING
 # =============================================================================
@@ -303,7 +312,7 @@ class SessionLog:
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
                    stripped_hdr, csp, csp_plausible, ts_result, scan, text,
-                   warnings, delta_t):
+                   warnings, delta_t, fp):
         """Append one human-readable packet entry. Mirrors the terminal
         display but without ANSI color codes or box-drawing borders."""
         lines = []
@@ -354,6 +363,7 @@ class SessionLog:
         lines.append(f"  HEX         {raw.hex(' ')}")
         if text:
             lines.append(f"  ASCII       {text}")
+        lines.append(f"  SHA256      {fp}")
 
         lines.append("-" * 80)
         lines.append("")
@@ -428,7 +438,7 @@ def _wrap_hex(hex_str, label, bytes_per_line=20):
 
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
                   stripped_hdr, csp, csp_plausible, ts_result, scan, text,
-                  warnings, delta_t):
+                  warnings, delta_t, fp):
     """Print one packet to terminal inside an 80-column box.
 
     Layout:
@@ -437,6 +447,7 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
       ├─ protocol: AX.25 header, CSP candidate, SAT TIME       ─┤
       │  scanner: LE and BE numeric interpretations              │
       ├─ raw data: hex dump (wrapped at 20 bytes), ASCII        ─┤
+      │  fingerprint                                             │
       └─────────────────────────────────────────────────────────┘
 
     Alignment is handled by _row() which uses strip_ansi() to
@@ -539,6 +550,9 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
         print(_row(f"  {C_GREEN}ASCII{C_END}  {text}"))
         print(_row())
 
+    print(_row(f"  {C_DIM}SHA256{C_END}  {C_DIM}{fp}{C_END}"))
+    print(_row())
+
     print(f"{C_DIM}{BOT}{C_END}")
 
 
@@ -556,11 +570,16 @@ def main():
     Each packet goes through four phases:
       1. Detect frame type + strip transport headers → inner payload
       2. Run candidate parsers (CSP, timestamp, scanner) on inner payload
-      3. Log to both JSONL and text files
+      3. Log to both JSONL and text files (unless --no-log)
       4. Render to terminal
     """
+    parser = argparse.ArgumentParser(description="MAVERIC GSS — Ground Station Packet Monitor")
+    parser.add_argument("--no-log", action="store_true",
+                        help="Disable logging to disk (display only)")
+    args = parser.parse_args()
+
     context, sock = init_zmq(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
-    log = SessionLog(LOG_DIR, ZMQ_ADDR)
+    log = None if args.no_log else SessionLog(LOG_DIR, ZMQ_ADDR)
 
     packet_count = 0
     last_arrival = None
@@ -577,8 +596,12 @@ def main():
     print(f"│                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           │")
     print(f"└──────────────────────────────────────────────────────────┘{C_END}")
     print(f" ZMQ:  {C_BOLD}{ZMQ_ADDR}{C_END}")
-    print(f" Logs: {C_BOLD}{log.text_path}{C_END}  (human-readable)")
-    print(f"       {C_BOLD}{log.jsonl_path}{C_END}  (machine)\n")
+    if log:
+        print(f" Logs: {C_BOLD}{log.text_path}{C_END}  (human-readable)")
+        print(f"       {C_BOLD}{log.jsonl_path}{C_END}  (machine)")
+    else:
+        print(f" Logs: {C_DIM}disabled{C_END}")
+    print()
 
     try:
         while True:
@@ -626,47 +649,49 @@ def main():
             ts_result = try_extract_timestamp(inner_payload)
             scan = scan_numeric(inner_payload)
             text = clean_text(inner_payload)
+            fp = fingerprint(raw)
 
-            # Phase 3: Log — machine (JSONL)
-            log_record = {
-                "v":          VERSION,
-                "pkt":        packet_count,
-                "gs_ts":      gs_ts,
-                "frame_type": frame_type,
-                "tx_meta":    str(meta.get("transmitter", "")),
-                "raw_hex":    raw.hex(),
-                "payload_hex": inner_payload.hex(),
-                "raw_len":    len(raw),
-                "payload_len": len(inner_payload),
-            }
-            if delta_t is not None:
-                log_record["delta_t"] = round(delta_t, 4)
-            if csp:
-                log_record["csp_candidate"] = csp
-                log_record["csp_plausible"] = csp_plausible
-            if ts_result:
-                log_record["sat_ts_ms"] = ts_result[2]
+            # Phase 3: Log (unless --no-log)
+            if log:
+                log_record = {
+                    "v":          VERSION,
+                    "pkt":        packet_count,
+                    "gs_ts":      gs_ts,
+                    "frame_type": frame_type,
+                    "tx_meta":    str(meta.get("transmitter", "")),
+                    "raw_hex":    raw.hex(),
+                    "payload_hex": inner_payload.hex(),
+                    "raw_len":    len(raw),
+                    "payload_len": len(inner_payload),
+                    "sha256":     fp,
+                }
+                if delta_t is not None:
+                    log_record["delta_t"] = round(delta_t, 4)
+                if csp:
+                    log_record["csp_candidate"] = csp
+                    log_record["csp_plausible"] = csp_plausible
+                if ts_result:
+                    log_record["sat_ts_ms"] = ts_result[2]
 
-            log.write_jsonl(log_record)
+                log.write_jsonl(log_record)
 
-            # Phase 3b: Log — human-readable text
-            log.write_text(
-                packet_count, gs_ts, frame_type, raw, inner_payload,
-                stripped_hdr, csp, csp_plausible, ts_result, scan, text,
-                warnings, delta_t,
-            )
+                log.write_text(
+                    packet_count, gs_ts, frame_type, raw, inner_payload,
+                    stripped_hdr, csp, csp_plausible, ts_result, scan, text,
+                    warnings, delta_t, fp,
+                )
 
             # Phase 4: Display
             render_packet(
                 packet_count, gs_ts, frame_type, raw, inner_payload,
                 stripped_hdr, csp, csp_plausible, ts_result, scan, text,
-                warnings, delta_t,
+                warnings, delta_t, fp,
             )
 
     except KeyboardInterrupt:
-        # Session summary to text log
-        log.write_summary(packet_count, session_start, first_pkt_ts, last_pkt_ts)
-        log.close()
+        if log:
+            log.write_summary(packet_count, session_start, first_pkt_ts, last_pkt_ts)
+            log.close()
 
         # Terminal summary
         duration = time.time() - session_start
@@ -676,8 +701,9 @@ def main():
         print(f"  Packets:    {C_BOLD}{packet_count}{C_END}")
         print(f"  Duration:   {duration:.0f}s ({duration/60:.1f} min)")
         print(f"{C_DIM}{'─' * 50}{C_END}")
-        print(f"  {C_DIM}{log.text_path}{C_END}")
-        print(f"  {C_DIM}{log.jsonl_path}{C_END}")
+        if log:
+            print(f"  {C_DIM}{log.text_path}{C_END}")
+            print(f"  {C_DIM}{log.jsonl_path}{C_END}")
         print()
 
         sock.close()
