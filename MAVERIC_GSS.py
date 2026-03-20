@@ -8,7 +8,7 @@ packet contents for live debugging.
 Designed to run continuously. The flowgraph can be started and stopped
 independently — the monitor will idle and resume when packets arrive.
 
-Raw hex is ground truth. All parsed fields (CSP, timestamps, scanner)
+Raw hex is ground truth. All parsed fields (CSP, timestamps)
 are diagnostic heuristics until the telemetry map is finalized.
 
 Author:  Irfan Annuar
@@ -18,7 +18,6 @@ Org:     USC ISI SERC
 import zmq
 import pmt
 import re
-import struct
 import sys
 import time
 import json
@@ -211,40 +210,6 @@ def try_extract_timestamp(payload):
     return None
 
 
-def scan_numeric(payload):
-    """
-    Interpret payload bytes as various numeric types at every 4-byte offset.
-    Returns a list of dicts, one per offset, or None if payload is too short.
-
-    Each entry contains u32 and f32 in both byte orders. Scans every
-    4-byte aligned offset in the payload, giving visibility into the
-    entire packet rather than just the first few bytes.
-
-    Both byte orders are shown because CSP uses big-endian but flight
-    software may differ. Drop the unused endianness once confirmed.
-    """
-    if len(payload) < 4:
-        return None
-
-    def safe_float(fmt, data):
-        val = struct.unpack(fmt, data)[0]
-        if -1e6 < val < 1e6 and val == val:  # exclude NaN
-            return f"{val:.4f}"
-        return "---"
-
-    results = []
-    for off in range(0, len(payload) - 3, 4):
-        chunk = payload[off:off + 4]
-        results.append({
-            "off":    off,
-            "le_u32": struct.unpack("<I", chunk)[0],
-            "be_u32": struct.unpack(">I", chunk)[0],
-            "le_f32": safe_float("<f", chunk),
-            "be_f32": safe_float(">f", chunk),
-        })
-    return results
-
-
 def clean_text(data: bytes) -> str:
     """Convert payload bytes to a readable ASCII string.
     Printable characters are kept as-is, non-printable bytes
@@ -305,7 +270,7 @@ class SessionLog:
         self._jsonl_f.flush()
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
-                   stripped_hdr, csp, csp_plausible, ts_result, scan, text,
+                   stripped_hdr, csp, csp_plausible, ts_result, text,
                    warnings, delta_t, fp):
         """Append one human-readable packet entry. Mirrors the terminal
         display but without ANSI color codes or box-drawing borders."""
@@ -342,16 +307,6 @@ class SessionLog:
             )
         else:
             lines.append(f"  SAT TIME    --")
-
-        if scan:
-            lines.append(
-                f"  SCAN  off   u32 LE      u32 BE       f32 LE      f32 BE"
-            )
-            for s in scan:
-                lines.append(
-                    f"  [{s['off']:02d}]  {s['le_u32']:<11} {s['be_u32']:<12} "
-                    f"{s['le_f32']:<11} {s['be_f32']}"
-                )
 
         lines.append(f"  HEX         {raw.hex(' ')}")
         if text:
@@ -430,7 +385,7 @@ def _wrap_hex(hex_str, label, bytes_per_line=20):
 
 
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
-                  stripped_hdr, csp, csp_plausible, ts_result, scan, text,
+                  stripped_hdr, csp, csp_plausible, ts_result, text,
                   warnings, delta_t, fp):
     """Print one packet to terminal inside an 80-column box.
 
@@ -438,7 +393,6 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
       Δt (if not first packet)
       ┌─ header: packet #, frame type, timestamp, byte counts ─┐
       ├─ protocol: AX.25 header, CSP candidate, SAT TIME       ─┤
-      │  scanner: LE and BE numeric interpretations              │
       ├─ raw data: hex dump (wrapped at 20 bytes), ASCII        ─┤
       │  fingerprint                                             │
       └─────────────────────────────────────────────────────────┘
@@ -510,21 +464,6 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
     print(_row())
 
-    # Scanner — one compact line per 4-byte offset
-    if scan:
-        print(_row(
-            f"  {C_DIM}SCAN    off   u32 LE      u32 BE       f32 LE      f32 BE{C_END}"
-        ))
-        for s in scan:
-            print(_row(
-                f"  {C_DIM}[{s['off']:02d}]{C_END}  "
-                f"{C_BOLD}{s['le_u32']:<11}{C_END} "
-                f"{C_BOLD}{s['be_u32']:<12}{C_END} "
-                f"{C_BOLD}{s['le_f32']:<11}{C_END} "
-                f"{C_BOLD}{s['be_f32']}{C_END}"
-            ))
-        print(_row())
-
     # Hex dump and ASCII
     print(f"{C_DIM}{MID}{C_END}")
     print(_row())
@@ -558,7 +497,7 @@ def main():
 
     Each packet goes through four phases:
       1. Detect frame type + strip transport headers → inner payload
-      2. Run candidate parsers (CSP, timestamp, scanner) on inner payload
+      2. Run candidate parsers (CSP, timestamp) on inner payload
       3. Log to both JSONL and text files (unless --no-log)
       4. Render to terminal
     """
@@ -636,7 +575,6 @@ def main():
             # Phase 2: Candidate parsing on inner payload
             csp, csp_plausible = try_parse_csp_v1(inner_payload)
             ts_result = try_extract_timestamp(inner_payload)
-            scan = scan_numeric(inner_payload)
             text = clean_text(inner_payload)
             fp = fingerprint(raw)
 
@@ -666,14 +604,14 @@ def main():
 
                 log.write_text(
                     packet_count, gs_ts, frame_type, raw, inner_payload,
-                    stripped_hdr, csp, csp_plausible, ts_result, scan, text,
+                    stripped_hdr, csp, csp_plausible, ts_result, text,
                     warnings, delta_t, fp,
                 )
 
             # Phase 4: Display
             render_packet(
                 packet_count, gs_ts, frame_type, raw, inner_payload,
-                stripped_hdr, csp, csp_plausible, ts_result, scan, text,
+                stripped_hdr, csp, csp_plausible, ts_result, text,
                 warnings, delta_t, fp,
             )
 
