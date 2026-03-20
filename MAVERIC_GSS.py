@@ -33,6 +33,18 @@ ZMQ_ADDR = f"tcp://127.0.0.1:{ZMQ_PORT}"
 ZMQ_RECV_TIMEOUT_MS = 200                # How long recv() blocks before returning to idle loop
 LOG_DIR = "logs"
 
+# Known node IDs — add new nodes as they are confirmed.
+# Used to label Src/Dest/Echo in command structure display.
+NODE_NAMES = {
+    3: "Upper PPM",
+    6: "Ground Station",
+}
+
+def node_label(node_id):
+    """Return 'ID (Name)' if known, otherwise just 'ID'."""
+    name = NODE_NAMES.get(node_id)
+    return f"{node_id} ({name})" if name else str(node_id)
+
 # Plausible epoch-ms range for timestamp detection (~2024-01-01 to ~2028-01-01).
 # Prevents false positives from random 13-digit byte sequences.
 # Widen this range if the mission timeline extends.
@@ -210,6 +222,74 @@ def try_extract_timestamp(payload):
     return None
 
 
+def try_parse_command(payload):
+    """
+    Attempt to parse payload as a MAVERIC command structure.
+    Expects the payload AFTER the CSP header (bytes 4+).
+
+    Command structure (test format, subject to change):
+      [0]    Src node ID
+      [1]    Dest node ID
+      [2]    Echo node ID
+      [3]    Packet Type
+      [4]    Command ID string length
+      [5]    Args string length
+      [6..]  Command ID string (null-terminated)
+      [..]   Args string (null-terminated)
+      [..]   Trailing checksum bytes (algorithm TBD)
+
+    Returns (parsed_dict, remaining_bytes) or (None, None) on failure.
+    Parses based on length fields, not hardcoded offsets.
+    """
+    if len(payload) < 6:
+        return None, None
+
+    src       = payload[0]
+    dest      = payload[1]
+    echo      = payload[2]
+    pkt_type  = payload[3]
+    id_len    = payload[4]
+    args_len  = payload[5]
+
+    # Sanity check: lengths should fit within the remaining payload
+    if 6 + id_len + 1 + args_len + 1 > len(payload):
+        return None, None
+
+    # Extract command ID string
+    id_start = 6
+    id_end   = id_start + id_len
+    cmd_id   = payload[id_start:id_end].decode("ascii", errors="replace")
+
+    # Skip null terminator after command ID
+    null_pos = id_end
+    if null_pos < len(payload) and payload[null_pos] == 0x00:
+        null_pos += 1
+
+    # Extract args string
+    args_start = null_pos
+    args_end   = args_start + args_len
+    args_str   = payload[args_start:args_end].decode("ascii", errors="replace").strip()
+
+    # Skip null terminator after args
+    tail_start = args_end
+    if tail_start < len(payload) and payload[tail_start] == 0x00:
+        tail_start += 1
+
+    # Remaining bytes are trailing checksum
+    tail = payload[tail_start:]
+
+    cmd = {
+        "src":       src,
+        "dest":      dest,
+        "echo":      echo,
+        "pkt_type":  pkt_type,
+        "cmd_id":    cmd_id,
+        "args":      args_str,
+    }
+
+    return cmd, tail
+
+
 def clean_text(data: bytes) -> str:
     """Convert payload bytes to a readable ASCII string.
     Printable characters are kept as-is, non-printable bytes
@@ -270,8 +350,8 @@ class SessionLog:
         self._jsonl_f.flush()
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
-                   stripped_hdr, csp, csp_plausible, ts_result, text,
-                   warnings, delta_t, fp):
+                   stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
+                   text, warnings, delta_t, fp):
         """Append one human-readable packet entry. Mirrors the terminal
         display but without ANSI color codes or box-drawing borders."""
         lines = []
@@ -307,6 +387,14 @@ class SessionLog:
             )
         else:
             lines.append(f"  SAT TIME    --")
+
+        if cmd:
+            lines.append(
+                f"  CMD         Src: {node_label(cmd['src'])} | Dest: {node_label(cmd['dest'])} | "
+                f"Echo: {node_label(cmd['echo'])} | Type: {cmd['pkt_type']}"
+            )
+            lines.append(f"  CMD ID      {cmd['cmd_id']}")
+            lines.append(f"  CMD ARGS    {cmd['args']}")
 
         lines.append(f"  HEX         {raw.hex(' ')}")
         if text:
@@ -385,14 +473,15 @@ def _wrap_hex(hex_str, label, bytes_per_line=20):
 
 
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
-                  stripped_hdr, csp, csp_plausible, ts_result, text,
-                  warnings, delta_t, fp):
+                  stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
+                  text, warnings, delta_t, fp):
     """Print one packet to terminal inside an 80-column box.
 
     Layout:
       Δt (if not first packet)
       ┌─ header: packet #, frame type, timestamp, byte counts ─┐
       ├─ protocol: AX.25 header, CSP candidate, SAT TIME       ─┤
+      │  command: src, dest, echo, type, ID, args               │
       ├─ raw data: hex dump (wrapped at 20 bytes), ASCII        ─┤
       │  fingerprint                                             │
       └─────────────────────────────────────────────────────────┘
@@ -464,6 +553,23 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
     print(_row())
 
+    # Command structure
+    if cmd:
+        print(_row(
+            f"  {C_CYAN}CMD{C_END}         "
+            f"Src {C_BOLD}{node_label(cmd['src'])}{C_END}  "
+            f"Dest {C_BOLD}{node_label(cmd['dest'])}{C_END}  "
+            f"Echo {C_BOLD}{node_label(cmd['echo'])}{C_END}  "
+            f"Type {C_BOLD}{cmd['pkt_type']}{C_END}"
+        ))
+        print(_row(
+            f"  {C_CYAN}CMD ID{C_END}      {C_BOLD}{cmd['cmd_id']}{C_END}"
+        ))
+        print(_row(
+            f"  {C_CYAN}CMD ARGS{C_END}    {C_BOLD}{cmd['args']}{C_END}"
+        ))
+        print(_row())
+
     # Hex dump and ASCII
     print(f"{C_DIM}{MID}{C_END}")
     print(_row())
@@ -475,7 +581,7 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
     print(_row())
 
     if text:
-        print(_row(f"  {C_GREEN}ASCII{C_END}  {text}"))
+        print(_row(f"  {C_DIM}ASCII{C_END}  {C_DIM}{text}{C_END}"))
         print(_row())
 
     print(_row(f"  {C_DIM}SHA256{C_END}  {C_DIM}{fp}{C_END}"))
@@ -578,6 +684,11 @@ def main():
             text = clean_text(inner_payload)
             fp = fingerprint(raw)
 
+            # Parse command structure from payload after CSP header
+            cmd, cmd_tail = (None, None)
+            if len(inner_payload) > 4:
+                cmd, cmd_tail = try_parse_command(inner_payload[4:])
+
             # Phase 3: Log (unless --no-log)
             if log:
                 log_record = {
@@ -599,20 +710,24 @@ def main():
                     log_record["csp_plausible"] = csp_plausible
                 if ts_result:
                     log_record["sat_ts_ms"] = ts_result[2]
+                if cmd:
+                    log_record["cmd"] = cmd
+                    if cmd_tail:
+                        log_record["checksum_hex"] = cmd_tail.hex()
 
                 log.write_jsonl(log_record)
 
                 log.write_text(
                     packet_count, gs_ts, frame_type, raw, inner_payload,
-                    stripped_hdr, csp, csp_plausible, ts_result, text,
-                    warnings, delta_t, fp,
+                    stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
+                    text, warnings, delta_t, fp,
                 )
 
             # Phase 4: Display
             render_packet(
                 packet_count, gs_ts, frame_type, raw, inner_payload,
-                stripped_hdr, csp, csp_plausible, ts_result, text,
-                warnings, delta_t, fp,
+                stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
+                text, warnings, delta_t, fp,
             )
 
     except KeyboardInterrupt:
