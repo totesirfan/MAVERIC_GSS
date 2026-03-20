@@ -459,32 +459,20 @@ def _row(content=""):
     return f"{C_DIM}│{C_END} {content}{' ' * pad_needed} {C_DIM}│{C_END}"
 
 
-def _wrap_hex(hex_str, label, bytes_per_line=20):
-    """Wrap a hex string into multiple rows with a label on the first line."""
-    parts = hex_str.split(" ")
-    lines = []
-    for i in range(0, len(parts), bytes_per_line):
-        chunk = " ".join(parts[i:i + bytes_per_line])
-        if i == 0:
-            lines.append(f"{C_GREEN}{label}{C_END} {chunk}")
-        else:
-            lines.append(f"{'':>{len(label)}} {chunk}")
-    return lines
-
-
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
-                  stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                  text, warnings, delta_t, fp):
+                  stripped_hdr, csp, csp_plausible, ts_result, cmd,
+                  warnings, delta_t):
     """Print one packet to terminal inside an 80-column box.
 
     Layout:
       Δt (if not first packet)
       ┌─ header: packet #, frame type, timestamp, byte counts ─┐
-      ├─ protocol: AX.25 header, CSP candidate, SAT TIME       ─┤
-      │  command: src, dest, echo, type, ID, args               │
-      ├─ raw data: hex dump (wrapped at 20 bytes), ASCII        ─┤
-      │  fingerprint                                             │
+      ├─ protocol: AX.25 header, CSP V1, SAT TIME              ─┤
+      │  command: src, dest, echo, type, ID, per-arg values      │
       └─────────────────────────────────────────────────────────┘
+
+    Hex dump, ASCII, and SHA256 fingerprint are logged to disk
+    but not displayed in the terminal to keep the view clean.
 
     Alignment is handled by _row() which uses strip_ansi() to
     measure visible width, so adding or changing ANSI color codes
@@ -565,27 +553,17 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
         print(_row(
             f"  {C_CYAN}CMD ID{C_END}      {C_BOLD}{cmd['cmd_id']}{C_END}"
         ))
-        print(_row(
-            f"  {C_CYAN}CMD ARGS{C_END}    {C_BOLD}{cmd['args']}{C_END}"
-        ))
+
+        # Display each arg on its own line, labeling known fields
+        args = cmd['args'].split()
+        for i, arg in enumerate(args):
+            if i == 1 and len(arg) == 13 and arg.isdigit():
+                label = f"  {C_CYAN}UNIX TIME{C_END}   {C_BOLD}{arg}{C_END}"
+            else:
+                label = f"  {C_CYAN}ARG {i}{C_END}       {C_BOLD}{arg}{C_END}"
+            print(_row(label))
+
         print(_row())
-
-    # Hex dump and ASCII
-    print(f"{C_DIM}{MID}{C_END}")
-    print(_row())
-
-    hex_lines = _wrap_hex(raw.hex(' '), "  HEX  ")
-    for hl in hex_lines:
-        print(_row(hl))
-
-    print(_row())
-
-    if text:
-        print(_row(f"  {C_DIM}ASCII{C_END}  {C_DIM}{text}{C_END}"))
-        print(_row())
-
-    print(_row(f"  {C_DIM}SHA256{C_END}  {C_DIM}{fp}{C_END}"))
-    print(_row())
 
     print(f"{C_DIM}{BOT}{C_END}")
 
@@ -726,8 +704,8 @@ def main():
             # Phase 4: Display
             render_packet(
                 packet_count, gs_ts, frame_type, raw, inner_payload,
-                stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                text, warnings, delta_t, fp,
+                stripped_hdr, csp, csp_plausible, ts_result, cmd,
+                warnings, delta_t,
             )
 
     except KeyboardInterrupt:
