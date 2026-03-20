@@ -9,6 +9,7 @@ import os
 from datetime import datetime, timezone
 
 # --- CONFIGURATION ---
+VERSION = "3.1"
 ZMQ_PORT = "52001"
 ZMQ_ADDR = f"tcp://127.0.0.1:{ZMQ_PORT}"
 ZMQ_RECV_TIMEOUT_MS = 200
@@ -46,16 +47,23 @@ def init_zmq(addr, timeout_ms):
 def receive_pdu(sock):
     """
     Receive and deserialize one PMT PDU from ZMQ.
-    Returns (meta_dict, raw_bytes) or None on timeout.
+    Returns (meta_dict, raw_bytes), None on timeout, or raises nothing —
+    malformed messages are caught and logged to stderr.
     """
     try:
         msg = sock.recv()
     except zmq.Again:
         return None
 
-    pdu = pmt.deserialize_str(msg)
-    meta = pmt.to_python(pmt.car(pdu))
-    raw = bytes(pmt.u8vector_elements(pmt.cdr(pdu)))
+    try:
+        pdu = pmt.deserialize_str(msg)
+        meta = pmt.to_python(pmt.car(pdu))
+        raw = bytes(pmt.u8vector_elements(pmt.cdr(pdu)))
+    except Exception as e:
+        ts = datetime.now().astimezone().strftime("%H:%M:%S")
+        print(f"\n  {C_RED}[{ts}] PMT deserialize error: {e} — skipping {len(msg)} bytes{C_END}",
+              file=sys.stderr)
+        return None
 
     if meta is None:
         meta = {}
@@ -203,88 +211,122 @@ def clean_text(data: bytes) -> str:
 #  LOGGING
 # =============================================================================
 
-def init_logs(log_dir):
-    """Create log directory and return paths for JSONL and human-readable logs."""
-    os.makedirs(log_dir, exist_ok=True)
-    session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    jsonl_path = os.path.join(log_dir, f"maveric_{session_ts}.jsonl")
-    text_path  = os.path.join(log_dir, f"maveric_{session_ts}.txt")
-
-    # Write text log header
-    with open(text_path, "w") as f:
-        f.write(f"{'='*80}\n")
-        f.write(f"  MAVERIC Ground Station Log\n")
-        f.write(f"  Session started: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}\n")
-        f.write(f"  ZMQ source:      {ZMQ_ADDR}\n")
-        f.write(f"{'='*80}\n\n")
-
-    return jsonl_path, text_path
+def strip_ansi(s):
+    """Remove ANSI escape codes, return visible text only."""
+    return re.sub(r"\033\[[0-9;]*m", "", s)
 
 
-def log_packet_jsonl(jsonl_path, record):
-    """Append one JSON-lines record to the machine-readable log."""
-    with open(jsonl_path, "a") as f:
-        f.write(json.dumps(record) + "\n")
+class SessionLog:
+    """Manages persistent file handles for JSONL and text logs."""
 
+    def __init__(self, log_dir, zmq_addr):
+        os.makedirs(log_dir, exist_ok=True)
+        session_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.jsonl_path = os.path.join(log_dir, f"maveric_{session_ts}.jsonl")
+        self.text_path  = os.path.join(log_dir, f"maveric_{session_ts}.txt")
 
-def log_packet_text(text_path, pkt_num, gs_ts, frame_type, raw, inner_payload,
-                    stripped_hdr, csp, csp_plausible, ts_result, scan, text,
-                    warnings, delta_t):
-    """Append a human-readable packet entry to the text log."""
-    lines = []
+        self._jsonl_f = open(self.jsonl_path, "a")
+        self._text_f  = open(self.text_path, "w")
 
-    if delta_t is not None:
-        lines.append(f"    Delta-T: {delta_t:.3f}s")
+        # Write text log header
+        self._text_f.write(f"{'='*80}\n")
+        self._text_f.write(f"  MAVERIC Ground Station Log  (GSS v{VERSION})\n")
+        self._text_f.write(f"  Session started: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}\n")
+        self._text_f.write(f"  ZMQ source:      {zmq_addr}\n")
+        self._text_f.write(f"{'='*80}\n\n")
+        self._text_f.flush()
 
-    lines.append("-" * 80)
-    lines.append(
-        f"Packet #{pkt_num:<4} | {gs_ts} | {frame_type:<7} | "
-        f"PDU: {len(raw)} B -> Payload: {len(inner_payload)} B"
-    )
+    def write_jsonl(self, record):
+        self._jsonl_f.write(json.dumps(record) + "\n")
+        self._jsonl_f.flush()
 
-    for w in warnings:
-        lines.append(f"  WARNING: {w}")
+    def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
+                   stripped_hdr, csp, csp_plausible, ts_result, scan, text,
+                   warnings, delta_t):
+        lines = []
 
-    if stripped_hdr:
-        lines.append(f"  AX.25 HDR   {stripped_hdr}")
+        if delta_t is not None:
+            lines.append(f"    Delta-T: {delta_t:.3f}s")
 
-    if csp:
-        tag = "CSP V1" if csp_plausible else "CSP V1 [UNVERIFIED]"
+        lines.append("-" * 80)
         lines.append(
-            f"  {tag}  Prio: {csp['prio']} | Src: {csp['src']} | "
-            f"Dest: {csp['dest']} | DPort: {csp['dport']} | SPort: {csp['sport']} | "
-            f"Flags: 0x{csp['flags']:02x}"
+            f"Packet #{pkt_num:<4} | {gs_ts} | {frame_type:<7} | "
+            f"PDU: {len(raw)} B -> Payload: {len(inner_payload)} B"
         )
 
-    if ts_result:
-        dt_utc, dt_local, raw_ms = ts_result
-        lines.append(
-            f"  SAT TIME    {dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')} | "
-            f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}  (epoch-ms: {raw_ms})"
-        )
-    else:
-        lines.append(f"  SAT TIME    --")
+        for w in warnings:
+            lines.append(f"  WARNING: {w}")
 
-    if scan:
-        le, be = scan["le"], scan["be"]
-        lines.append(
-            f"  SCAN little-endian   u8: {le['u8']:<3} | u16: {le['u16']:<5} | "
-            f"u32: {le['u32']:<10} | f32: {le['f32']}"
-        )
-        lines.append(
-            f"  SCAN big-endian      u8: {be['u8']:<3} | u16: {be['u16']:<5} | "
-            f"u32: {be['u32']:<10} | f32: {be['f32']}"
-        )
+        if stripped_hdr:
+            lines.append(f"  AX.25 HDR   {stripped_hdr}")
 
-    lines.append(f"  HEX         {raw.hex(' ')}")
-    if text:
-        lines.append(f"  ASCII       {text}")
+        if csp:
+            tag = "CSP V1" if csp_plausible else "CSP V1 [UNVERIFIED]"
+            lines.append(
+                f"  {tag}  Prio: {csp['prio']} | Src: {csp['src']} | "
+                f"Dest: {csp['dest']} | DPort: {csp['dport']} | SPort: {csp['sport']} | "
+                f"Flags: 0x{csp['flags']:02x}"
+            )
 
-    lines.append("-" * 80)
-    lines.append("")  # blank line between packets
+        if ts_result:
+            dt_utc, dt_local, raw_ms = ts_result
+            lines.append(
+                f"  SAT TIME    {dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')} | "
+                f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}  (epoch-ms: {raw_ms})"
+            )
+        else:
+            lines.append(f"  SAT TIME    --")
 
-    with open(text_path, "a") as f:
-        f.write("\n".join(lines) + "\n")
+        if scan:
+            le, be = scan["le"], scan["be"]
+            lines.append(
+                f"  SCAN little-endian   u8: {le['u8']:<3} | u16: {le['u16']:<5} | "
+                f"u32: {le['u32']:<10} | f32: {le['f32']}"
+            )
+            lines.append(
+                f"  SCAN big-endian      u8: {be['u8']:<3} | u16: {be['u16']:<5} | "
+                f"u32: {be['u32']:<10} | f32: {be['f32']}"
+            )
+
+        lines.append(f"  HEX         {raw.hex(' ')}")
+        if text:
+            lines.append(f"  ASCII       {text}")
+
+        lines.append("-" * 80)
+        lines.append("")
+
+        self._text_f.write("\n".join(lines) + "\n")
+        self._text_f.flush()
+
+    def write_summary(self, packet_count, session_start, first_pkt_ts, last_pkt_ts, delta_ts):
+        """Write session summary to the text log."""
+        duration = time.time() - session_start
+        summary = [
+            "",
+            f"{'='*80}",
+            f"  Session Summary",
+            f"{'='*80}",
+            f"  Packets received:  {packet_count}",
+            f"  Session duration:  {duration:.1f}s ({duration/60:.1f} min)",
+        ]
+        if first_pkt_ts and last_pkt_ts:
+            summary.append(f"  First packet:      {first_pkt_ts}")
+            summary.append(f"  Last packet:       {last_pkt_ts}")
+        if delta_ts:
+            avg_dt = sum(delta_ts) / len(delta_ts)
+            min_dt = min(delta_ts)
+            max_dt = max(delta_ts)
+            summary.append(f"  Avg delta-t:       {avg_dt:.3f}s")
+            summary.append(f"  Min delta-t:       {min_dt:.3f}s")
+            summary.append(f"  Max delta-t:       {max_dt:.3f}s")
+        summary.append(f"{'='*80}\n")
+
+        self._text_f.write("\n".join(summary) + "\n")
+        self._text_f.flush()
+
+    def close(self):
+        self._jsonl_f.close()
+        self._text_f.close()
 
 
 # =============================================================================
@@ -299,19 +341,16 @@ MID    = f"├{'─' * (BOX_W - 2)}┤"
 BOT    = f"└{'─' * (BOX_W - 2)}┘"
 
 
-def _row(content="", ansi_extra=0):
+def _row(content=""):
     """
-    Format one box row. content is the visible text (may contain ANSI codes).
-    ansi_extra = number of characters in content that are ANSI escapes
-    (invisible, so we need to add them to the padding width).
+    Format one box row. Measures visible width by stripping ANSI codes,
+    then pads to align the right border.
     """
-    padded = content.ljust(INN_W + ansi_extra)
-    return f"{C_DIM}│{C_END} {padded} {C_DIM}│{C_END}"
-
-
-def _ansi_len(*codes):
-    """Return total length of ANSI escape sequences so padding can compensate."""
-    return sum(len(c) for c in codes)
+    visible_len = len(strip_ansi(content))
+    pad_needed = INN_W - visible_len
+    if pad_needed < 0:
+        pad_needed = 0
+    return f"{C_DIM}│{C_END} {content}{' ' * pad_needed} {C_DIM}│{C_END}"
 
 
 def _wrap_hex(hex_str, label, bytes_per_line=20):
@@ -353,33 +392,26 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
     gap2 = INN_W - h_left_vis - h_mid_vis - h_right_vis - gap1
 
     header = f"{h_left}{' ' * gap1}{h_mid}{' ' * gap2}{h_right}"
-    ansi = _ansi_len(C_BOLD, color, C_END, color, C_END, C_DIM, C_END)
-    print(_row(header, ansi))
+    print(_row(header))
 
     print(f"{C_DIM}{MID}{C_END}")
-
-    # Blank spacer
     print(_row())
 
     # Warnings
     for w in warnings:
-        line = f"{C_RED}  ⚠ {w}{C_END}"
-        print(_row(line, _ansi_len(C_RED, C_END)))
+        print(_row(f"{C_RED}  ⚠ {w}{C_END}"))
 
     # AX.25 stripped header
     if stripped_hdr:
-        line = f"  {C_DIM}AX.25 HDR{C_END}   {C_DIM}{stripped_hdr}{C_END}"
-        print(_row(line, _ansi_len(C_DIM, C_END, C_DIM, C_END)))
+        print(_row(f"  {C_DIM}AX.25 HDR{C_END}   {C_DIM}{stripped_hdr}{C_END}"))
         print(_row())
 
     # CSP header
     if csp:
         if csp_plausible:
             tag = f"{C_CYAN}CSP V1{C_END}"
-            tag_ansi = _ansi_len(C_CYAN, C_END)
         else:
             tag = f"{C_CYAN}CSP V1{C_END} {C_DIM}[UNVERIFIED]{C_END}"
-            tag_ansi = _ansi_len(C_CYAN, C_END, C_DIM, C_END)
 
         vals = (f"Prio {C_BOLD}{csp['prio']}{C_END}  "
                 f"Src {C_BOLD}{csp['src']}{C_END}  "
@@ -387,55 +419,51 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
                 f"DPort {C_BOLD}{csp['dport']}{C_END}  "
                 f"SPort {C_BOLD}{csp['sport']}{C_END}  "
                 f"Flags {C_BOLD}0x{csp['flags']:02x}{C_END}")
-        vals_ansi = _ansi_len(C_BOLD, C_END) * 6
 
-        print(_row(f"  {tag}      {vals}", tag_ansi + vals_ansi))
+        print(_row(f"  {tag}      {vals}"))
 
     # Satellite timestamp
     if ts_result:
         dt_utc, dt_local, _ = ts_result
         utc_s = dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')
         loc_s = dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')
-        line = f"  {C_CYAN}SAT TIME{C_END}    {utc_s}  {C_DIM}│{C_END}  {loc_s}"
-        print(_row(line, _ansi_len(C_CYAN, C_END, C_DIM, C_END)))
+        print(_row(f"  {C_CYAN}SAT TIME{C_END}    {utc_s}  {C_DIM}│{C_END}  {loc_s}"))
     else:
-        line = f"  {C_CYAN}SAT TIME{C_END}    {C_DIM}--{C_END}"
-        print(_row(line, _ansi_len(C_CYAN, C_END, C_DIM, C_END)))
+        print(_row(f"  {C_CYAN}SAT TIME{C_END}    {C_DIM}--{C_END}"))
 
     print(_row())
 
     # Scanner
     if scan:
         le, be = scan["le"], scan["be"]
-        le_line = (f"  {C_DIM}SCAN LE{C_END}     "
-                   f"u8 {C_BOLD}{le['u8']:<3}{C_END}   "
-                   f"u16 {C_BOLD}{le['u16']:<5}{C_END}   "
-                   f"u32 {C_BOLD}{le['u32']:<10}{C_END}   "
-                   f"f32 {C_BOLD}{le['f32']}{C_END}")
-        be_line = (f"  {C_DIM}SCAN BE{C_END}     "
-                   f"u8 {C_BOLD}{be['u8']:<3}{C_END}   "
-                   f"u16 {C_BOLD}{be['u16']:<5}{C_END}   "
-                   f"u32 {C_BOLD}{be['u32']:<10}{C_END}   "
-                   f"f32 {C_BOLD}{be['f32']}{C_END}")
-        scan_ansi = _ansi_len(C_DIM, C_END) + _ansi_len(C_BOLD, C_END) * 4
-        print(_row(le_line, scan_ansi))
-        print(_row(be_line, scan_ansi))
+        print(_row(
+            f"  {C_DIM}SCAN LE{C_END}     "
+            f"u8 {C_BOLD}{le['u8']:<3}{C_END}   "
+            f"u16 {C_BOLD}{le['u16']:<5}{C_END}   "
+            f"u32 {C_BOLD}{le['u32']:<10}{C_END}   "
+            f"f32 {C_BOLD}{le['f32']}{C_END}"
+        ))
+        print(_row(
+            f"  {C_DIM}SCAN BE{C_END}     "
+            f"u8 {C_BOLD}{be['u8']:<3}{C_END}   "
+            f"u16 {C_BOLD}{be['u16']:<5}{C_END}   "
+            f"u32 {C_BOLD}{be['u32']:<10}{C_END}   "
+            f"f32 {C_BOLD}{be['f32']}{C_END}"
+        ))
         print(_row())
 
-    # Hex dump and ASCII — separated by a mid-line
+    # Hex dump and ASCII
     print(f"{C_DIM}{MID}{C_END}")
     print(_row())
 
     hex_lines = _wrap_hex(raw.hex(' '), "  HEX  ")
-    for i, hl in enumerate(hex_lines):
-        a = _ansi_len(C_GREEN, C_END) if i == 0 else 0
-        print(_row(hl, a))
+    for hl in hex_lines:
+        print(_row(hl))
 
     print(_row())
 
     if text:
-        asc_line = f"  {C_GREEN}ASCII{C_END}  {text}"
-        print(_row(asc_line, _ansi_len(C_GREEN, C_END)))
+        print(_row(f"  {C_GREEN}ASCII{C_END}  {text}"))
         print(_row())
 
     print(f"{C_DIM}{BOT}{C_END}")
@@ -447,21 +475,26 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
 def main():
     context, sock = init_zmq(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
-    jsonl_path, text_path = init_logs(LOG_DIR)
+    log = SessionLog(LOG_DIR, ZMQ_ADDR)
 
     packet_count = 0
     last_arrival = None
     last_watchdog = time.time()
+    session_start = time.time()
+    first_pkt_ts = None
+    last_pkt_ts = None
+    delta_ts = []
 
     spinner = ["█", "▓", "▒", "░", "▒", "▓"]
     spin_idx = 0
 
     print(f"\n{C_BOLD}┌──────────────────────────────────────────────────────────┐")
-    print(f"│                MAVERIC GS SOFTWARE v3.0                  │")
+    print(f"│                       MAVERIC GSS                        │")
+    print(f"│                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           │")
     print(f"└──────────────────────────────────────────────────────────┘{C_END}")
     print(f" ZMQ:  {C_BOLD}{ZMQ_ADDR}{C_END}")
-    print(f" Logs: {C_BOLD}{text_path}{C_END}  (human-readable)")
-    print(f"       {C_BOLD}{jsonl_path}{C_END}  (machine)\n")
+    print(f" Logs: {C_BOLD}{log.text_path}{C_END}  (human-readable)")
+    print(f"       {C_BOLD}{log.jsonl_path}{C_END}  (machine)\n")
 
     try:
         while True:
@@ -471,9 +504,10 @@ def main():
                 # --- IDLE / WAITING ---
                 elapsed = time.time() - last_watchdog
                 tc = C_CYAN if elapsed <= 10 else (C_YELLOW if elapsed <= 30 else C_RED)
+                pkt_str = f" | {C_DIM}{packet_count} pkts{C_END}" if packet_count > 0 else ""
                 sys.stdout.write(
                     f"\r{C_BOLD}{C_CYAN} {spinner[spin_idx]} {C_END} "
-                    f"Waiting... {tc}[SILENCE: {elapsed:04.1f}s]{C_END}  "
+                    f"Waiting... {tc}[SILENCE: {elapsed:04.1f}s]{C_END}{pkt_str}  "
                 )
                 sys.stdout.flush()
                 spin_idx = (spin_idx + 1) % len(spinner)
@@ -482,7 +516,7 @@ def main():
             # --- PACKET RECEIVED ---
             meta, raw = result
             now = time.time()
-            sys.stdout.write("\r" + " " * 70 + "\r")
+            sys.stdout.write("\r" + " " * 80 + "\r")
 
             delta_t = (now - last_arrival) if last_arrival is not None else None
             last_arrival = now
@@ -490,6 +524,12 @@ def main():
 
             packet_count += 1
             gs_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+
+            if first_pkt_ts is None:
+                first_pkt_ts = gs_ts
+            last_pkt_ts = gs_ts
+            if delta_t is not None:
+                delta_ts.append(delta_t)
 
             # Phase 1: Detect + normalize
             frame_type = detect_frame_type(meta)
@@ -503,6 +543,7 @@ def main():
 
             # Phase 3: Log — machine (JSONL)
             log_record = {
+                "v":          VERSION,
                 "pkt":        packet_count,
                 "gs_ts":      gs_ts,
                 "frame_type": frame_type,
@@ -520,11 +561,11 @@ def main():
             if ts_result:
                 log_record["sat_ts_ms"] = ts_result[2]
 
-            log_packet_jsonl(jsonl_path, log_record)
+            log.write_jsonl(log_record)
 
             # Phase 3b: Log — human-readable text
-            log_packet_text(
-                text_path, packet_count, gs_ts, frame_type, raw, inner_payload,
+            log.write_text(
+                packet_count, gs_ts, frame_type, raw, inner_payload,
                 stripped_hdr, csp, csp_plausible, ts_result, scan, text,
                 warnings, delta_t,
             )
@@ -537,9 +578,24 @@ def main():
             )
 
     except KeyboardInterrupt:
-        print(f"\n{C_YELLOW}Monitor stopped. {packet_count} packets logged.{C_END}")
-        print(f" {C_DIM}{text_path}{C_END}")
-        print(f" {C_DIM}{jsonl_path}{C_END}")
+        # Session summary to text log
+        log.write_summary(packet_count, session_start, first_pkt_ts, last_pkt_ts, delta_ts)
+        log.close()
+
+        # Terminal summary
+        duration = time.time() - session_start
+        print(f"\n")
+        print(f"{C_DIM}{'─' * 50}{C_END}")
+        print(f"  {C_BOLD}Session ended{C_END}")
+        print(f"  Packets:    {C_BOLD}{packet_count}{C_END}")
+        print(f"  Duration:   {duration:.0f}s ({duration/60:.1f} min)")
+        if delta_ts:
+            print(f"  Avg Δt:     {sum(delta_ts)/len(delta_ts):.3f}s")
+        print(f"{C_DIM}{'─' * 50}{C_END}")
+        print(f"  {C_DIM}{log.text_path}{C_END}")
+        print(f"  {C_DIM}{log.jsonl_path}{C_END}")
+        print()
+
         sock.close()
         context.term()
 
