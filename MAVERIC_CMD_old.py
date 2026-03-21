@@ -1,5 +1,5 @@
 """
-MAVERIC Command Terminal v2.2
+MAVERIC Command Terminal v2.4
 Irfan Annuar -- USC ISI SERC
 
 Type commands, they get KISS-wrapped with a CSP v1 header and
@@ -29,11 +29,11 @@ from crc import Calculator, Crc16
 try:
     import readline  # enables arrow keys, history, cursor movement in input()
 except ImportError:
-    pass  # Windows — input() still works, just no arrow keys
+    pass  # Windows -- input() still works, just no arrow keys
 
 # -- Config -------------------------------------------------------------------
 
-VERSION  = "2.3"
+VERSION  = "2.4"
 ZMQ_ADDR = "tcp://127.0.0.1:52002"
 LOG_DIR  = "logs"
 MAX_RS_PAYLOAD = 223
@@ -54,24 +54,27 @@ FESC  = 0xDB
 TFEND = 0xDC
 TFESC = 0xDD
 
-# -- ANSI Colors (matches MAVERIC_GSS.py) -------------------------------------
+# -- USC Colors ---------------------------------------------------------------
+# Cardinal (#990000) for structure/borders
+# Gold (#FFCC00) for labels and highlights
+# Green kept for TX success, Red for errors
 
-C_CYAN    = "\033[96m"
-C_GREEN   = "\033[92m"
-C_YELLOW  = "\033[93m"
-C_RED     = "\033[91m"
-C_DIM     = "\033[2m"
-C_BOLD    = "\033[1m"
-C_END     = "\033[0m"
+C_CARD    = "\033[38;2;153;0;0m"       # USC Cardinal -- borders, box drawing
+C_GOLD    = "\033[38;2;255;204;0m"     # USC Gold -- labels, field names
+C_GREEN   = "\033[92m"                  # TX success confirmation
+C_RED     = "\033[91m"                  # errors
+C_DIM     = "\033[2m"                   # secondary info
+C_BOLD    = "\033[1m"                   # values
+C_END     = "\033[0m"                   # reset
 
-# -- Box Drawing (matches MAVERIC_GSS.py) -------------------------------------
+# -- Box Drawing --------------------------------------------------------------
 
 BOX_W = 80
 INN_W = BOX_W - 4
 
-TOP = f"\u250c{'\u2500' * (BOX_W - 2)}\u2510"
-MID = f"\u251c{'\u2500' * (BOX_W - 2)}\u2524"
-BOT = f"\u2514{'\u2500' * (BOX_W - 2)}\u2518"
+TOP = f"{C_CARD}\u250c{'\u2500' * (BOX_W - 2)}\u2510{C_END}"
+MID = f"{C_CARD}\u251c{'\u2500' * (BOX_W - 2)}\u2524{C_END}"
+BOT = f"{C_CARD}\u2514{'\u2500' * (BOX_W - 2)}\u2518{C_END}"
 
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
@@ -81,7 +84,7 @@ def strip_ansi(s):
 def _row(content=""):
     visible_len = len(strip_ansi(content))
     pad = max(0, INN_W - visible_len)
-    return f"{C_DIM}\u2502{C_END} {content}{' ' * pad} {C_DIM}\u2502{C_END}"
+    return f"{C_CARD}\u2502{C_END} {content}{' ' * pad} {C_CARD}\u2502{C_END}"
 
 def node_label(node_id):
     name = NODES_REV.get(node_id)
@@ -119,7 +122,7 @@ class CSPConfig:
 
     def show(self):
         hdr = self.build_header()
-        state = f"{C_GREEN}enabled{C_END}" if self.enabled else f"{C_DIM}disabled{C_END}"
+        state = f"{C_GOLD}enabled{C_END}" if self.enabled else f"{C_DIM}disabled{C_END}"
         print(f" {C_DIM}CSP V1{C_END}      {state}  {C_DIM}Prio:{self.prio} Src:{self.src} Dest:{self.dest} DPort:{self.dport} SPort:{self.sport} Flags:0x{self.flags:02X}{C_END}")
         print(f" {C_DIM}CSP Bytes{C_END}   {hdr.hex(' ')}  {C_DIM}(placeholder){C_END}")
 
@@ -131,10 +134,10 @@ class CSPConfig:
         cmd = parts[0].lower()
         if cmd == 'on':
             self.enabled = True
-            print(f"  {C_GREEN}CSP header enabled{C_END}")
+            print(f"  {C_GOLD}CSP header enabled{C_END}")
         elif cmd == 'off':
             self.enabled = False
-            print(f"  {C_YELLOW}CSP header disabled{C_END}")
+            print(f"  {C_DIM}CSP header disabled{C_END}")
         elif cmd in ('prio','src','dest','dport','sport','flags') and len(parts) > 1:
             val = int(parts[1], 0)
             setattr(self, cmd, val)
@@ -223,10 +226,9 @@ def log_tx(f, n, cmds, payload, csp_enabled):
 
 # -- Display (GSS-style boxes) -----------------------------------------------
 
-ASCII_LINE_W = INN_W - 14  # "  ASCII       " = 14 visible chars
+ASCII_LINE_W = INN_W - 14
 
 def _wrap_ascii(payload):
-    """Convert payload to printable ASCII and wrap to fit inside box."""
     text = ''.join(chr(b) if 32 <= b < 127 else '\u00b7' for b in payload)
     lines = []
     for i in range(0, len(text), ASCII_LINE_W):
@@ -238,16 +240,15 @@ def _wrap_ascii(payload):
     return lines
 
 def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
-    """Render a single command TX in GSS-style box."""
     ts   = datetime.now().strftime("%H:%M:%S")
     dlbl = node_label(dest)
     crc  = int.from_bytes(raw_cmd[-2:], 'little')
 
     csp_tag = f"  {C_DIM}[CSP]{C_END}" if csp.enabled else ""
 
-    print(f"{C_DIM}{TOP}{C_END}")
+    print(TOP)
 
-    h_left  = f"{C_BOLD}{C_GREEN}TX #{n}{C_END}    {C_GREEN}UPLINK{C_END}{csp_tag}"
+    h_left  = f"{C_BOLD}{C_GREEN}TX #{n}{C_END}    {C_GOLD}UPLINK{C_END}{csp_tag}"
     h_right = f"{C_DIM}{len(payload)} B payload{C_END}"
     h_left_vis  = len(f"TX #{n}    UPLINK") + (7 if csp.enabled else 0)
     h_right_vis = len(f"{len(payload)} B payload")
@@ -256,15 +257,14 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
     gap2 = gap - gap1
     print(_row(f"{h_left}{' ' * gap1}{ts}{' ' * gap2}{h_right}"))
 
-    print(f"{C_DIM}{MID}{C_END}")
+    print(MID)
     print(_row())
 
-    # CSP header
     if csp.enabled:
         hdr = csp.build_header()
         h = int.from_bytes(hdr, 'big')
         print(_row(
-            f"  {C_CYAN}CSP V1{C_END}      "
+            f"  {C_GOLD}CSP V1{C_END}      "
             f"Prio {C_BOLD}{(h>>30)&3}{C_END}  "
             f"Src {C_BOLD}{(h>>25)&0x1F}{C_END}  "
             f"Dest {C_BOLD}{(h>>20)&0x1F}{C_END}  "
@@ -273,24 +273,21 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
             f"Flags {C_BOLD}0x{h&0xFF:02X}{C_END}"
         ))
 
-    # Command fields — extract from raw command bytes
     echo  = raw_cmd[2]
     ptype = raw_cmd[3]
     print(_row(
-        f"  {C_CYAN}CMD{C_END}         "
+        f"  {C_GOLD}CMD{C_END}         "
         f"Src {C_BOLD}{node_label(ORIGIN)}{C_END}  "
         f"Dest {C_BOLD}{dlbl}{C_END}  "
         f"Echo {C_BOLD}{node_label(echo)}{C_END}  "
         f"Type {C_BOLD}{ptype_label(ptype)}{C_END}"
     ))
-    print(_row(f"  {C_CYAN}CMD ID{C_END}      {C_BOLD}{cmd}{C_END}"))
+    print(_row(f"  {C_GOLD}CMD ID{C_END}      {C_BOLD}{cmd}{C_END}"))
     if args:
-        print(_row(f"  {C_CYAN}CMD ARGS{C_END}    {C_BOLD}{args}{C_END}"))
+        print(_row(f"  {C_GOLD}CMD ARGS{C_END}    {C_BOLD}{args}{C_END}"))
 
     print(_row())
-
-    # Raw data section
-    print(f"{C_DIM}{MID}{C_END}")
+    print(MID)
     print(_row())
 
     hex_str = payload.hex(' ')
@@ -298,7 +295,7 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
     for i in range(0, len(parts), 20):
         chunk = ' '.join(parts[i:i+20])
         if i == 0:
-            print(_row(f"  {C_GREEN}HEX{C_END}         {chunk}"))
+            print(_row(f"  {C_GOLD}HEX{C_END}         {chunk}"))
         else:
             print(_row(f"              {chunk}"))
 
@@ -309,18 +306,17 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
     print(_row(f"  {C_DIM}CRC-16{C_END}      {C_DIM}0x{crc:04x}{C_END}"))
 
     print(_row())
-    print(f"{C_DIM}{BOT}{C_END}")
+    print(BOT)
 
 
 def render_batch(n, batch_info, payload, csp):
-    """Render a batch TX in GSS-style box."""
     ts = datetime.now().strftime("%H:%M:%S")
     num = len(batch_info)
     csp_tag = f"  {C_DIM}[CSP]{C_END}" if csp.enabled else ""
 
-    print(f"{C_DIM}{TOP}{C_END}")
+    print(TOP)
 
-    h_left  = f"{C_BOLD}{C_GREEN}TX #{n}{C_END}    {C_YELLOW}BATCH ({num} cmds){C_END}{csp_tag}"
+    h_left  = f"{C_BOLD}{C_GREEN}TX #{n}{C_END}    {C_GOLD}BATCH ({num} cmds){C_END}{csp_tag}"
     h_right = f"{C_DIM}{len(payload)} B payload{C_END}"
     h_left_vis  = len(f"TX #{n}    BATCH ({num} cmds)") + (7 if csp.enabled else 0)
     h_right_vis = len(f"{len(payload)} B payload")
@@ -329,15 +325,14 @@ def render_batch(n, batch_info, payload, csp):
     gap2 = gap - gap1
     print(_row(f"{h_left}{' ' * gap1}{ts}{' ' * gap2}{h_right}"))
 
-    print(f"{C_DIM}{MID}{C_END}")
+    print(MID)
     print(_row())
 
-    # CSP header
     if csp.enabled:
         hdr = csp.build_header()
         h = int.from_bytes(hdr, 'big')
         print(_row(
-            f"  {C_CYAN}CSP V1{C_END}      "
+            f"  {C_GOLD}CSP V1{C_END}      "
             f"Prio {C_BOLD}{(h>>30)&3}{C_END}  "
             f"Src {C_BOLD}{(h>>25)&0x1F}{C_END}  "
             f"Dest {C_BOLD}{(h>>20)&0x1F}{C_END}  "
@@ -347,12 +342,11 @@ def render_batch(n, batch_info, payload, csp):
         ))
         print(_row())
 
-    # Each command in the batch
     for i, (dest, cmd, args, kiss_len) in enumerate(batch_info):
         dlbl = node_label(dest)
-        args_str = f"  {C_CYAN}args{C_END} {C_BOLD}{args}{C_END}" if args else ""
+        args_str = f"  {C_GOLD}args{C_END} {C_BOLD}{args}{C_END}" if args else ""
         print(_row(
-            f"  {C_CYAN}CMD {i+1}{C_END}       "
+            f"  {C_GOLD}CMD {i+1}{C_END}       "
             f"Dest {C_BOLD}{dlbl}{C_END}  "
             f"{C_BOLD}{cmd}{C_END}"
             f"{args_str}"
@@ -360,9 +354,7 @@ def render_batch(n, batch_info, payload, csp):
         ))
 
     print(_row())
-
-    # Raw data section
-    print(f"{C_DIM}{MID}{C_END}")
+    print(MID)
     print(_row())
 
     hex_str = payload.hex(' ')
@@ -370,7 +362,7 @@ def render_batch(n, batch_info, payload, csp):
     for i in range(0, len(parts), 20):
         chunk = ' '.join(parts[i:i+20])
         if i == 0:
-            print(_row(f"  {C_GREEN}HEX{C_END}         {chunk}"))
+            print(_row(f"  {C_GOLD}HEX{C_END}         {chunk}"))
         else:
             print(_row(f"              {chunk}"))
 
@@ -380,16 +372,15 @@ def render_batch(n, batch_info, payload, csp):
         print(al)
 
     print(_row())
-    print(f"{C_DIM}{BOT}{C_END}")
+    print(BOT)
 
 
 def render_raw(n, payload):
-    """Render a raw hex TX in GSS-style box."""
     ts = datetime.now().strftime("%H:%M:%S")
 
-    print(f"{C_DIM}{TOP}{C_END}")
+    print(TOP)
     print(_row(f"{C_BOLD}{C_GREEN}TX #{n}{C_END}    {C_RED}RAW{C_END}    {ts}    {C_DIM}{len(payload)} B{C_END}"))
-    print(f"{C_DIM}{MID}{C_END}")
+    print(MID)
     print(_row())
 
     hex_str = payload.hex(' ')
@@ -397,12 +388,12 @@ def render_raw(n, payload):
     for i in range(0, len(parts), 20):
         chunk = ' '.join(parts[i:i+20])
         if i == 0:
-            print(_row(f"  {C_GREEN}HEX{C_END}         {chunk}"))
+            print(_row(f"  {C_GOLD}HEX{C_END}         {chunk}"))
         else:
             print(_row(f"              {chunk}"))
 
     print(_row())
-    print(f"{C_DIM}{BOT}{C_END}")
+    print(BOT)
 
 
 # -- Node Resolution ----------------------------------------------------------
@@ -431,9 +422,9 @@ def main():
     csp = CSPConfig()
     tx_count = 0
 
-    print(f"\n{C_BOLD}\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510")
-    print(f"\u2502                    MAVERIC CMD TERMINAL                  \u2502")
-    print(f"\u2502                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           \u2502")
+    print(f"\n{C_CARD}\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510")
+    print(f"\u2502{C_END}          {C_BOLD}{C_GOLD}MAVERIC CMD TERMINAL{C_END}          {C_CARD}\u2502")
+    print(f"\u2502{C_END}                           {C_DIM}v{VERSION}{C_END}                           {C_CARD}\u2502")
     print(f"\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518{C_END}")
     print()
     print(f" {C_DIM}ZMQ{C_END}         {C_BOLD}{ZMQ_ADDR}{C_END}")
@@ -458,9 +449,9 @@ def main():
     try:
         while True:
             if batch:
-                prompt = f"  {C_YELLOW}+({len(batch)}){C_END}{C_CYAN}\u25b6{C_END} "
+                prompt = f"  {C_GOLD}+({len(batch)}){C_END}{C_GOLD}\u25b6{C_END} "
             else:
-                prompt = f"  {C_CYAN}\u25b6{C_END} "
+                prompt = f"  {C_GOLD}\u25b6{C_END} "
 
             try:
                 line = input(prompt).strip()
@@ -474,31 +465,31 @@ def main():
 
             if low in ('q', 'quit', 'exit'):
                 if batch:
-                    print(f"  {C_YELLOW}Discarding {len(batch)} queued commands{C_END}")
+                    print(f"  {C_GOLD}Discarding {len(batch)} queued commands{C_END}")
                 break
 
             if low == 'help':
                 print(f"""
   {C_BOLD}Single command:{C_END}
-    {C_CYAN}<dest> <cmd> [args]{C_END}     send immediately
+    {C_GOLD}<dest> <cmd> [args]{C_END}     send immediately
 
   {C_BOLD}Batch commands:{C_END}
-    {C_CYAN}+ <dest> <cmd> [args]{C_END}   queue a command
-    {C_CYAN}send{C_END}                    transmit all queued
-    {C_CYAN}batch{C_END}                   show queue
-    {C_CYAN}clear{C_END}                   discard queue
+    {C_GOLD}+ <dest> <cmd> [args]{C_END}   queue a command
+    {C_GOLD}send{C_END}                    transmit all queued
+    {C_GOLD}batch{C_END}                   show queue
+    {C_GOLD}clear{C_END}                   discard queue
 
   {C_BOLD}CSP config:{C_END}
-    {C_CYAN}csp{C_END}                     show CSP settings
-    {C_CYAN}csp on/off{C_END}              enable/disable
-    {C_CYAN}csp dest N{C_END}              set destination
-    {C_CYAN}csp dport N{C_END}             set destination port
+    {C_GOLD}csp{C_END}                     show CSP settings
+    {C_GOLD}csp on/off{C_END}              enable/disable
+    {C_GOLD}csp dest N{C_END}              set destination
+    {C_GOLD}csp dport N{C_END}             set destination port
 
   {C_BOLD}Other:{C_END}
-    {C_CYAN}!!{C_END}                      repeat last command
-    {C_CYAN}nodes{C_END}                   list node IDs
-    {C_CYAN}raw <hex>{C_END}               send raw hex bytes
-    {C_CYAN}q{C_END}                       quit
+    {C_GOLD}!!{C_END}                      repeat last command
+    {C_GOLD}nodes{C_END}                   list node IDs
+    {C_GOLD}raw <hex>{C_END}               send raw hex bytes
+    {C_GOLD}q{C_END}                       quit
 
   {C_BOLD}Examples:{C_END}
     EPS PING
@@ -512,18 +503,16 @@ def main():
                 print(f"\n  {C_BOLD}Node Addresses:{C_END}")
                 for nid in sorted(NODES_REV):
                     lbl = NODES_REV[nid]
-                    tag = f" {C_GREEN}<- you{C_END}" if nid == ORIGIN else ""
+                    tag = f" {C_GOLD}<- you{C_END}" if nid == ORIGIN else ""
                     print(f"    {nid} = {C_BOLD}{lbl}{C_END}{tag}")
                 print()
                 continue
 
-            # -- CSP config --
             if low == 'csp' or low.startswith('csp '):
                 csp_args = line[3:].strip() if len(line) > 3 else ""
                 csp.handle_cmd(csp_args)
                 continue
 
-            # -- batch commands --
             if low == 'batch':
                 if not batch:
                     print(f"  {C_DIM}batch is empty{C_END}")
@@ -533,7 +522,7 @@ def main():
                     print(f"\n  {C_BOLD}Batch Queue{C_END}  {C_DIM}{len(batch)} commands, {total}B + {csp.overhead()}B CSP{C_END}")
                     for i, (dest, cmd, args, kiss) in enumerate(batch):
                         dlbl = node_label(dest)
-                        print(f"    {C_DIM}{i+1}.{C_END} {C_BOLD}{dlbl}{C_END}  {C_CYAN}{cmd}{C_END}  {args}  {C_DIM}({len(kiss)}B){C_END}")
+                        print(f"    {C_DIM}{i+1}.{C_END} {C_BOLD}{dlbl}{C_END}  {C_GOLD}{cmd}{C_END}  {args}  {C_DIM}({len(kiss)}B){C_END}")
                     print(f"  {C_DIM}{remaining}B remaining in frame{C_END}\n")
                 continue
 
@@ -571,7 +560,6 @@ def main():
                 batch.clear()
                 continue
 
-            # -- queue with + --
             if line.startswith('+'):
                 cmd_text = line[1:].strip()
                 if not cmd_text:
@@ -595,14 +583,12 @@ def main():
                 print(f"  {C_DIM}queued #{len(batch)}: {dlbl} {cmd} {args} ({len(kiss)}B, {remaining}B remaining){C_END}")
                 continue
 
-            # -- repeat last --
             if low == '!!' or low == 'last':
                 if last is None:
                     print(f"  {C_DIM}nothing to repeat{C_END}")
                     continue
                 dest, cmd, args = last
 
-            # -- raw hex --
             elif low.startswith('raw '):
                 hexstr = line[4:].replace(' ', '')
                 try:
@@ -615,7 +601,6 @@ def main():
                 render_raw(n, raw_bytes)
                 continue
 
-            # -- single command --
             else:
                 parsed = parse_cmd_line(line)
                 if parsed is None:
@@ -624,7 +609,6 @@ def main():
                 dest, cmd, args = parsed
                 last = (dest, cmd, args)
 
-            # Build, wrap with CSP, send
             kiss, raw_cmd = build_kiss_cmd(dest, cmd, args)
 
             if len(kiss) + csp.overhead() > MAX_RS_PAYLOAD:
@@ -642,14 +626,13 @@ def main():
 
     except KeyboardInterrupt:
         if batch:
-            print(f"\n  {C_YELLOW}Discarding {len(batch)} queued commands{C_END}")
+            print(f"\n  {C_GOLD}Discarding {len(batch)} queued commands{C_END}")
 
-    # Session summary (matches GSS style)
     print(f"\n")
-    print(f"{C_DIM}{'\u2500' * 50}{C_END}")
+    print(f"{C_CARD}{'\u2500' * 50}{C_END}")
     print(f"  {C_BOLD}Session ended{C_END}")
     print(f"  Transmitted:  {C_BOLD}{n}{C_END}")
-    print(f"{C_DIM}{'\u2500' * 50}{C_END}")
+    print(f"{C_CARD}{'\u2500' * 50}{C_END}")
     print(f"  {C_DIM}{logpath}{C_END}")
     print()
 
