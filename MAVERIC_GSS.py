@@ -621,11 +621,11 @@ def main():
     Each packet goes through four phases:
       1. Detect frame type + strip transport headers → inner payload
       2. Run candidate parsers (CSP, timestamp) on inner payload
-      3. Log to both JSONL and text files (unless --no-log)
+      3. Log to both JSONL and text files (unless --nolog)
       4. Render to terminal
     """
     parser = argparse.ArgumentParser(description="MAVERIC GSS — Ground Station Packet Monitor")
-    parser.add_argument("--no-log", action="store_true",
+    parser.add_argument("--nolog", action="store_true",
                         help="Disable logging to disk (display only)")
     parser.add_argument("--quiet", action="store_true",
                         help="Suppress terminal display (log only, faster throughput)")
@@ -634,7 +634,7 @@ def main():
     args = parser.parse_args()
 
     context, sock = init_zmq(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
-    log = None if args.no_log else SessionLog(LOG_DIR, ZMQ_ADDR)
+    log = None if args.nolog else SessionLog(LOG_DIR, ZMQ_ADDR)
     quiet = args.quiet
     loud = args.loud
 
@@ -653,12 +653,15 @@ def main():
         print(f"│                       MAVERIC GSS                        │")
         print(f"│                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           │")
         print(f"└──────────────────────────────────────────────────────────┘{C_END}")
-        print(f" ZMQ:  {C_BOLD}{ZMQ_ADDR}{C_END}")
+        print()
+        print(f" {C_DIM}ZMQ{C_END}         {C_BOLD}{ZMQ_ADDR}{C_END}")
+        print(f" {C_DIM}Timeout{C_END}     {ZMQ_RECV_TIMEOUT_MS}ms")
+        print(f" {C_DIM}Display{C_END}     {'loud' if loud else 'normal'}")
         if log:
-            print(f" Logs: {C_BOLD}{log.text_path}{C_END}  (human-readable)")
-            print(f"       {C_BOLD}{log.jsonl_path}{C_END}  (machine)")
+            print(f" {C_DIM}Log (txt){C_END}  {log.text_path}")
+            print(f" {C_DIM}Log (json){C_END} {log.jsonl_path}")
         else:
-            print(f" Logs: {C_DIM}disabled{C_END}")
+            print(f" {C_DIM}Logging{C_END}     disabled")
         print()
 
     try:
@@ -711,7 +714,7 @@ def main():
             if len(inner_payload) > 4:
                 cmd, cmd_tail = try_parse_command(inner_payload[4:])
 
-            # Phase 3: Log (unless --no-log)
+            # Phase 3: Log (unless --nolog)
             if log:
                 log_record = {
                     "v":          VERSION,
