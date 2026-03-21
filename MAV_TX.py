@@ -7,7 +7,11 @@ the AX100 ASM+Golay encoder flowgraph in GNU Radio.
 
 Single command:    EPS PING
 Batch commands:    + EPS SET_MODE auto / + EPS SET_VOLTAGE 3.3 / send
-CSP config:        csp / csp off / csp dest 8 / csp dport 24
+CSP config:        csp / csp dest 8 / csp dport 24
+
+When maveric_commands.yml is present, args are validated against the schema
+before sending. Type mismatches and missing args produce warnings but do
+not block transmission -- the operator always has final say.
 
 Requires GNU Radio flowgraph:
     ZMQ SUB Source (:52002) -> AX100 Encoder -> GFSK Mod -> USRP Sink
@@ -29,6 +33,7 @@ from mav_gss_lib.protocol import (
     NODE_NAMES, NODE_IDS, GS_NODE,
     node_label, ptype_label, resolve_node,
     build_kiss_cmd, CSPConfig,
+    load_command_defs, validate_args,
 )
 from mav_gss_lib.display import (
     C, TOP, MID, BOT, INN_W,
@@ -39,10 +44,11 @@ from mav_gss_lib.transport import init_zmq_pub, send_pdu
 
 # -- Config -------------------------------------------------------------------
 
-VERSION  = "3.0"
+VERSION  = "3.1"
 ZMQ_ADDR = "tcp://127.0.0.1:52002"
 LOG_DIR  = "logs"
 MAX_RS_PAYLOAD = 223
+CMD_DEFS_PATH = "maveric_commands.yml"
 
 
 # -- Logging ------------------------------------------------------------------
@@ -114,7 +120,8 @@ def _csp_row(csp):
 def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
     ts = datetime.now().strftime("%H:%M:%S")
     crc = int.from_bytes(raw_cmd[-2:], 'little')
-    echo = raw_cmd[2]; ptype = raw_cmd[3]
+    echo = raw_cmd[2]
+    ptype = raw_cmd[3]
     csp_tag = f"  {C.DIM}[CSP]{C.END}" if csp.enabled else ""
 
     print(f"{C.DIM}{TOP}{C.END}")
@@ -123,10 +130,12 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
     h_lv = len(f"TX #{n}    UPLINK") + (7 if csp.enabled else 0)
     h_rv = len(f"{len(payload)} B payload")
     gap = INN_W - h_lv - len(ts) - h_rv
-    g1 = max(2, gap // 2); g2 = gap - g1
+    g1 = max(2, gap // 2)
+    g2 = gap - g1
     print(row(f"{h_left}{' '*g1}{ts}{' '*g2}{h_right}"))
 
-    print(f"{C.DIM}{MID}{C.END}"); print(row())
+    print(f"{C.DIM}{MID}{C.END}")
+    print(row())
     if csp.enabled:
         print(_csp_row(csp))
     print(row(
@@ -141,14 +150,16 @@ def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
         print(row(f"  {C.LABEL}CMD ARGS{C.END}    {C.VALUE}{args}{C.END}"))
     print(row())
 
-    print(f"{C.DIM}{MID}{C.END}"); print(row())
+    print(f"{C.DIM}{MID}{C.END}")
+    print(row())
     for hl in wrap_hex(payload.hex(' ')):
         print(hl)
     print(row())
     for al in wrap_ascii(payload):
         print(al)
     print(row(f"  {C.DIM}CRC-16{C.END}      {C.DIM}0x{crc:04x}{C.END}"))
-    print(row()); print(f"{C.DIM}{BOT}{C.END}")
+    print(row())
+    print(f"{C.DIM}{BOT}{C.END}")
 
 
 def render_batch(n, batch_info, payload, csp):
@@ -162,12 +173,15 @@ def render_batch(n, batch_info, payload, csp):
     h_lv = len(f"TX #{n}    BATCH ({num} cmds)") + (7 if csp.enabled else 0)
     h_rv = len(f"{len(payload)} B payload")
     gap = INN_W - h_lv - len(ts) - h_rv
-    g1 = max(2, gap // 2); g2 = gap - g1
+    g1 = max(2, gap // 2)
+    g2 = gap - g1
     print(row(f"{h_left}{' '*g1}{ts}{' '*g2}{h_right}"))
 
-    print(f"{C.DIM}{MID}{C.END}"); print(row())
+    print(f"{C.DIM}{MID}{C.END}")
+    print(row())
     if csp.enabled:
-        print(_csp_row(csp)); print(row())
+        print(_csp_row(csp))
+        print(row())
     for i, (dest, cmd, args, kiss_len) in enumerate(batch_info):
         args_str = f"  {C.LABEL}args{C.END} {C.VALUE}{args}{C.END}" if args else ""
         print(row(
@@ -177,23 +191,27 @@ def render_batch(n, batch_info, payload, csp):
         ))
     print(row())
 
-    print(f"{C.DIM}{MID}{C.END}"); print(row())
+    print(f"{C.DIM}{MID}{C.END}")
+    print(row())
     for hl in wrap_hex(payload.hex(' ')):
         print(hl)
     print(row())
     for al in wrap_ascii(payload):
         print(al)
-    print(row()); print(f"{C.DIM}{BOT}{C.END}")
+    print(row())
+    print(f"{C.DIM}{BOT}{C.END}")
 
 
 def render_raw(n, payload):
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"{C.DIM}{TOP}{C.END}")
     print(row(f"{C.BOLD}{C.SUCCESS}TX #{n}{C.END}    {C.ERROR}RAW{C.END}    {ts}    {C.DIM}{len(payload)} B{C.END}"))
-    print(f"{C.DIM}{MID}{C.END}"); print(row())
+    print(f"{C.DIM}{MID}{C.END}")
+    print(row())
     for hl in wrap_hex(payload.hex(' ')):
         print(hl)
-    print(row()); print(f"{C.DIM}{BOT}{C.END}")
+    print(row())
+    print(f"{C.DIM}{BOT}{C.END}")
 
 
 # -- Command Parsing ----------------------------------------------------------
@@ -208,16 +226,32 @@ def parse_cmd_line(line):
     return (dest, parts[1], parts[2] if len(parts) > 2 else "")
 
 
+def check_args(cmd, args, cmd_defs):
+    """Validate args against schema. Print warnings, return True to proceed."""
+    valid, issues = validate_args(cmd, args, cmd_defs)
+    if not valid:
+        for issue in issues:
+            print(f"  {C.WARNING}\u26a0 {issue}{C.END}")
+    return True  # warnings only -- operator has final say
+
+
 # -- Main Loop ----------------------------------------------------------------
 
 def main():
     csp = CSPConfig()
+
+    # Load command schema for pre-send validation
+    cmd_defs = load_command_defs(CMD_DEFS_PATH)
 
     banner("MAVERIC TX", VERSION)
     print()
     info_line("ZMQ", ZMQ_ADDR)
     info_line("Origin", f"GS ({GS_NODE})")
     info_line("Framing", "KISS + AX100 ASM+Golay")
+    if cmd_defs:
+        info_line("Schema", f"{len(cmd_defs)} commands from {CMD_DEFS_PATH}")
+    else:
+        info_line("Schema", "none (no validation)")
 
     ctx, sock = init_zmq_pub(ZMQ_ADDR)
     logf, logpath = open_log()
@@ -226,7 +260,9 @@ def main():
     csp_show(csp)
     print(f"\n {C.DIM}Type a command or 'help'{C.END}\n")
 
-    n = 0; last = None; batch = []
+    n = 0
+    last = None
+    batch = []
 
     def max_payload():
         return MAX_RS_PAYLOAD - csp.overhead()
@@ -278,10 +314,12 @@ def main():
                 for nid in sorted(NODE_NAMES):
                     tag = f" {C.SUCCESS}<- you{C.END}" if nid == GS_NODE else ""
                     print(f"    {nid} = {C.BOLD}{NODE_NAMES[nid]}{C.END}{tag}")
-                print(); continue
+                print()
+                continue
 
             if low == 'csp' or low.startswith('csp '):
-                csp_handle(csp, line[3:].strip() if len(line) > 3 else ""); continue
+                csp_handle(csp, line[3:].strip() if len(line) > 3 else "")
+                continue
 
             if low == 'batch':
                 if not batch:
@@ -298,38 +336,49 @@ def main():
 
             if low == 'clear':
                 if batch:
-                    print(f"  {C.DIM}cleared {len(batch)} commands{C.END}"); batch.clear()
+                    print(f"  {C.DIM}cleared {len(batch)} commands{C.END}")
+                    batch.clear()
                 else:
                     print(f"  {C.DIM}nothing to clear{C.END}")
                 continue
 
             if low == 'send':
                 if not batch:
-                    print(f"  {C.ERROR}nothing queued -- use + to add commands{C.END}"); continue
-                kiss_stream = bytearray(); batch_info = []
+                    print(f"  {C.ERROR}nothing queued -- use + to add commands{C.END}")
+                    continue
+                kiss_stream = bytearray()
+                batch_info = []
                 for d, c, a, k in batch:
-                    kiss_stream.extend(k); batch_info.append((d, c, a, len(k)))
+                    kiss_stream.extend(k)
+                    batch_info.append((d, c, a, len(k)))
                 if len(kiss_stream) > max_payload():
-                    print(f"  {C.ERROR}batch too large: {len(kiss_stream)}B > {max_payload()}B max{C.END}"); continue
+                    print(f"  {C.ERROR}batch too large: {len(kiss_stream)}B > {max_payload()}B max{C.END}")
+                    continue
                 payload = csp.wrap(bytes(kiss_stream))
-                n += 1; send_pdu(sock, payload)
+                n += 1
+                send_pdu(sock, payload)
                 render_batch(n, batch_info, payload, csp)
                 log_tx(logf, n, [{"dest": d, "dest_lbl": NODE_NAMES.get(d, "?"),
                     "cmd": c, "args": a} for d, c, a, _ in batch], payload, csp.enabled)
-                batch.clear(); continue
+                batch.clear()
+                continue
 
             if line.startswith('+'):
                 cmd_text = line[1:].strip()
                 if not cmd_text:
-                    print(f"  {C.ERROR}need: + <dest> <cmd> [args]{C.END}"); continue
+                    print(f"  {C.ERROR}need: + <dest> <cmd> [args]{C.END}")
+                    continue
                 parsed = parse_cmd_line(cmd_text)
                 if parsed is None:
-                    print(f"  {C.ERROR}bad command{C.END}"); continue
+                    print(f"  {C.ERROR}bad command{C.END}")
+                    continue
                 dest, cmd, args = parsed
+                check_args(cmd, args, cmd_defs)
                 kiss, raw = build_kiss_cmd(dest, cmd, args)
                 current = sum(len(k) for _, _, _, k in batch)
                 if current + len(kiss) > max_payload():
-                    print(f"  {C.ERROR}won't fit: {current+len(kiss)}B > {max_payload()}B{C.END}"); continue
+                    print(f"  {C.ERROR}won't fit: {current+len(kiss)}B > {max_payload()}B{C.END}")
+                    continue
                 batch.append((dest, cmd, args, kiss))
                 print(f"  {C.DIM}queued #{len(batch)}: {node_label(dest)} {cmd} {args} "
                       f"({len(kiss)}B, {max_payload()-current-len(kiss)}B remaining){C.END}")
@@ -337,25 +386,37 @@ def main():
 
             if low in ('!!', 'last'):
                 if last is None:
-                    print(f"  {C.DIM}nothing to repeat{C.END}"); continue
+                    print(f"  {C.DIM}nothing to repeat{C.END}")
+                    continue
                 dest, cmd, args = last
             elif low.startswith('raw '):
                 try:
                     raw_bytes = bytes.fromhex(line[4:].replace(' ', ''))
                 except ValueError:
-                    print(f"  {C.ERROR}bad hex{C.END}"); continue
-                n += 1; send_pdu(sock, raw_bytes); render_raw(n, raw_bytes); continue
+                    print(f"  {C.ERROR}bad hex{C.END}")
+                    continue
+                n += 1
+                send_pdu(sock, raw_bytes)
+                render_raw(n, raw_bytes)
+                continue
             else:
                 parsed = parse_cmd_line(line)
                 if parsed is None:
-                    print(f"  {C.ERROR}need: <dest> <cmd> [args]{C.END}"); continue
-                dest, cmd, args = parsed; last = (dest, cmd, args)
+                    print(f"  {C.ERROR}need: <dest> <cmd> [args]{C.END}")
+                    continue
+                dest, cmd, args = parsed
+                last = (dest, cmd, args)
+
+            # Validate args against schema before sending
+            check_args(cmd, args, cmd_defs)
 
             kiss, raw_cmd = build_kiss_cmd(dest, cmd, args)
             if len(kiss) + csp.overhead() > MAX_RS_PAYLOAD:
-                print(f"  {C.ERROR}command too large{C.END}"); continue
+                print(f"  {C.ERROR}command too large{C.END}")
+                continue
             payload = csp.wrap(kiss)
-            n += 1; send_pdu(sock, payload)
+            n += 1
+            send_pdu(sock, payload)
             render_single(n, dest, cmd, args, payload, csp, raw_cmd)
             log_tx(logf, n, [{"dest": dest, "dest_lbl": NODE_NAMES.get(dest, "?"),
                 "cmd": cmd, "args": args}], payload, csp.enabled)
@@ -364,11 +425,16 @@ def main():
         if batch:
             print(f"\n  {C.WARNING}Discarding {len(batch)} queued commands{C.END}")
 
-    print(f"\n"); separator()
+    print(f"\n")
+    separator()
     print(f"  {C.BOLD}Session ended{C.END}")
     print(f"  Transmitted:  {C.BOLD}{n}{C.END}")
-    separator(); print(f"  {C.DIM}{logpath}{C.END}"); print()
-    logf.close(); sock.close(); ctx.term()
+    separator()
+    print(f"  {C.DIM}{logpath}{C.END}")
+    print()
+    logf.close()
+    sock.close()
+    ctx.term()
 
 
 if __name__ == "__main__":

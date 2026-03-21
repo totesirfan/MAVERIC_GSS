@@ -3,11 +3,16 @@ mav_gss_lib.protocol -- MAVERIC Mission Protocol Definitions
 
 Node addressing, packet types, CSP v1 header (build and parse),
 KISS framing, CRC-16 XMODEM, command wire format (build and parse),
-timestamp detection, and packet fingerprinting.
+timestamp detection, packet fingerprinting, and command schema for
+deterministic parsing.
 
 Mirrors the wire format of Commands.py (satellite side) without
 importing it. Both build_cmd_raw() and try_parse_command() operate
 on the same byte layout -- one encodes, the other decodes.
+
+When a command schema is loaded from maveric_commands.yml, the parser
+skips heuristic scanning and maps args directly by position and type.
+Commands not in the schema fall back to the original heuristic path.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -16,6 +21,12 @@ import re
 import hashlib
 from datetime import datetime, timezone
 from crc import Calculator, Crc16
+
+try:
+    import yaml
+    _YAML_OK = True
+except ImportError:
+    _YAML_OK = False
 
 
 # =============================================================================
@@ -245,7 +256,7 @@ class CSPConfig:
 
 
 # =============================================================================
-#  TIMESTAMP DETECTION
+#  TIMESTAMP DETECTION (heuristic fallback)
 # =============================================================================
 
 TS_MIN_MS = 1_704_067_200_000  # ~2024-01-01
@@ -256,7 +267,11 @@ _TS_RE = re.compile(rb"\d{13}")
 
 def try_extract_timestamp(payload):
     """Search for a plausible 13-digit epoch-ms timestamp in raw bytes.
-    Returns (dt_utc, dt_local, raw_ms) or None."""
+    Returns (dt_utc, dt_local, raw_ms) or None.
+
+    HEURISTIC FALLBACK -- only needed when the command schema does not
+    cover the packet. If apply_schema() succeeds and has epoch_ms fields,
+    use schema_timestamps() instead of this function."""
     for match in _TS_RE.finditer(payload):
         ms = int(match.group())
         if TS_MIN_MS <= ms <= TS_MAX_MS:
@@ -267,6 +282,168 @@ def try_extract_timestamp(payload):
             except (OSError, ValueError):
                 continue
     return None
+
+
+# =============================================================================
+#  COMMAND SCHEMA — Deterministic Parsing
+#
+#  Loaded from maveric_commands.yml. When a received command's cmd_id
+#  matches an entry, args are parsed by position and type instead of
+#  heuristic scanning. Commands not in the schema fall through to the
+#  original try_extract_timestamp / per-arg guessing path.
+#
+#  Schema eliminates:
+#    - Regex timestamp scanning (try_extract_timestamp)
+#    - Per-arg 13-digit guessing in display/log code
+#    - Ambiguity about what each argument means
+#
+#  If PyYAML is not installed or the file is missing, everything falls
+#  back to heuristic mode silently. No crash, no degradation in existing
+#  functionality.
+# =============================================================================
+
+def _parse_epoch_ms(value_str):
+    """Convert string to fully resolved timestamp.
+
+    Returns {"ms": int, "utc": datetime, "local": datetime} if plausible.
+    Returns original string if not a valid epoch-ms value.
+
+    This is the ONLY timestamp resolution path for schema-matched commands.
+    No regex scan, no second pass, no separate schema_timestamps() call."""
+    try:
+        ms = int(value_str)
+        if TS_MIN_MS <= ms <= TS_MAX_MS:
+            dt_utc = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
+            dt_local = dt_utc.astimezone()
+            return {"ms": ms, "utc": dt_utc, "local": dt_local}
+    except (ValueError, TypeError, OSError):
+        pass
+    return value_str
+
+
+_TYPE_PARSERS = {
+    "str":      str,
+    "int":      lambda s: int(s, 0),
+    "float":    float,
+    "epoch_ms": _parse_epoch_ms,
+    "bool":     lambda s: s.lower() in ("true", "1", "yes"),
+}
+
+
+def load_command_defs(path="maveric_commands.yml"):
+    """Load command definitions from YAML.
+
+    Returns dict: {cmd_id: {"args": [{"name", "type"}, ...], "variadic": bool}}
+    Returns empty dict on any failure (missing file, no PyYAML, bad YAML)."""
+    if not _YAML_OK:
+        return {}
+    try:
+        with open(path) as f:
+            raw = yaml.safe_load(f)
+        defs = {}
+        for cmd_id, spec in (raw.get("commands") or {}).items():
+            args = []
+            for a in (spec.get("args") or []):
+                name = a.get("name", f"arg{len(args)}")
+                typ = a.get("type", "str")
+                if typ not in _TYPE_PARSERS:
+                    typ = "str"
+                args.append({"name": name, "type": typ})
+            defs[cmd_id] = {
+                "args": args,
+                "variadic": spec.get("variadic", False),
+            }
+        return defs
+    except (OSError, yaml.YAMLError, AttributeError, TypeError):
+        return {}
+
+
+def apply_schema(cmd, cmd_defs):
+    """Enrich a parsed command dict with typed argument values.
+
+    If cmd_id is found in cmd_defs, adds to cmd:
+        typed_args:   list of {"name", "type", "value"} for defined args
+        extra_args:   list of raw strings for args beyond the schema
+        sat_time:     first resolved epoch_ms value as (dt_utc, dt_local, ms)
+                      or None if no epoch_ms fields exist
+        schema_match: True
+
+    If cmd_id is NOT in cmd_defs, adds:
+        schema_match: False
+
+    The raw 'args' list is always preserved unchanged.
+    Returns True if schema was applied, False otherwise."""
+    if not cmd_defs or cmd["cmd_id"] not in cmd_defs:
+        cmd["schema_match"] = False
+        return False
+
+    defn = cmd_defs[cmd["cmd_id"]]
+    raw_args = cmd["args"]
+    schema_args = defn["args"]
+    typed = []
+    sat_time = None
+
+    for i, arg_def in enumerate(schema_args):
+        if i < len(raw_args):
+            parser = _TYPE_PARSERS.get(arg_def["type"], str)
+            try:
+                value = parser(raw_args[i])
+            except (ValueError, TypeError):
+                value = raw_args[i]
+            typed.append({
+                "name":  arg_def["name"],
+                "type":  arg_def["type"],
+                "value": value,
+            })
+            # Surface the first resolved timestamp for SAT TIME display
+            if arg_def["type"] == "epoch_ms" and isinstance(value, dict) and sat_time is None:
+                sat_time = (value["utc"], value["local"], value["ms"])
+
+    extra = raw_args[len(schema_args):]
+
+    cmd["typed_args"]   = typed
+    cmd["extra_args"]   = extra
+    cmd["sat_time"]     = sat_time
+    cmd["schema_match"] = True
+    return True
+
+
+def validate_args(cmd_id, args_str, cmd_defs):
+    """Validate args string against schema before sending (TX side).
+
+    Returns (is_valid, list_of_issues).
+    If cmd_id is not in schema, returns (True, []) -- unknown commands
+    are allowed through without validation."""
+    if not cmd_defs or cmd_id not in cmd_defs:
+        return True, []
+
+    defn = cmd_defs[cmd_id]
+    raw_args = args_str.split() if args_str else []
+    schema_args = defn["args"]
+    issues = []
+
+    if len(raw_args) < len(schema_args):
+        issues.append(
+            f"expected {len(schema_args)} args, got {len(raw_args)}"
+        )
+
+    if len(raw_args) > len(schema_args) and not defn["variadic"]:
+        issues.append(
+            f"extra args: expected {len(schema_args)}, got {len(raw_args)}"
+        )
+
+    for i, arg_def in enumerate(schema_args):
+        if i >= len(raw_args):
+            break
+        parser = _TYPE_PARSERS.get(arg_def["type"], str)
+        try:
+            parser(raw_args[i])
+        except (ValueError, TypeError):
+            issues.append(
+                f"arg '{arg_def['name']}': '{raw_args[i]}' is not valid {arg_def['type']}"
+            )
+
+    return len(issues) == 0, issues
 
 
 # =============================================================================

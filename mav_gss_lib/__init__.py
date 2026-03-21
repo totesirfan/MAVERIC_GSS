@@ -5,7 +5,7 @@ Shared protocol, display, and transport code for the MAVERIC CubeSat
 ground station software suite (MAV_RX, MAV_TX).
 
 Modules:
-    protocol   -- Mission protocol: nodes, CSP, KISS, CRC, command format
+    protocol   -- Mission protocol: nodes, CSP, KISS, CRC, command format, schema
     display    -- Terminal UI: colors, box drawing, text formatting
     transport  -- ZMQ + PMT: PUB/SUB sockets, PDU send/receive
 
@@ -20,6 +20,7 @@ from mav_gss_lib.protocol import (
     crc_calc, build_cmd_raw, kiss_wrap, build_kiss_cmd,
     try_parse_csp_v1, try_parse_command, try_extract_timestamp,
     fingerprint, clean_text, CSPConfig,
+    load_command_defs, apply_schema, validate_args,
 )
 
 from mav_gss_lib.display import (

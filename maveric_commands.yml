@@ -1,0 +1,100 @@
+# =============================================================================
+#  MAVERIC Command Definitions
+# =============================================================================
+#
+#  Schema for deterministic packet parsing. When the RX monitor receives
+#  a command whose cmd_id appears here, it skips heuristic scanning and
+#  parses args directly by position and type.
+#
+#  Unknown commands (not listed here) fall back to the existing heuristic
+#  path -- regex timestamp scan, per-arg guessing, etc. Adding a command
+#  here is what makes its parsing fast and unambiguous.
+#
+#  Wire format (from Commands.py):
+#    [orgn][dest][echo][ptype][id_len][args_len]
+#    [id_str][0x00][args_str][0x00][CRC-16 LE]
+#
+#  args_str is space-delimited. This file defines what each positional
+#  argument means for each command.
+#
+#  Supported types:
+#    str       - Passed through as-is
+#    int       - Parsed as integer (supports 0x prefix)
+#    float     - Parsed as float
+#    epoch_ms  - 13-digit Unix timestamp in milliseconds
+#                Validated against mission time range (~2024-2028)
+#                Replaces try_extract_timestamp for this command
+#    bool      - true/false, 1/0, yes/no
+#
+#  Optional per-command fields:
+#    variadic: true   Extra args beyond the schema are kept as raw strings.
+#                     Default is false -- extra args are still captured but
+#                     flagged so the caller knows the packet is longer than
+#                     expected.
+#
+# =============================================================================
+
+commands:
+
+  # -- General ----------------------------------------------------------------
+
+  PING:
+    args: []
+
+  # -- Telemetry Beacon -------------------------------------------------------
+  # From captured packet: args = "1 1767230528021 0 0"
+  #   arg 0: sequence counter or beacon ID
+  #   arg 1: epoch-ms timestamp (satellite clock)
+  #   arg 2: TBD (observed as 0)
+  #   arg 3: TBD (observed as 0)
+
+  tlm_beacon:
+    args:
+      - name: seq
+        type: int
+      - name: unix time
+        type: epoch_ms
+      - name: status_a
+        type: int
+      - name: status_b
+        type: int
+
+  # -- EPS --------------------------------------------------------------------
+
+  SET_MODE:
+    args:
+      - name: mode
+        type: str
+
+  SET_VOLTAGE:
+    args:
+      - name: voltage
+        type: float
+
+  # -- Examples showing epoch_ms and variadic usage ---------------------------
+  #
+  # Uncomment and edit these as real commands are defined.
+  #
+  # REPORT:
+  #   args:
+  #     - name: timestamp
+  #       type: epoch_ms
+  #     - name: voltage
+  #       type: float
+  #     - name: temp
+  #       type: float
+  #
+  # BULK_READ:
+  #   args:
+  #     - name: timestamp
+  #       type: epoch_ms
+  #     - name: start_addr
+  #       type: int
+  #   variadic: true
+  #
+  # SCHEDULE:
+  #   args:
+  #     - name: exec_time
+  #       type: epoch_ms
+  #     - name: target_cmd
+  #       type: str

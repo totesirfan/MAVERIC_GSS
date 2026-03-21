@@ -49,10 +49,6 @@ Features:
 - Command history and arrow key navigation (readline)
 - JSONL uplink logging
 
-## ax100_loopback_test — Encoder Verification
-
-End-to-end loopback test that encodes a payload using our AX100 encoder (ASM, CCSDS scrambling, Golay, Reed-Solomon) and decodes it with gr-satellites blocks to verify round-trip correctness.
-
 ## Usage
 
 All scripts require the radioconda GNU Radio environment. Start your GNU Radio flowgraph first, then:
