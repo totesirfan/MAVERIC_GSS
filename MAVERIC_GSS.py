@@ -607,14 +607,6 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
         for i, arg in enumerate(cmd['args']):
             if len(arg) == 13 and arg.isdigit() and TS_MIN_MS <= int(arg) <= TS_MAX_MS:
                 print(_row(f"  {C_CYAN}UNIX TIME{C_END}   {C_BOLD}{arg}{C_END}"))
-                try:
-                    dt_utc = datetime.fromtimestamp(int(arg) / 1000.0, tz=timezone.utc)
-                    dt_local = dt_utc.astimezone()
-                    utc_s = dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')
-                    loc_s = dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')
-                    print(_row(f"  {C_CYAN}SAT TIME{C_END}    {utc_s}  {C_DIM}│{C_END}  {loc_s}"))
-                except (OSError, ValueError):
-                    pass
             else:
                 print(_row(f"  {C_CYAN}ARG {i}{C_END}       {C_BOLD}{arg}{C_END}"))
 
