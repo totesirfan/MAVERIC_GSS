@@ -394,7 +394,7 @@ class SessionLog:
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
                    stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                   text, warnings, delta_t, fp):
+                   text, warnings, delta_t, fp, is_dup=False):
         """Append one human-readable packet entry. Mirrors the terminal
         display but without ANSI color codes or box-drawing borders."""
         lines = []
@@ -402,9 +402,10 @@ class SessionLog:
         if delta_t is not None:
             lines.append(f"    Delta-T: {delta_t:.3f}s")
 
+        dup_str = " [DUP]" if is_dup else ""
         lines.append("-" * 80)
         lines.append(
-            f"Packet #{pkt_num:<4} | {gs_ts} | {frame_type:<7} | "
+            f"Packet #{pkt_num:<4} | {gs_ts} | {frame_type:<7}{dup_str} | "
             f"PDU: {len(raw)} B -> Payload: {len(inner_payload)} B"
         )
 
@@ -509,18 +510,17 @@ def _row(content=""):
 
 def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
                   stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                  warnings, delta_t, loud=False, text=None, fp=None):
+                  warnings, delta_t, loud=False, text=None, fp=None, is_dup=False):
     """Print one packet to terminal inside an 80-column box.
 
     Layout:
       Δt (if not first packet)
-      ┌─ header: packet #, frame type, timestamp, byte counts ─┐
-      ├─ protocol: AX.25 header, CSP V1, SAT TIME              ─┤
-      │  command: src, dest, echo, type, ID, per-arg values      │
-      └─────────────────────────────────────────────────────────┘
+      ┌─ header: packet #, frame type, [DUP], timestamp, byte counts ─┐
+      ├─ protocol: AX.25 header, CSP V1, SAT TIME                     ─┤
+      │  command: src, dest, echo, type, ID, per-arg values             │
+      └────────────────────────────────────────────────────────────────┘
 
-    Hex dump, ASCII, and SHA256 fingerprint are logged to disk
-    but not displayed in the terminal to keep the view clean.
+    Hex dump, ASCII, CRC, and SHA256 are shown in --loud mode only.
 
     Alignment is handled by _row() which uses strip_ansi() to
     measure visible width, so adding or changing ANSI color codes
@@ -536,11 +536,14 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
     # Header — build left and right parts, fill middle with spaces
     print(f"{C_DIM}{TOP}{C_END}")
 
-    h_left  = f"{C_BOLD}{color}PKT #{pkt_num}{C_END}    {color}{frame_type}{C_END}"
+    dup_tag = f"  {C_RED}[DUP]{C_END}" if is_dup else ""
+    dup_vis = 7 if is_dup else 0  # "  [DUP]" = 7 visible chars
+
+    h_left  = f"{C_BOLD}{color}PKT #{pkt_num}{C_END}    {color}{frame_type}{C_END}{dup_tag}"
     h_mid   = f"{gs_ts}"
     h_right = f"{C_DIM}{len(raw)} B PDU → {len(inner_payload)} B payload{C_END}"
 
-    h_left_vis  = len(f"PKT #{pkt_num}    {frame_type}")
+    h_left_vis  = len(f"PKT #{pkt_num}    {frame_type}") + dup_vis
     h_mid_vis   = len(gs_ts)
     h_right_vis = len(f"{len(raw)} B PDU → {len(inner_payload)} B payload")
 
@@ -676,6 +679,8 @@ def main():
     session_start = time.time()
     first_pkt_ts = None
     last_pkt_ts = None
+    seen_fps = set()               # fingerprints seen this session, for duplicate detection
+    pkt_times = []                 # recent packet arrival times, for rolling rate
 
     spinner = ["█", "▓", "▒", "░", "▒", "▓"]
     spin_idx = 0
@@ -704,6 +709,12 @@ def main():
                 elapsed = time.time() - last_watchdog
                 tc = C_CYAN if elapsed <= 10 else (C_YELLOW if elapsed <= 30 else C_RED)
                 pkt_str = f" | {C_DIM}{packet_count} pkts{C_END}" if packet_count > 0 else ""
+                # Rolling packet rate — count packets in the last 60 seconds
+                if pkt_times:
+                    cutoff = time.time() - 60.0
+                    recent = sum(1 for t in pkt_times if t > cutoff)
+                    if recent > 0:
+                        pkt_str += f" | {C_DIM}{recent:.0f} pkt/min{C_END}"
                 sys.stdout.write(
                     f"\r{C_BOLD}{C_CYAN} {spinner[spin_idx]} {C_END} "
                     f"Waiting... {tc}[SILENCE: {elapsed:04.1f}s]{C_END}{pkt_str}  "
@@ -738,6 +749,16 @@ def main():
             text = clean_text(inner_payload)
             fp = fingerprint(raw)
 
+            # Duplicate detection — same raw PDU seen before this session
+            is_dup = fp in seen_fps
+            seen_fps.add(fp)
+
+            # Track arrival time for rolling rate calculation
+            pkt_times.append(now)
+            # Trim old entries beyond 60 seconds
+            cutoff = now - 60.0
+            pkt_times[:] = [t for t in pkt_times if t > cutoff]
+
             # Parse command structure from payload after CSP header
             cmd, cmd_tail = (None, None)
             if len(inner_payload) > 4:
@@ -756,6 +777,7 @@ def main():
                     "raw_len":    len(raw),
                     "payload_len": len(inner_payload),
                     "sha256":     fp,
+                    "duplicate":  is_dup,
                 }
                 if delta_t is not None:
                     log_record["delta_t"] = round(delta_t, 4)
@@ -774,14 +796,14 @@ def main():
                 log.write_text(
                     packet_count, gs_ts, frame_type, raw, inner_payload,
                     stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                    text, warnings, delta_t, fp,
+                    text, warnings, delta_t, fp, is_dup,
                 )
 
             # Phase 4: Display
             render_packet(
                 packet_count, gs_ts, frame_type, raw, inner_payload,
                 stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                warnings, delta_t, loud, text, fp,
+                warnings, delta_t, loud, text, fp, is_dup,
             )
 
     except KeyboardInterrupt:
@@ -791,10 +813,11 @@ def main():
 
         # Terminal summary
         duration = time.time() - session_start
+        dup_count = packet_count - len(seen_fps)
         print(f"\n")
         print(f"{C_DIM}{'─' * 50}{C_END}")
         print(f"  {C_BOLD}Session ended{C_END}")
-        print(f"  Packets:    {C_BOLD}{packet_count}{C_END}")
+        print(f"  Packets:    {C_BOLD}{packet_count}{C_END}  ({len(seen_fps)} unique, {dup_count} duplicate)")
         print(f"  Duration:   {duration:.0f}s ({duration/60:.1f} min)")
         print(f"{C_DIM}{'─' * 50}{C_END}")
         if log:
