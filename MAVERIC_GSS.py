@@ -33,17 +33,35 @@ ZMQ_ADDR = f"tcp://127.0.0.1:{ZMQ_PORT}"
 ZMQ_RECV_TIMEOUT_MS = 200                # How long recv() blocks before returning to idle loop
 LOG_DIR = "logs"
 
-# Known node IDs — add new nodes as they are confirmed.
-# Used to label Src/Dest/Echo in command structure display.
+# Known node IDs — from CommandManager.node_lbl_to_id
 NODE_NAMES = {
-    3: "Upper PPM",
-    6: "Ground Station",
+    0: "NONE",
+    1: "LPPM",
+    2: "EPS",
+    3: "UPPM",
+    4: "HOLONAV",
+    5: "ASTROBOARD",
+    6: "GS",
+    7: "FTDI",
+}
+
+# Packet type IDs — from CommandManager.ptype_lbl_to_id
+PTYPE_NAMES = {
+    0: "NONE",
+    1: "REQ",
+    2: "RES",
+    3: "ACK",
 }
 
 def node_label(node_id):
     """Return 'ID (Name)' if known, otherwise just 'ID'."""
     name = NODE_NAMES.get(node_id)
     return f"{node_id} ({name})" if name else str(node_id)
+
+def ptype_label(ptype_id):
+    """Return 'ID (Name)' if known, otherwise just 'ID'."""
+    name = PTYPE_NAMES.get(ptype_id)
+    return f"{ptype_id} ({name})" if name else str(ptype_id)
 
 # Plausible epoch-ms range for timestamp detection (~2024-01-01 to ~2028-01-01).
 # Prevents false positives from random 13-digit byte sequences.
@@ -231,16 +249,18 @@ def try_parse_command(payload):
     Attempt to parse payload as a MAVERIC command structure.
     Expects the payload AFTER the CSP header (bytes 4+).
 
-    Command structure (test format, subject to change):
+    Command structure (from Commands.py):
       [0]    Src node ID
       [1]    Dest node ID
       [2]    Echo node ID
-      [3]    Packet Type
+      [3]    Packet Type (REQ=1, RES=2, ACK=3)
       [4]    Command ID string length
       [5]    Args string length
-      [6..]  Command ID string (null-terminated)
-      [..]   Args string (null-terminated)
-      [..]   Trailing checksum bytes (algorithm TBD)
+      [6..]  Command ID string
+      [..]   0x00 null terminator
+      [..]   Args string (space-delimited)
+      [..]   0x00 null terminator
+      [2]    CRC-16 XMODEM (little-endian)
 
     Returns (parsed_dict, remaining_bytes) or (None, None) on failure.
     Parses based on length fields, not hardcoded offsets.
@@ -279,7 +299,13 @@ def try_parse_command(payload):
     if tail_start < len(payload) and payload[tail_start] == 0x00:
         tail_start += 1
 
-    # Remaining bytes are trailing checksum
+    # CRC-16 XMODEM — 2 bytes, little-endian
+    crc = None
+    if tail_start + 2 <= len(payload):
+        crc = payload[tail_start] | (payload[tail_start + 1] << 8)
+        tail_start += 2
+
+    # Any remaining bytes after CRC
     tail = payload[tail_start:]
 
     cmd = {
@@ -289,6 +315,7 @@ def try_parse_command(payload):
         "pkt_type":  pkt_type,
         "cmd_id":    cmd_id,
         "args":      args_str.split(),
+        "crc":       crc,
     }
 
     return cmd, tail
@@ -407,7 +434,7 @@ class SessionLog:
         if cmd:
             lines.append(
                 f"  CMD         Src: {node_label(cmd['src'])} | Dest: {node_label(cmd['dest'])} | "
-                f"Echo: {node_label(cmd['echo'])} | Type: {cmd['pkt_type']}"
+                f"Echo: {node_label(cmd['echo'])} | Type: {ptype_label(cmd['pkt_type'])}"
             )
             lines.append(f"  CMD ID      {cmd['cmd_id']}")
             for i, arg in enumerate(cmd['args']):
@@ -419,6 +446,8 @@ class SessionLog:
         lines.append(f"  HEX         {raw.hex(' ')}")
         if text:
             lines.append(f"  ASCII       {text}")
+        if cmd and cmd.get('crc') is not None:
+            lines.append(f"  CRC-16      0x{cmd['crc']:04x}")
         lines.append(f"  SHA256      {fp}")
 
         lines.append("-" * 80)
@@ -567,7 +596,7 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
             f"Src {C_BOLD}{node_label(cmd['src'])}{C_END}  "
             f"Dest {C_BOLD}{node_label(cmd['dest'])}{C_END}  "
             f"Echo {C_BOLD}{node_label(cmd['echo'])}{C_END}  "
-            f"Type {C_BOLD}{cmd['pkt_type']}{C_END}"
+            f"Type {C_BOLD}{ptype_label(cmd['pkt_type'])}{C_END}"
         ))
         print(_row(
             f"  {C_CYAN}CMD ID{C_END}      {C_BOLD}{cmd['cmd_id']}{C_END}"
@@ -591,7 +620,7 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
         print(_row())
 
-    # Hex dump, ASCII, SHA256 — only in loud mode
+    # Hex dump, ASCII, CRC, SHA256 — only in loud mode
     if loud:
         print(f"{C_DIM}{MID}{C_END}")
         print(_row())
@@ -609,6 +638,9 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
 
         if text:
             print(_row(f"  {C_DIM}ASCII{C_END}   {C_DIM}{text}{C_END}"))
+
+        if cmd and cmd.get('crc') is not None:
+            print(_row(f"  {C_DIM}CRC-16{C_END}  {C_DIM}0x{cmd['crc']:04x}{C_END}"))
 
         if fp:
             print(_row(f"  {C_DIM}SHA256{C_END}  {C_DIM}{fp}{C_END}"))
@@ -743,7 +775,7 @@ def main():
                     if ts_result:
                         log_record["sat_ts_ms"] = ts_result[2]
                     if cmd_tail:
-                        log_record["checksum_hex"] = cmd_tail.hex()
+                        log_record["tail_hex"] = cmd_tail.hex()
 
                 log.write_jsonl(log_record)
 
