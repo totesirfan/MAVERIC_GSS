@@ -1,24 +1,13 @@
 """
-MAVERIC Command Terminal v2.1
+MAVERIC Command Terminal v2.2
 Irfan Annuar -- USC ISI SERC
 
 Type commands, they get KISS-wrapped with a CSP v1 header and
 transmitted via AX100 ASM+Golay.
 
-Single command:
-  > EPS PING
-
-Batch multiple commands (sent in one AX100 frame):
-  > + EPS SET_MODE auto
-  > + EPS SET_VOLTAGE 3.3
-  > send
-
-CSP header config:
-  > csp                    show current CSP settings
-  > csp off                disable CSP header
-  > csp on                 enable CSP header
-  > csp dest 8             set CSP destination
-  > csp dport 24           set CSP destination port
+Single command:    EPS PING
+Batch commands:    + EPS SET_MODE auto / + EPS SET_VOLTAGE 3.3 / send
+CSP config:        csp / csp off / csp dest 8 / csp dport 24
 
 GNU Radio flowgraph needs:
   ZMQ SUB Message Source (tcp://127.0.0.1:52002)
@@ -29,6 +18,7 @@ GNU Radio flowgraph needs:
 
 import zmq
 import pmt
+import re
 import sys
 import os
 import json
@@ -36,8 +26,14 @@ import time
 from datetime import datetime
 from crc import Calculator, Crc16
 
+try:
+    import readline  # enables arrow keys, history, cursor movement in input()
+except ImportError:
+    pass  # Windows — input() still works, just no arrow keys
+
 # -- Config -------------------------------------------------------------------
 
+VERSION  = "2.3"
 ZMQ_ADDR = "tcp://127.0.0.1:52002"
 LOG_DIR  = "logs"
 MAX_RS_PAYLOAD = 223
@@ -58,44 +54,58 @@ FESC  = 0xDB
 TFEND = 0xDC
 TFESC = 0xDD
 
-# -- Colors -------------------------------------------------------------------
+# -- ANSI Colors (matches MAVERIC_GSS.py) -------------------------------------
 
-R  = "\033[91m"
-G  = "\033[92m"
-Y  = "\033[93m"
-C  = "\033[96m"
-D  = "\033[2m"
-B  = "\033[1m"
-E  = "\033[0m"
+C_CYAN    = "\033[96m"
+C_GREEN   = "\033[92m"
+C_YELLOW  = "\033[93m"
+C_RED     = "\033[91m"
+C_DIM     = "\033[2m"
+C_BOLD    = "\033[1m"
+C_END     = "\033[0m"
+
+# -- Box Drawing (matches MAVERIC_GSS.py) -------------------------------------
+
+BOX_W = 80
+INN_W = BOX_W - 4
+
+TOP = f"\u250c{'\u2500' * (BOX_W - 2)}\u2510"
+MID = f"\u251c{'\u2500' * (BOX_W - 2)}\u2524"
+BOT = f"\u2514{'\u2500' * (BOX_W - 2)}\u2518"
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+def strip_ansi(s):
+    return _ANSI_RE.sub("", s)
+
+def _row(content=""):
+    visible_len = len(strip_ansi(content))
+    pad = max(0, INN_W - visible_len)
+    return f"{C_DIM}\u2502{C_END} {content}{' ' * pad} {C_DIM}\u2502{C_END}"
+
+def node_label(node_id):
+    name = NODES_REV.get(node_id)
+    return f"{node_id} ({name})" if name else str(node_id)
+
+PTYPES_REV = {v: k for k, v in PTYPES.items()}
+
+def ptype_label(ptype_id):
+    name = PTYPES_REV.get(ptype_id)
+    return f"{ptype_id} ({name})" if name else str(ptype_id)
 
 # -- CSP v1 Header ------------------------------------------------------------
-#
-# Derived from MAVERIC downlink: Prio:2 Src:8 Dest:0 DPort:24 SPort:0
-# Uplink reverses Src/Dest: GS(0) -> Sat(8), same port.
-#
-# CSP v1 header (32-bit big-endian):
-#   [31:30] priority   2 bits
-#   [29:25] source     5 bits
-#   [24:20] destination 5 bits
-#   [19:14] dest_port  6 bits
-#   [13:8]  src_port   6 bits
-#   [7:0]   flags      8 bits
-#
-# These are PLACEHOLDERS based on observed downlink traffic.
-# Adjust once the AX100 CSP config is confirmed.
 
 class CSPConfig:
     def __init__(self):
         self.enabled = True
-        self.prio    = 2     # same as downlink
-        self.src     = 0     # GS CSP address (was Dest:0 in downlink)
-        self.dest    = 8     # satellite CSP address (was Src:8 in downlink)
-        self.dport   = 24    # service port (same as downlink DPort)
-        self.sport   = 0     # source port
-        self.flags   = 0x00  # no HMAC/XTEA/RDP/CRC flags
+        self.prio    = 2
+        self.src     = 0
+        self.dest    = 8
+        self.dport   = 24
+        self.sport   = 0
+        self.flags   = 0x00
 
     def build_header(self):
-        """Build 4-byte CSP v1 header."""
         h = ((self.prio  & 0x03) << 30 |
              (self.src   & 0x1F) << 25 |
              (self.dest  & 0x1F) << 20 |
@@ -105,55 +115,32 @@ class CSPConfig:
         return h.to_bytes(4, 'big')
 
     def overhead(self):
-        """Bytes added by CSP wrapping."""
         return 4 if self.enabled else 0
 
     def show(self):
         hdr = self.build_header()
-        print(f"  {B}CSP v1 Header{E}  {'enabled' if self.enabled else D + 'disabled' + E}")
-        print(f"    Prio:  {self.prio}")
-        print(f"    Src:   {self.src}  (GS)")
-        print(f"    Dest:  {self.dest}  (satellite)")
-        print(f"    DPort: {self.dport}")
-        print(f"    SPort: {self.sport}")
-        print(f"    Flags: 0x{self.flags:02X}")
-        print(f"    Bytes: {hdr.hex(' ')}")
-        print(f"    {D}Placeholder -- adjust once CSP config confirmed{E}")
+        state = f"{C_GREEN}enabled{C_END}" if self.enabled else f"{C_DIM}disabled{C_END}"
+        print(f" {C_DIM}CSP V1{C_END}      {state}  {C_DIM}Prio:{self.prio} Src:{self.src} Dest:{self.dest} DPort:{self.dport} SPort:{self.sport} Flags:0x{self.flags:02X}{C_END}")
+        print(f" {C_DIM}CSP Bytes{C_END}   {hdr.hex(' ')}  {C_DIM}(placeholder){C_END}")
 
     def handle_cmd(self, args):
-        """Handle 'csp ...' commands. Returns True if handled."""
         if not args:
             self.show()
             return True
         parts = args.split()
         cmd = parts[0].lower()
-
         if cmd == 'on':
             self.enabled = True
-            print(f"  {G}CSP header enabled{E}")
+            print(f"  {C_GREEN}CSP header enabled{C_END}")
         elif cmd == 'off':
             self.enabled = False
-            print(f"  {Y}CSP header disabled{E}")
-        elif cmd == 'prio' and len(parts) > 1:
-            self.prio = int(parts[1]) & 0x03
-            print(f"  CSP prio = {self.prio}")
-        elif cmd == 'src' and len(parts) > 1:
-            self.src = int(parts[1]) & 0x1F
-            print(f"  CSP src = {self.src}")
-        elif cmd == 'dest' and len(parts) > 1:
-            self.dest = int(parts[1]) & 0x1F
-            print(f"  CSP dest = {self.dest}")
-        elif cmd == 'dport' and len(parts) > 1:
-            self.dport = int(parts[1]) & 0x3F
-            print(f"  CSP dport = {self.dport}")
-        elif cmd == 'sport' and len(parts) > 1:
-            self.sport = int(parts[1]) & 0x3F
-            print(f"  CSP sport = {self.sport}")
-        elif cmd == 'flags' and len(parts) > 1:
-            self.flags = int(parts[1], 0) & 0xFF
-            print(f"  CSP flags = 0x{self.flags:02X}")
+            print(f"  {C_YELLOW}CSP header disabled{C_END}")
+        elif cmd in ('prio','src','dest','dport','sport','flags') and len(parts) > 1:
+            val = int(parts[1], 0)
+            setattr(self, cmd, val)
+            print(f"  CSP {cmd} = {val}")
         else:
-            print(f"  {R}csp [on|off|prio N|src N|dest N|dport N|sport N|flags N]{E}")
+            print(f"  {C_RED}csp [on|off|prio|src|dest|dport|sport|flags] [value]{C_END}")
         return True
 
 # -- Command Builder ----------------------------------------------------------
@@ -161,7 +148,6 @@ class CSPConfig:
 crc_calc = Calculator(Crc16.XMODEM)
 
 def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1):
-    """Build raw MAVERIC command with CRC-16 (before KISS wrapping)."""
     p = bytearray()
     p.append(ORIGIN)
     p.append(dest)
@@ -178,7 +164,6 @@ def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1):
     return p
 
 def kiss_wrap(raw_cmd):
-    """KISS-wrap a raw command -- identical to Commands.py create_cmd()."""
     escaped = bytearray()
     for b in raw_cmd:
         if b == FEND:
@@ -193,12 +178,10 @@ def kiss_wrap(raw_cmd):
     return bytes(frame)
 
 def build_kiss_cmd(dest, cmd, args="", echo=0, ptype=1):
-    """Build a complete KISS-wrapped command."""
     raw = build_cmd_raw(dest, cmd, args, echo, ptype)
     return kiss_wrap(raw), raw
 
 def wrap_with_csp(csp, kiss_payload):
-    """Prepend CSP header to payload if enabled."""
     if csp.enabled:
         return csp.build_header() + kiss_payload
     return kiss_payload
@@ -238,27 +221,189 @@ def log_tx(f, n, cmds, payload, csp_enabled):
     f.write(json.dumps(rec) + "\n")
     f.flush()
 
-# -- Display ------------------------------------------------------------------
+# -- Display (GSS-style boxes) -----------------------------------------------
 
-def show_single(n, dest, cmd, args, payload, csp):
+ASCII_LINE_W = INN_W - 14  # "  ASCII       " = 14 visible chars
+
+def _wrap_ascii(payload):
+    """Convert payload to printable ASCII and wrap to fit inside box."""
+    text = ''.join(chr(b) if 32 <= b < 127 else '\u00b7' for b in payload)
+    lines = []
+    for i in range(0, len(text), ASCII_LINE_W):
+        chunk = text[i:i+ASCII_LINE_W]
+        if i == 0:
+            lines.append(_row(f"  {C_DIM}ASCII{C_END}       {C_DIM}{chunk}{C_END}"))
+        else:
+            lines.append(_row(f"              {C_DIM}{chunk}{C_END}"))
+    return lines
+
+def render_single(n, dest, cmd, args, payload, csp, raw_cmd):
+    """Render a single command TX in GSS-style box."""
     ts   = datetime.now().strftime("%H:%M:%S")
-    dlbl = NODES_REV.get(dest, "?")
-    csp_tag = f" {D}[CSP]{E}" if csp.enabled else ""
-    print(f"\n  {D}-----------------------------------------------{E}")
-    print(f"  {B}{G}TX #{n}{E}  {ts}  {B}GS -> {dlbl}{E}  {C}{cmd}{E}  {args or ''}{csp_tag}")
-    print(f"  {D}{len(payload)}B{E}  {payload.hex(' ')}")
-    print(f"  {D}-----------------------------------------------{E}")
+    dlbl = node_label(dest)
+    crc  = int.from_bytes(raw_cmd[-2:], 'little')
 
-def show_batch(n, batch_info, payload, csp):
+    csp_tag = f"  {C_DIM}[CSP]{C_END}" if csp.enabled else ""
+
+    print(f"{C_DIM}{TOP}{C_END}")
+
+    h_left  = f"{C_BOLD}{C_GREEN}TX #{n}{C_END}    {C_GREEN}UPLINK{C_END}{csp_tag}"
+    h_right = f"{C_DIM}{len(payload)} B payload{C_END}"
+    h_left_vis  = len(f"TX #{n}    UPLINK") + (7 if csp.enabled else 0)
+    h_right_vis = len(f"{len(payload)} B payload")
+    gap = INN_W - h_left_vis - len(ts) - h_right_vis
+    gap1 = max(2, gap // 2)
+    gap2 = gap - gap1
+    print(_row(f"{h_left}{' ' * gap1}{ts}{' ' * gap2}{h_right}"))
+
+    print(f"{C_DIM}{MID}{C_END}")
+    print(_row())
+
+    # CSP header
+    if csp.enabled:
+        hdr = csp.build_header()
+        h = int.from_bytes(hdr, 'big')
+        print(_row(
+            f"  {C_CYAN}CSP V1{C_END}      "
+            f"Prio {C_BOLD}{(h>>30)&3}{C_END}  "
+            f"Src {C_BOLD}{(h>>25)&0x1F}{C_END}  "
+            f"Dest {C_BOLD}{(h>>20)&0x1F}{C_END}  "
+            f"DPort {C_BOLD}{(h>>14)&0x3F}{C_END}  "
+            f"SPort {C_BOLD}{(h>>8)&0x3F}{C_END}  "
+            f"Flags {C_BOLD}0x{h&0xFF:02X}{C_END}"
+        ))
+
+    # Command fields — extract from raw command bytes
+    echo  = raw_cmd[2]
+    ptype = raw_cmd[3]
+    print(_row(
+        f"  {C_CYAN}CMD{C_END}         "
+        f"Src {C_BOLD}{node_label(ORIGIN)}{C_END}  "
+        f"Dest {C_BOLD}{dlbl}{C_END}  "
+        f"Echo {C_BOLD}{node_label(echo)}{C_END}  "
+        f"Type {C_BOLD}{ptype_label(ptype)}{C_END}"
+    ))
+    print(_row(f"  {C_CYAN}CMD ID{C_END}      {C_BOLD}{cmd}{C_END}"))
+    if args:
+        print(_row(f"  {C_CYAN}CMD ARGS{C_END}    {C_BOLD}{args}{C_END}"))
+
+    print(_row())
+
+    # Raw data section
+    print(f"{C_DIM}{MID}{C_END}")
+    print(_row())
+
+    hex_str = payload.hex(' ')
+    parts = hex_str.split(' ')
+    for i in range(0, len(parts), 20):
+        chunk = ' '.join(parts[i:i+20])
+        if i == 0:
+            print(_row(f"  {C_GREEN}HEX{C_END}         {chunk}"))
+        else:
+            print(_row(f"              {chunk}"))
+
+    print(_row())
+
+    for al in _wrap_ascii(payload):
+        print(al)
+    print(_row(f"  {C_DIM}CRC-16{C_END}      {C_DIM}0x{crc:04x}{C_END}"))
+
+    print(_row())
+    print(f"{C_DIM}{BOT}{C_END}")
+
+
+def render_batch(n, batch_info, payload, csp):
+    """Render a batch TX in GSS-style box."""
     ts = datetime.now().strftime("%H:%M:%S")
-    csp_tag = f" {D}[CSP]{E}" if csp.enabled else ""
-    print(f"\n  {D}==============================================={E}")
-    print(f"  {B}{G}TX #{n}{E}  {ts}  {Y}BATCH ({len(batch_info)} cmds){E}  {D}{len(payload)}B{E}{csp_tag}")
+    num = len(batch_info)
+    csp_tag = f"  {C_DIM}[CSP]{C_END}" if csp.enabled else ""
+
+    print(f"{C_DIM}{TOP}{C_END}")
+
+    h_left  = f"{C_BOLD}{C_GREEN}TX #{n}{C_END}    {C_YELLOW}BATCH ({num} cmds){C_END}{csp_tag}"
+    h_right = f"{C_DIM}{len(payload)} B payload{C_END}"
+    h_left_vis  = len(f"TX #{n}    BATCH ({num} cmds)") + (7 if csp.enabled else 0)
+    h_right_vis = len(f"{len(payload)} B payload")
+    gap = INN_W - h_left_vis - len(ts) - h_right_vis
+    gap1 = max(2, gap // 2)
+    gap2 = gap - gap1
+    print(_row(f"{h_left}{' ' * gap1}{ts}{' ' * gap2}{h_right}"))
+
+    print(f"{C_DIM}{MID}{C_END}")
+    print(_row())
+
+    # CSP header
+    if csp.enabled:
+        hdr = csp.build_header()
+        h = int.from_bytes(hdr, 'big')
+        print(_row(
+            f"  {C_CYAN}CSP V1{C_END}      "
+            f"Prio {C_BOLD}{(h>>30)&3}{C_END}  "
+            f"Src {C_BOLD}{(h>>25)&0x1F}{C_END}  "
+            f"Dest {C_BOLD}{(h>>20)&0x1F}{C_END}  "
+            f"DPort {C_BOLD}{(h>>14)&0x3F}{C_END}  "
+            f"SPort {C_BOLD}{(h>>8)&0x3F}{C_END}  "
+            f"Flags {C_BOLD}0x{h&0xFF:02X}{C_END}"
+        ))
+        print(_row())
+
+    # Each command in the batch
     for i, (dest, cmd, args, kiss_len) in enumerate(batch_info):
-        dlbl = NODES_REV.get(dest, "?")
-        print(f"    {D}{i+1}.{E} {B}GS -> {dlbl}{E}  {C}{cmd}{E}  {args or ''}  {D}({kiss_len}B){E}")
-    print(f"  {D}payload: {payload.hex(' ')}{E}")
-    print(f"  {D}==============================================={E}")
+        dlbl = node_label(dest)
+        args_str = f"  {C_CYAN}args{C_END} {C_BOLD}{args}{C_END}" if args else ""
+        print(_row(
+            f"  {C_CYAN}CMD {i+1}{C_END}       "
+            f"Dest {C_BOLD}{dlbl}{C_END}  "
+            f"{C_BOLD}{cmd}{C_END}"
+            f"{args_str}"
+            f"  {C_DIM}({kiss_len}B){C_END}"
+        ))
+
+    print(_row())
+
+    # Raw data section
+    print(f"{C_DIM}{MID}{C_END}")
+    print(_row())
+
+    hex_str = payload.hex(' ')
+    parts = hex_str.split(' ')
+    for i in range(0, len(parts), 20):
+        chunk = ' '.join(parts[i:i+20])
+        if i == 0:
+            print(_row(f"  {C_GREEN}HEX{C_END}         {chunk}"))
+        else:
+            print(_row(f"              {chunk}"))
+
+    print(_row())
+
+    for al in _wrap_ascii(payload):
+        print(al)
+
+    print(_row())
+    print(f"{C_DIM}{BOT}{C_END}")
+
+
+def render_raw(n, payload):
+    """Render a raw hex TX in GSS-style box."""
+    ts = datetime.now().strftime("%H:%M:%S")
+
+    print(f"{C_DIM}{TOP}{C_END}")
+    print(_row(f"{C_BOLD}{C_GREEN}TX #{n}{C_END}    {C_RED}RAW{C_END}    {ts}    {C_DIM}{len(payload)} B{C_END}"))
+    print(f"{C_DIM}{MID}{C_END}")
+    print(_row())
+
+    hex_str = payload.hex(' ')
+    parts = hex_str.split(' ')
+    for i in range(0, len(parts), 20):
+        chunk = ' '.join(parts[i:i+20])
+        if i == 0:
+            print(_row(f"  {C_GREEN}HEX{C_END}         {chunk}"))
+        else:
+            print(_row(f"              {chunk}"))
+
+    print(_row())
+    print(f"{C_DIM}{BOT}{C_END}")
+
 
 # -- Node Resolution ----------------------------------------------------------
 
@@ -284,19 +429,24 @@ def parse_cmd_line(line):
 
 def main():
     csp = CSPConfig()
+    tx_count = 0
 
-    print(f"""
-{B}  MAVERIC Command Terminal{E}  {D}v2.1{E}
-  {D}gr-satellites AX100 ASM+Golay uplink{E}
-  {D}KISS-wrapped + CSP v1 header{E}
-  {D}ZMQ: {ZMQ_ADDR}{E}
-""")
+    print(f"\n{C_BOLD}\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510")
+    print(f"\u2502                    MAVERIC CMD TERMINAL                  \u2502")
+    print(f"\u2502                           {C_END}{C_DIM}v{VERSION}{C_END}{C_BOLD}                           \u2502")
+    print(f"\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518{C_END}")
+    print()
+    print(f" {C_DIM}ZMQ{C_END}         {C_BOLD}{ZMQ_ADDR}{C_END}")
+    print(f" {C_DIM}Origin{C_END}      {C_BOLD}GS ({ORIGIN}){C_END}")
+    print(f" {C_DIM}Framing{C_END}     KISS + AX100 ASM+Golay")
 
     ctx, sock = zmq_connect(ZMQ_ADDR)
     logf, logpath = open_log()
-    print(f"  {D}Log: {logpath}{E}")
+    print(f" {C_DIM}Log{C_END}         {logpath}")
+    print()
+
     csp.show()
-    print(f"\n  {D}Type a command or 'help'{E}\n")
+    print(f"\n {C_DIM}Type a command or 'help'{C_END}\n")
 
     n      = 0
     last   = None
@@ -308,9 +458,9 @@ def main():
     try:
         while True:
             if batch:
-                prompt = f"  {Y}+({len(batch)}){E}{C}>{E} "
+                prompt = f"  {C_YELLOW}+({len(batch)}){C_END}{C_CYAN}\u25b6{C_END} "
             else:
-                prompt = f"  {C}>{E} "
+                prompt = f"  {C_CYAN}\u25b6{C_END} "
 
             try:
                 line = input(prompt).strip()
@@ -324,47 +474,46 @@ def main():
 
             if low in ('q', 'quit', 'exit'):
                 if batch:
-                    print(f"  {Y}Discarding {len(batch)} queued commands{E}")
+                    print(f"  {C_YELLOW}Discarding {len(batch)} queued commands{C_END}")
                 break
 
             if low == 'help':
                 print(f"""
-  {B}Single command:{E}
-    {C}<dest> <cmd> [args]{E}     send immediately
+  {C_BOLD}Single command:{C_END}
+    {C_CYAN}<dest> <cmd> [args]{C_END}     send immediately
 
-  {B}Batch commands:{E}
-    {C}+ <dest> <cmd> [args]{E}   queue a command
-    {C}send{E}                    transmit all queued
-    {C}batch{E}                   show queue
-    {C}clear{E}                   discard queue
+  {C_BOLD}Batch commands:{C_END}
+    {C_CYAN}+ <dest> <cmd> [args]{C_END}   queue a command
+    {C_CYAN}send{C_END}                    transmit all queued
+    {C_CYAN}batch{C_END}                   show queue
+    {C_CYAN}clear{C_END}                   discard queue
 
-  {B}CSP config:{E}
-    {C}csp{E}                     show CSP settings
-    {C}csp on/off{E}              enable/disable CSP header
-    {C}csp dest N{E}              set CSP destination node
-    {C}csp dport N{E}             set CSP destination port
-    {C}csp src/sport/prio/flags N{E}
+  {C_BOLD}CSP config:{C_END}
+    {C_CYAN}csp{C_END}                     show CSP settings
+    {C_CYAN}csp on/off{C_END}              enable/disable
+    {C_CYAN}csp dest N{C_END}              set destination
+    {C_CYAN}csp dport N{C_END}             set destination port
 
-  {B}Other:{E}
-    {C}!!{E}                      repeat last command
-    {C}nodes{E}                   list node IDs
-    {C}raw <hex>{E}               send raw hex bytes
-    {C}q{E}                       quit
+  {C_BOLD}Other:{C_END}
+    {C_CYAN}!!{C_END}                      repeat last command
+    {C_CYAN}nodes{C_END}                   list node IDs
+    {C_CYAN}raw <hex>{C_END}               send raw hex bytes
+    {C_CYAN}q{C_END}                       quit
 
-  {B}Examples:{E}
+  {C_BOLD}Examples:{C_END}
     EPS PING
     + EPS SET_MODE auto
     + EPS SET_VOLTAGE 3.3
     send
-    csp dest 8
 """)
                 continue
 
             if low == 'nodes':
+                print(f"\n  {C_BOLD}Node Addresses:{C_END}")
                 for nid in sorted(NODES_REV):
                     lbl = NODES_REV[nid]
-                    tag = f" {G}<- you{E}" if nid == ORIGIN else ""
-                    print(f"    {nid} = {B}{lbl}{E}{tag}")
+                    tag = f" {C_GREEN}<- you{C_END}" if nid == ORIGIN else ""
+                    print(f"    {nid} = {C_BOLD}{lbl}{C_END}{tag}")
                 print()
                 continue
 
@@ -377,28 +526,28 @@ def main():
             # -- batch commands --
             if low == 'batch':
                 if not batch:
-                    print(f"  {D}batch is empty{E}")
+                    print(f"  {C_DIM}batch is empty{C_END}")
                 else:
                     total = sum(len(k) for _, _, _, k in batch)
-                    print(f"  {Y}Queued ({len(batch)} commands, {total}B + {csp.overhead()}B CSP = {total + csp.overhead()}B):{E}")
-                    for i, (dest, cmd, args, kiss) in enumerate(batch):
-                        dlbl = NODES_REV.get(dest, "?")
-                        print(f"    {i+1}. {B}{dlbl}{E} {C}{cmd}{E} {args}  {D}({len(kiss)}B){E}")
                     remaining = max_payload() - total
-                    print(f"  {D}{remaining}B remaining in frame{E}")
+                    print(f"\n  {C_BOLD}Batch Queue{C_END}  {C_DIM}{len(batch)} commands, {total}B + {csp.overhead()}B CSP{C_END}")
+                    for i, (dest, cmd, args, kiss) in enumerate(batch):
+                        dlbl = node_label(dest)
+                        print(f"    {C_DIM}{i+1}.{C_END} {C_BOLD}{dlbl}{C_END}  {C_CYAN}{cmd}{C_END}  {args}  {C_DIM}({len(kiss)}B){C_END}")
+                    print(f"  {C_DIM}{remaining}B remaining in frame{C_END}\n")
                 continue
 
             if low == 'clear':
                 if batch:
-                    print(f"  {D}cleared {len(batch)} commands{E}")
+                    print(f"  {C_DIM}cleared {len(batch)} commands{C_END}")
                     batch.clear()
                 else:
-                    print(f"  {D}nothing to clear{E}")
+                    print(f"  {C_DIM}nothing to clear{C_END}")
                 continue
 
             if low == 'send':
                 if not batch:
-                    print(f"  {R}nothing queued -- use + to add commands{E}")
+                    print(f"  {C_RED}nothing queued -- use + to add commands{C_END}")
                     continue
 
                 kiss_stream = bytearray()
@@ -408,14 +557,13 @@ def main():
                     batch_info.append((dest, cmd, args, len(kiss)))
 
                 if len(kiss_stream) > max_payload():
-                    print(f"  {R}batch too large: {len(kiss_stream)}B > {max_payload()}B max{E}")
+                    print(f"  {C_RED}batch too large: {len(kiss_stream)}B > {max_payload()}B max{C_END}")
                     continue
 
                 payload = wrap_with_csp(csp, bytes(kiss_stream))
-
                 n += 1
                 zmq_send(sock, payload)
-                show_batch(n, batch_info, payload, csp)
+                render_batch(n, batch_info, payload, csp)
                 log_tx(logf, n,
                        [{"dest": d, "dest_lbl": NODES_REV.get(d,"?"),
                          "cmd": c, "args": a} for d, c, a, _ in batch],
@@ -427,30 +575,30 @@ def main():
             if line.startswith('+'):
                 cmd_text = line[1:].strip()
                 if not cmd_text:
-                    print(f"  {R}need: + <dest> <cmd> [args]{E}")
+                    print(f"  {C_RED}need: + <dest> <cmd> [args]{C_END}")
                     continue
                 parsed = parse_cmd_line(cmd_text)
                 if parsed is None:
-                    print(f"  {R}bad command -- format: + <dest> <cmd> [args]{E}")
+                    print(f"  {C_RED}bad command -- format: + <dest> <cmd> [args]{C_END}")
                     continue
                 dest, cmd, args = parsed
                 kiss, raw = build_kiss_cmd(dest, cmd, args)
 
                 current_total = sum(len(k) for _, _, _, k in batch)
                 if current_total + len(kiss) > max_payload():
-                    print(f"  {R}won't fit: {current_total + len(kiss)}B > {max_payload()}B{E}")
+                    print(f"  {C_RED}won't fit: {current_total + len(kiss)}B > {max_payload()}B{C_END}")
                     continue
 
                 batch.append((dest, cmd, args, kiss))
-                dlbl = NODES_REV.get(dest, "?")
+                dlbl = node_label(dest)
                 remaining = max_payload() - (current_total + len(kiss))
-                print(f"  {D}queued #{len(batch)}: {dlbl} {cmd} {args} ({len(kiss)}B, {remaining}B remaining){E}")
+                print(f"  {C_DIM}queued #{len(batch)}: {dlbl} {cmd} {args} ({len(kiss)}B, {remaining}B remaining){C_END}")
                 continue
 
             # -- repeat last --
             if low == '!!' or low == 'last':
                 if last is None:
-                    print(f"  {D}nothing to repeat{E}")
+                    print(f"  {C_DIM}nothing to repeat{C_END}")
                     continue
                 dest, cmd, args = last
 
@@ -458,36 +606,35 @@ def main():
             elif low.startswith('raw '):
                 hexstr = line[4:].replace(' ', '')
                 try:
-                    raw = bytes.fromhex(hexstr)
+                    raw_bytes = bytes.fromhex(hexstr)
                 except ValueError:
-                    print(f"  {R}bad hex{E}")
+                    print(f"  {C_RED}bad hex{C_END}")
                     continue
                 n += 1
-                zmq_send(sock, raw)
-                print(f"\n  {B}{G}TX #{n}{E}  raw {len(raw)}B  {raw.hex(' ')}\n")
+                zmq_send(sock, raw_bytes)
+                render_raw(n, raw_bytes)
                 continue
 
             # -- single command --
             else:
                 parsed = parse_cmd_line(line)
                 if parsed is None:
-                    print(f"  {R}need: <dest> <cmd> [args]{E}")
+                    print(f"  {C_RED}need: <dest> <cmd> [args]{C_END}")
                     continue
                 dest, cmd, args = parsed
                 last = (dest, cmd, args)
 
             # Build, wrap with CSP, send
-            kiss, raw = build_kiss_cmd(dest, cmd, args)
+            kiss, raw_cmd = build_kiss_cmd(dest, cmd, args)
 
             if len(kiss) + csp.overhead() > MAX_RS_PAYLOAD:
-                print(f"  {R}command too large: {len(kiss) + csp.overhead()}B > {MAX_RS_PAYLOAD}B{E}")
+                print(f"  {C_RED}command too large: {len(kiss) + csp.overhead()}B > {MAX_RS_PAYLOAD}B{C_END}")
                 continue
 
             payload = wrap_with_csp(csp, kiss)
-
             n += 1
             zmq_send(sock, payload)
-            show_single(n, dest, cmd, args, payload, csp)
+            render_single(n, dest, cmd, args, payload, csp, raw_cmd)
             log_tx(logf, n,
                    [{"dest": dest, "dest_lbl": NODES_REV.get(dest,"?"),
                      "cmd": cmd, "args": args}],
@@ -495,9 +642,17 @@ def main():
 
     except KeyboardInterrupt:
         if batch:
-            print(f"\n  {Y}Discarding {len(batch)} queued commands{E}")
+            print(f"\n  {C_YELLOW}Discarding {len(batch)} queued commands{C_END}")
 
-    print(f"\n  {D}Sent {n} transmissions. Log: {logpath}{E}\n")
+    # Session summary (matches GSS style)
+    print(f"\n")
+    print(f"{C_DIM}{'\u2500' * 50}{C_END}")
+    print(f"  {C_BOLD}Session ended{C_END}")
+    print(f"  Transmitted:  {C_BOLD}{n}{C_END}")
+    print(f"{C_DIM}{'\u2500' * 50}{C_END}")
+    print(f"  {C_DIM}{logpath}{C_END}")
+    print()
+
     logf.close()
     sock.close()
     ctx.term()
