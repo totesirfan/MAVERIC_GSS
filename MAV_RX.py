@@ -12,8 +12,7 @@ Raw hex is ground truth. All parsed fields (CSP, timestamps, command structure)
 are diagnostic until the telemetry map is finalized.
 
 When maveric_commands.yml is present, known commands are parsed deterministically
-by the schema -- no regex scanning, no per-arg guessing. Unknown commands fall
-back to the heuristic path automatically.
+by the schema. Unknown commands display raw args with a warning.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -27,8 +26,8 @@ from datetime import datetime
 
 from mav_gss_lib.protocol import (
     node_label, ptype_label,
-    try_parse_csp_v1, try_parse_command, try_extract_timestamp,
-    clean_text, fingerprint, TS_MIN_MS, TS_MAX_MS,
+    try_parse_csp_v1, try_parse_command,
+    clean_text, fingerprint,
     load_command_defs, apply_schema,
     verify_csp_crc32,
 )
@@ -165,13 +164,12 @@ class SessionLog:
                         lines.append(f"  {label:<12}  {ta['value']}")
                 for i, extra in enumerate(cmd["extra_args"]):
                     lines.append(f"  ARG +{i}       {extra}")
-            # Heuristic path: raw string args
+            # Unknown command: raw args + warning
             else:
+                if cmd.get("schema_warning"):
+                    lines.append(f"  WARNING: {cmd['schema_warning']}")
                 for i, arg in enumerate(cmd['args']):
-                    if len(arg) == 13 and arg.isdigit() and TS_MIN_MS <= int(arg) <= TS_MAX_MS:
-                        lines.append(f"  UNIX TIME   {arg}")
-                    else:
-                        lines.append(f"  ARG {i}       {arg}")
+                    lines.append(f"  ARG {i}       {arg}")
 
         lines.append(f"  HEX         {raw.hex(' ')}")
         if text:
@@ -292,13 +290,12 @@ def render_packet(pkt_num, gs_ts, frame_type, raw, inner_payload,
             for i, extra in enumerate(cmd["extra_args"]):
                 print(row(f"  {C.LABEL}ARG +{i}{C.END}       {C.VALUE}{extra}{C.END}"))
 
-        # Heuristic path: raw args with timestamp guessing
+        # Unknown command: raw args + warning
         else:
+            if cmd.get("schema_warning"):
+                print(row(f"  {C.WARNING}\u26a0 {cmd['schema_warning']}{C.END}"))
             for i, arg in enumerate(cmd['args']):
-                if len(arg) == 13 and arg.isdigit() and TS_MIN_MS <= int(arg) <= TS_MAX_MS:
-                    print(row(f"  {C.LABEL}UNIX TIME{C.END}   {C.VALUE}{arg}{C.END}"))
-                else:
-                    print(row(f"  {C.LABEL}ARG {i}{C.END}       {C.VALUE}{arg}{C.END}"))
+                print(row(f"  {C.LABEL}ARG {i}{C.END}       {C.VALUE}{arg}{C.END}"))
 
         print(row())
 
@@ -374,7 +371,7 @@ def main():
     if cmd_defs:
         info_line("Schema", f"{len(cmd_defs)} commands from {CMD_DEFS_PATH}")
     else:
-        info_line("Schema", "none (heuristic mode)")
+        print(f" {C.WARNING}{'Schema':<12}MISSING -- unknown commands will not be parsed{C.END}")
     if log:
         print(f" {C.DIM}Log (txt){C.END}  {log.text_path}")
         print(f" {C.DIM}Log (json){C.END} {log.jsonl_path}")
@@ -426,7 +423,7 @@ def main():
             frame_type = detect_frame_type(meta)
             inner_payload, stripped_hdr, warnings = normalize_frame(frame_type, raw)
 
-            # Phase 2: Parse -- schema path or heuristic fallback
+            # Phase 2: Parse
             csp, csp_plausible = try_parse_csp_v1(inner_payload)
             fp = fingerprint(raw)
 
@@ -446,11 +443,9 @@ def main():
                     warnings.append(f"CRC-32C mismatch: rx 0x{crc_rx:08x} != computed 0x{crc_comp:08x}")
             crc_status = {"csp_crc32_valid": crc_valid, "csp_crc32_rx": crc_rx, "csp_crc32_comp": crc_comp}
 
-            # SAT TIME: schema already resolved it, or regex fallback
+            # SAT TIME: only available from schema-resolved epoch_ms fields
             if cmd and cmd.get("sat_time"):
                 ts_result = cmd["sat_time"]
-            elif not cmd or not cmd.get("schema_match"):
-                ts_result = try_extract_timestamp(inner_payload)
 
             text = clean_text(inner_payload)
 
@@ -503,9 +498,11 @@ def main():
                         cmd_log["args"] = typed_log
                         if cmd["extra_args"]:
                             cmd_log["extra_args"] = cmd["extra_args"]
-                    # Heuristic path: log raw args list
+                    # Unknown command: log raw args as list
                     else:
                         cmd_log["args"] = cmd["args"]
+                        if cmd.get("schema_warning"):
+                            cmd_log["schema_warning"] = cmd["schema_warning"]
 
                     log_record["cmd"] = cmd_log
                     if cmd_tail:

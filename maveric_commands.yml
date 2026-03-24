@@ -3,12 +3,10 @@
 # =============================================================================
 #
 #  Schema for deterministic packet parsing. When the RX monitor receives
-#  a command whose cmd_id appears here, it skips heuristic scanning and
-#  parses args directly by position and type.
+#  a command whose cmd_id appears here, args are parsed by position and type.
 #
-#  Unknown commands (not listed here) fall back to the existing heuristic
-#  path -- regex timestamp scan, per-arg guessing, etc. Adding a command
-#  here is what makes its parsing fast and unambiguous.
+#  Unknown commands (not listed here) will display raw args with a warning.
+#  Adding a command here enables typed, named argument parsing.
 #
 #  Wire format (from Commands.py):
 #    [orgn][dest][echo][ptype][id_len][args_len]
@@ -23,7 +21,7 @@
 #    float     - Parsed as float
 #    epoch_ms  - 13-digit Unix timestamp in milliseconds
 #                Validated against mission time range (~2024-2028)
-#                Replaces try_extract_timestamp for this command
+#                Resolved to full timestamp (UTC + local)
 #    bool      - true/false, 1/0, yes/no
 #
 #  Optional per-command fields:

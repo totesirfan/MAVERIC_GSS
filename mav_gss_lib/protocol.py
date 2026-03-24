@@ -3,22 +3,22 @@ mav_gss_lib.protocol -- MAVERIC Mission Protocol Definitions
 
 Node addressing, packet types, CSP v1 header (build and parse),
 KISS framing, CRC-16 XMODEM, CRC-32C (CSP integrity), command wire
-format (build and parse), timestamp detection, packet fingerprinting,
-and command schema for deterministic parsing.
+format (build and parse), packet fingerprinting, and command schema
+for deterministic parsing.
 
 Mirrors the wire format of Commands.py (satellite side) without
 importing it. Both build_cmd_raw() and try_parse_command() operate
 on the same byte layout -- one encodes, the other decodes.
 
 When a command schema is loaded from maveric_commands.yml, the parser
-skips heuristic scanning and maps args directly by position and type.
-Commands not in the schema fall back to the original heuristic path.
+maps args directly by position and type. Commands not in the schema
+display raw args with a warning.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-import re
 import hashlib
+import sys
 from datetime import datetime, timezone
 
 try:
@@ -342,51 +342,18 @@ class CSPConfig:
 
 
 # =============================================================================
-#  TIMESTAMP DETECTION (heuristic fallback)
+#  COMMAND SCHEMA — Deterministic Parsing
+#
+#  Loaded from maveric_commands.yml. When a received command's cmd_id
+#  matches an entry, args are parsed by position and type. Commands not
+#  in the schema display raw args with a warning.
+#
+#  If PyYAML is not installed or the file is missing, a warning is
+#  printed at startup. No crash, but all commands will be unrecognized.
 # =============================================================================
 
 TS_MIN_MS = 1_704_067_200_000  # ~2024-01-01
 TS_MAX_MS = 1_830_297_600_000  # ~2028-01-01
-
-_TS_RE = re.compile(rb"\d{13}")
-
-
-def try_extract_timestamp(payload):
-    """Search for a plausible 13-digit epoch-ms timestamp in raw bytes.
-    Returns (dt_utc, dt_local, raw_ms) or None.
-
-    HEURISTIC FALLBACK -- only needed when the command schema does not
-    cover the packet. If apply_schema() succeeds and has epoch_ms fields,
-    use schema_timestamps() instead of this function."""
-    for match in _TS_RE.finditer(payload):
-        ms = int(match.group())
-        if TS_MIN_MS <= ms <= TS_MAX_MS:
-            try:
-                dt_utc = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
-                dt_local = dt_utc.astimezone()
-                return dt_utc, dt_local, ms
-            except (OSError, ValueError):
-                continue
-    return None
-
-
-# =============================================================================
-#  COMMAND SCHEMA — Deterministic Parsing
-#
-#  Loaded from maveric_commands.yml. When a received command's cmd_id
-#  matches an entry, args are parsed by position and type instead of
-#  heuristic scanning. Commands not in the schema fall through to the
-#  original try_extract_timestamp / per-arg guessing path.
-#
-#  Schema eliminates:
-#    - Regex timestamp scanning (try_extract_timestamp)
-#    - Per-arg 13-digit guessing in display/log code
-#    - Ambiguity about what each argument means
-#
-#  If PyYAML is not installed or the file is missing, everything falls
-#  back to heuristic mode silently. No crash, no degradation in existing
-#  functionality.
-# =============================================================================
 
 def _parse_epoch_ms(value_str):
     """Convert string to fully resolved timestamp.
@@ -394,8 +361,8 @@ def _parse_epoch_ms(value_str):
     Returns {"ms": int, "utc": datetime, "local": datetime} if plausible.
     Returns original string if not a valid epoch-ms value.
 
-    This is the ONLY timestamp resolution path for schema-matched commands.
-    No regex scan, no second pass, no separate schema_timestamps() call."""
+    This is the only timestamp resolution path -- called by apply_schema()
+    for epoch_ms typed args."""
     try:
         ms = int(value_str)
         if TS_MIN_MS <= ms <= TS_MAX_MS:
@@ -420,8 +387,11 @@ def load_command_defs(path="maveric_commands.yml"):
     """Load command definitions from YAML.
 
     Returns dict: {cmd_id: {"args": [{"name", "type"}, ...], "variadic": bool}}
-    Returns empty dict on any failure (missing file, no PyYAML, bad YAML)."""
+    Returns empty dict on any failure (missing file, no PyYAML, bad YAML).
+    Prints a warning to stderr on failure so the operator knows."""
     if not _YAML_OK:
+        print("WARNING: PyYAML not installed -- command schema unavailable. "
+              "Install with: pip install pyyaml", file=sys.stderr)
         return {}
     try:
         with open(path) as f:
@@ -441,6 +411,8 @@ def load_command_defs(path="maveric_commands.yml"):
             }
         return defs
     except (OSError, yaml.YAMLError, AttributeError, TypeError):
+        print(f"WARNING: Could not load {path} -- all commands will be unrecognized",
+              file=sys.stderr)
         return {}
 
 
@@ -455,12 +427,17 @@ def apply_schema(cmd, cmd_defs):
         schema_match: True
 
     If cmd_id is NOT in cmd_defs, adds:
-        schema_match: False
+        schema_match:  False
+        schema_warning: str describing the unknown command
 
     The raw 'args' list is always preserved unchanged.
     Returns True if schema was applied, False otherwise."""
     if not cmd_defs or cmd["cmd_id"] not in cmd_defs:
         cmd["schema_match"] = False
+        cmd["schema_warning"] = (
+            f"Unknown command '{cmd['cmd_id']}' "
+            "-- add to maveric_commands.yml for typed parsing"
+        )
         return False
 
     defn = cmd_defs[cmd["cmd_id"]]

@@ -19,7 +19,7 @@ from mav_gss_lib.protocol import (
     TS_MIN_MS, TS_MAX_MS,
     crc16, crc32c, verify_csp_crc32,
     build_cmd_raw, kiss_wrap, build_kiss_cmd,
-    try_parse_csp_v1, try_parse_command, try_extract_timestamp,
+    try_parse_csp_v1, try_parse_command,
     fingerprint, clean_text, CSPConfig,
     load_command_defs, apply_schema, validate_args,
 )
