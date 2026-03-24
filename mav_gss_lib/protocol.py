@@ -3,7 +3,7 @@ mav_gss_lib.protocol -- MAVERIC Mission Protocol Definitions
 
 Node addressing, packet types, CSP v1 header (build and parse),
 KISS framing, CRC-16 XMODEM, CRC-32C (CSP integrity), command wire
-format (build and parse), packet fingerprinting, and command schema
+format (build and parse), and command schema
 for deterministic parsing.
 
 Mirrors the wire format of Commands.py (satellite side) without
@@ -17,7 +17,6 @@ display raw args with a warning.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-import hashlib
 import sys
 from datetime import datetime, timezone
 
@@ -582,6 +581,3 @@ def clean_text(data: bytes) -> str:
     return "".join(chr(b) if 32 <= b < 127 else "\u00b7" for b in data)
 
 
-def fingerprint(data: bytes) -> str:
-    """Short SHA-256 fingerprint (first 12 hex chars / 48 bits)."""
-    return hashlib.sha256(data).hexdigest()[:12]

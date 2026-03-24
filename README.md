@@ -32,7 +32,7 @@ Layout:
 
 - **Header** — ZMQ address, frequency (auto-detected from gr-satellites metadata), UTC/local clock, HEX/LOG toggle indicators
 - **Packet List** — scrollable list with command src/dest routing, command ID, arguments, payload size, CRC status, duplicate detection. Auto-follows newest packets in `[LIVE]` mode
-- **Packet Detail** — expanded view of selected packet (Enter to toggle): AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification, SHA-256 fingerprint
+- **Packet Detail** — expanded view of selected packet (Enter to toggle): AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification
 - **Input** — command entry with live status (Receiving/Silence timer, packet count, rate)
 
 Typed commands:

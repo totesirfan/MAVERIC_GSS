@@ -18,7 +18,7 @@ from mav_gss_lib.protocol import (
     crc16, crc32c, verify_csp_crc32,
     build_cmd_raw,
     try_parse_csp_v1, try_parse_command,
-    fingerprint, clean_text, CSPConfig,
+    clean_text, CSPConfig,
     load_command_defs, apply_schema, validate_args,
 )
 

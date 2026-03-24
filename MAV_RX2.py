@@ -34,7 +34,7 @@ from datetime import datetime
 from mav_gss_lib.protocol import (
     node_label, ptype_label,
     try_parse_csp_v1, try_parse_command,
-    clean_text, fingerprint,
+    clean_text,
     load_command_defs, apply_schema,
     verify_csp_crc32,
 )
@@ -142,7 +142,7 @@ class SessionLog:
 
     def write_text(self, pkt_num, gs_ts, frame_type, raw, inner_payload,
                    stripped_hdr, csp, csp_plausible, ts_result, cmd, cmd_tail,
-                   text, warnings, delta_t, fp, crc_status, is_dup=False):
+                   text, warnings, delta_t, crc_status, is_dup=False):
         lines = []
         if delta_t is not None:
             lines.append(f"    Delta-T: {delta_t:.3f}s")
@@ -205,7 +205,6 @@ class SessionLog:
             tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
             lines.append(f"  CRC-32C     0x{crc_status['csp_crc32_rx']:08x}  [{tag}]")
 
-        lines.append(f"  SHA256      {fp}")
         lines.append("-" * 80)
         lines.append("")
         self._text_f.write("\n".join(lines) + "\n")
@@ -356,7 +355,6 @@ def rx_dashboard(stdscr, show_splash=True):
                     frequency = tx_freq_map[tx_name]
                 inner_payload, stripped_hdr, warnings = normalize_frame(frame_type, raw)
                 csp, csp_plausible = try_parse_csp_v1(inner_payload)
-                fp = fingerprint(raw)
 
                 cmd, cmd_tail = (None, None)
                 ts_result = None
@@ -377,14 +375,19 @@ def rx_dashboard(stdscr, show_splash=True):
 
                 text = clean_text(inner_payload)
 
-                is_dup = fp in seen_fps
-                if is_dup:
-                    seen_fps.move_to_end(fp)
-                else:
-                    seen_fps[fp] = None
-                if len(seen_fps) > MAX_SEEN_FPS:
-                    for _ in range(MAX_SEEN_FPS // 5):
-                        seen_fps.popitem(last=False)
+                # Duplicate detection using satellite CRC-16 + CRC-32C
+                is_dup = False
+                fp = None
+                if cmd and cmd.get("crc") is not None and cmd.get("csp_crc32") is not None:
+                    fp = (cmd["crc"], cmd["csp_crc32"])
+                    is_dup = fp in seen_fps
+                    if is_dup:
+                        seen_fps.move_to_end(fp)
+                    else:
+                        seen_fps[fp] = None
+                    if len(seen_fps) > MAX_SEEN_FPS:
+                        for _ in range(MAX_SEEN_FPS // 5):
+                            seen_fps.popitem(last=False)
                 pkt_times.append(now)
                 pkt_times[:] = [t for t in pkt_times if t > now - 60.0]
 
@@ -396,7 +399,7 @@ def rx_dashboard(stdscr, show_splash=True):
                         "tx_meta": str(meta.get("transmitter", "")),
                         "raw_hex": raw.hex(), "payload_hex": inner_payload.hex(),
                         "raw_len": len(raw), "payload_len": len(inner_payload),
-                        "sha256": fp, "duplicate": is_dup,
+                        "duplicate": is_dup,
                     }
                     if delta_t is not None:
                         log_record["delta_t"] = round(delta_t, 4)
@@ -438,7 +441,7 @@ def rx_dashboard(stdscr, show_splash=True):
                     log.write_text(
                         packet_count, gs_ts, frame_type, raw, inner_payload,
                         stripped_hdr, csp, csp_plausible, ts_result, cmd,
-                        cmd_tail, text, warnings, delta_t, fp, crc_status,
+                        cmd_tail, text, warnings, delta_t, crc_status,
                         is_dup,
                     )
 
@@ -459,7 +462,6 @@ def rx_dashboard(stdscr, show_splash=True):
                     "text": text,
                     "warnings": warnings,
                     "delta_t": delta_t,
-                    "fp": fp,
                     "crc_status": crc_status,
                     "is_dup": is_dup,
                 }

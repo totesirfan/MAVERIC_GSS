@@ -470,11 +470,6 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
               f"0x{crc_status['csp_crc32_rx']:08x}  [{tag}]", crc_attr)
         row += 1
 
-    # SHA-256
-    fp = packet.get("fp", "")
-    if fp and row < max_row:
-        _safe(stdscr, row, x + 2, "SHA256", lbl)
-        _safe(stdscr, row, x + 14, fp, dim)
 
 
 # -- Input Panel --------------------------------------------------------------
