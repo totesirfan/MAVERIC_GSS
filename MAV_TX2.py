@@ -142,14 +142,18 @@ def dashboard(stdscr, *, show_splash=True):
         ax = CFG["ax25"]
         cs = CFG["csp"]
         splash_lines = [
+            ("Config",    "maveric_gss.yml"),
             ("ZMQ PUB",   ZMQ_ADDR),
             ("Frequency", FREQUENCY),
             ("TX Delay",  f"{TX_DELAY_MS} ms"),
-            ("AX.25",     f"{ax['src_call']}-{ax['src_ssid']}"
-                          f" -> {ax['dest_call']}-{ax['dest_ssid']}"),
-            ("CSP",       f"Src:{cs['source']} -> Dest:{cs['destination']}"
-                          f" DPort:{cs['dest_port']}"),
+            ("AX.25",     f"GS:{ax['src_call']}-{ax['src_ssid']}"
+                          f" -> SAT:{ax['dest_call']}-{ax['dest_ssid']}"),
+            ("CSP Prio",  str(cs['priority'])),
+            ("CSP Route", f"Src:{cs['source']} -> Dest:{cs['destination']}"),
+            ("CSP Ports", f"SPort:{cs['src_port']} DPort:{cs['dest_port']}"),
+            ("CSP Flags", f"0x{int(cs['flags']):02X}"),
             ("Commands",  CMD_DEFS_PATH),
+            ("Log Dir",   LOG_DIR),
         ]
         draw_splash(stdscr, subtitle=f"MAVERIC TX Dashboard  v{VERSION}",
                      config_lines=splash_lines)

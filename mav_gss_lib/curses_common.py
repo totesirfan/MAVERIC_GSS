@@ -133,35 +133,52 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
     if config_lines is None:
         config_lines = []
 
-    # Block height:
-    #   5 logo + 1 blank + ISI + SERC + 1 blank + subtitle
-    #   + 1 blank + gnuradio warning
-    #   + 1 blank + config lines
-    #   + 1 blank + "Press any key"
-    block_h = 10 + 2 + (len(config_lines) + 1 if config_lines else 0) + 2
+    # -- Box around logo, ISI/SERC, and subtitle --
+    serc = "Space Engineering Research Center"
+    box_content = [serc, subtitle] + [l for l in _USC_LOGO]
+    inner_w = max(len(s) for s in box_content) + 4  # 2 padding each side
+    box_w = inner_w + 2  # +2 for border chars
+
+    # Box interior rows: top border + 1 pad + 5 logo + blank + ISI + SERC
+    #                    + blank + subtitle + 1 pad + bottom border = 14
+    box_h = 14
+    # Total block: box + 1 blank + gnuradio + 1 blank + config + 1 blank + key
+    config_h = (len(config_lines) + 1) if config_lines else 0
+    block_h = box_h + 2 + config_h + 2
     start_y = max(0, (max_y - block_h) // 2)
+    box_x = max(0, (max_x - box_w) // 2)
 
     cardinal = curses.color_pair(CP_USC_CARDINAL) | curses.A_BOLD
     gold = curses.color_pair(CP_USC_GOLD) | curses.A_BOLD
     dim = curses.color_pair(CP_DIM)
     warn = curses.color_pair(CP_WARNING) | curses.A_BOLD
 
-    # USC block letters
+    # Draw box border
+    _safe(stdscr, start_y, box_x,
+          "╔" + "═" * inner_w + "╗", gold)
+    for i in range(1, box_h - 1):
+        _safe(stdscr, start_y + i, box_x, "║", gold)
+        _safe(stdscr, start_y + i, box_x + box_w - 1, "║", gold)
+    _safe(stdscr, start_y + box_h - 1, box_x,
+          "╚" + "═" * inner_w + "╝", gold)
+
+    # USC block letters (inside box, offset by 1 for top border + 1 padding)
+    logo_y = start_y + 2
     for i, line in enumerate(_USC_LOGO):
-        col = max(0, (max_x - len(line)) // 2)
-        _safe(stdscr, start_y + i, col, line, cardinal)
+        col = box_x + 1 + (inner_w - len(line)) // 2
+        _safe(stdscr, logo_y + i, col, line, cardinal)
 
-    # ISI + SERC + subtitle
-    for offset, text, attr in [
-        (6, "ISI", gold),
-        (7, "Space Engineering Research Center", gold),
-        (9, subtitle, dim),
+    # ISI + SERC + subtitle (inside box)
+    for row_off, text, attr in [
+        (8, "ISI", gold),
+        (9, serc, gold),
+        (11, subtitle, dim),
     ]:
-        col = max(0, (max_x - len(text)) // 2)
-        _safe(stdscr, start_y + offset, col, text, attr)
+        col = box_x + 1 + (inner_w - len(text)) // 2
+        _safe(stdscr, start_y + row_off, col, text, attr)
 
-    # GNURadio reminder
-    row = start_y + 11
+    # GNURadio reminder (below box)
+    row = start_y + box_h + 1
     gr_text = "!! Confirm GNURadio Flowgraph is running !!"
     col = max(0, (max_x - len(gr_text)) // 2)
     _safe(stdscr, row, col, gr_text, warn)

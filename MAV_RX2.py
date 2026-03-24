@@ -253,11 +253,18 @@ def rx_dashboard(stdscr, show_splash=True):
     curses.set_escdelay(25)  # fast Esc response (25ms instead of default 1000ms)
     init_colors()
     stdscr.keypad(True)
+    tx_freq_map = _load_tx_frequencies(DECODER_YML_PATH)
+    # Pick first frequency from decoder YAML for display
+    rx_freq = next(iter(tx_freq_map.values()), "N/A")
+
     if show_splash:
         splash_lines = [
-            ("ZMQ SUB",  ZMQ_ADDR),
-            ("Decoder",  DECODER_YML_PATH),
-            ("Commands", CMD_DEFS_PATH),
+            ("Config",    "maveric_gss.yml"),
+            ("ZMQ SUB",   ZMQ_ADDR),
+            ("Frequency", rx_freq),
+            ("Decoder",   DECODER_YML_PATH),
+            ("Commands",  CMD_DEFS_PATH),
+            ("Log Dir",   LOG_DIR),
         ]
         draw_splash(stdscr, subtitle=f"MAVERIC RX Monitor  v{VERSION}",
                      config_lines=splash_lines)
@@ -266,7 +273,6 @@ def rx_dashboard(stdscr, show_splash=True):
     # -- Init ZMQ, logging, schema --
     context, sock = init_zmq_sub(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
-    tx_freq_map = _load_tx_frequencies(DECODER_YML_PATH)
 
     # -- State --
     packets = []
