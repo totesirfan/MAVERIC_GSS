@@ -1,12 +1,11 @@
 """
 mav_gss_lib -- MAVERIC Ground Station Shared Library
 
-Shared protocol, display, and transport code for the MAVERIC CubeSat
-ground station software suite (MAV_RX, MAV_TX2).
+Shared protocol and transport code for the MAVERIC CubeSat
+ground station software suite (MAV_RX2, MAV_TX2).
 
 Modules:
     protocol   -- Mission protocol: nodes, CSP, KISS, CRC-16, CRC-32C, command format, schema
-    display    -- Terminal UI: colors, box drawing, text formatting
     transport  -- ZMQ + PMT: PUB/SUB sockets, PDU send/receive
 
 Author:  Irfan Annuar - USC ISI SERC
@@ -21,12 +20,6 @@ from mav_gss_lib.protocol import (
     try_parse_csp_v1, try_parse_command,
     fingerprint, clean_text, CSPConfig,
     load_command_defs, apply_schema, validate_args,
-)
-
-from mav_gss_lib.display import (
-    C, BOX_W, INN_W, TOP, MID, BOT,
-    strip_ansi, row, wrap_hex,
-    banner, info_line, separator,
 )
 
 from mav_gss_lib.transport import (

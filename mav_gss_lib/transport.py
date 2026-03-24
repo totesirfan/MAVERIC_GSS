@@ -13,7 +13,6 @@ import time
 import zmq
 import pmt
 from datetime import datetime
-from mav_gss_lib.display import C
 
 
 def init_zmq_sub(addr, timeout_ms=200):
@@ -45,11 +44,12 @@ def init_zmq_pub(addr, settle_ms=300):
     return context, sock
 
 
-def receive_pdu(sock):
+def receive_pdu(sock, on_error=None):
     """Receive and deserialize one PMT PDU from ZMQ.
 
     Returns (meta_dict, raw_bytes), or None on timeout.
-    Malformed messages are caught and logged to stderr.
+    Malformed messages are caught and logged via on_error callback
+    (or to stderr if no callback provided).
     """
     try:
         msg = sock.recv()
@@ -62,8 +62,11 @@ def receive_pdu(sock):
         raw = bytes(pmt.u8vector_elements(pmt.cdr(pdu)))
     except Exception as e:
         ts = datetime.now().astimezone().strftime("%H:%M:%S")
-        print(f"\n  {C.ERROR}[{ts}] PMT deserialize error: {e}{C.END}",
-              file=sys.stderr)
+        error_msg = f"[{ts}] PMT deserialize error: {e}"
+        if on_error:
+            on_error(error_msg)
+        else:
+            print(f"\n  [ERROR] {error_msg}", file=sys.stderr)
         return None
 
     if meta is None:

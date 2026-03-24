@@ -7,41 +7,53 @@ Ground station tools for the MAVERIC CubeSat mission. Receives and displays deco
 ```
 mav_gss_lib/              Shared library
     protocol.py           Nodes, CSP v1, KISS, CRC-16/CRC-32C, command wire format
-    display.py            Theme class, box drawing, terminal formatting
     transport.py          ZMQ PUB/SUB, PMT PDU send/receive
-    curses_ui.py          Curses dashboard panels, layout, color pairs
+    curses_common.py      Shared curses utilities (colors, drawing, splash screen)
+    curses_tx.py          TX dashboard panels and layout
+    curses_rx.py          RX monitor panels and layout
 
-MAV_RX.py                 Downlink packet monitor
+MAV_RX2.py                Downlink packet monitor (curses)
 MAV_TX2.py                Uplink command dashboard (curses)
 
-legacy/                   Archived tools
+legacy/                   Archived tools (not tracked in git)
+    MAV_RX.py             Original terminal-based packet monitor
     MAV_TX_old.py         Original CLI command terminal
+    display.py            ANSI terminal theme/box drawing (used by legacy scripts)
 
 maveric_commands.yml      Command schema (arg names, types, validation)
 maveric_decoder.yml       gr-satellites satellite definition file
 ```
 
-## MAV_RX — Packet Monitor
+## MAV_RX2 — Packet Monitor (Curses)
 
-Subscribes to a ZMQ PUB socket where GNU Radio publishes decoded PDUs and displays packet contents for live debugging. Designed to run continuously — the flowgraph can be started and stopped independently.
+Curses-based downlink packet monitor. Subscribes to a ZMQ PUB socket where GNU Radio publishes decoded PDUs and displays packets in a scrollable, interactive dashboard. A dedicated receiver thread ensures no packets are lost during UI redraws.
 
-For each packet, the monitor shows:
+Layout:
 
-- Packet count, ground station timestamp, and inter-packet timing
-- Frame type (AX.25 or AX100), inferred from gr-satellites metadata
-- Inner payload after stripping transport framing
-- CSP v1 header parse with plausibility check
-- CRC-32C (Castagnoli) verification over the full CSP packet
-- CRC-16 XMODEM verification on the command payload
-- Satellite timestamp (schema-resolved or heuristic epoch-ms detection)
-- Parsed command structure with node routing and typed arguments
-- SHA-256 fingerprint for duplicate detection
+- **Header** — ZMQ address, frequency (auto-detected from gr-satellites metadata), UTC/local clock, HEX/LOG toggle indicators
+- **Packet List** — scrollable list with command src/dest routing, command ID, arguments, payload size, CRC status, duplicate detection. Auto-follows newest packets in `[LIVE]` mode
+- **Packet Detail** — expanded view of selected packet (Enter to toggle): AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification, SHA-256 fingerprint
+- **Input** — command entry with live status (Receiving/Silence timer, packet count, rate)
 
-When `maveric_commands.yml` is present, known commands are parsed deterministically by the schema — no regex scanning or per-arg guessing. Unknown commands fall back to the heuristic path automatically.
+Typed commands:
 
-With `--loud`, hex dump, ASCII, CRC values, and SHA-256 are also shown in the terminal. These are always written to the log files regardless.
+| Command | Action |
+|---------|--------|
+| `help` | Toggle help panel |
+| `cfg` / `config` | Toggle config panel (hex/log toggles) |
+| `hex` | Toggle hex/ASCII display |
+| `log` | Toggle logging on/off |
+| `q` / `quit` | Exit |
 
-Raw hex is ground truth. All parsed fields are diagnostic until the telemetry map is finalized.
+Keyboard:
+
+| Key | Action |
+|-----|--------|
+| `Up / Down` | Select packet (Down on last → LIVE) |
+| `PgUp / PgDn` | Scroll by page |
+| `Home / End` | First / last packet |
+| `Enter` | Toggle detail panel (or execute typed command) |
+| `Ctrl+C` | Quit |
 
 ## MAV_TX2 — Command Dashboard (Curses)
 
@@ -80,13 +92,13 @@ All scripts require the radioconda GNU Radio environment. Start your GNU Radio f
 ```bash
 conda activate gnuradio
 
-# Downlink monitor
-python3 MAV_RX.py
-python3 MAV_RX.py --loud       # includes hex, ASCII, CRC, SHA256
-python3 MAV_RX.py --nolog      # display only, no log files
+# Downlink monitor (curses)
+python3 MAV_RX2.py
+python3 MAV_RX2.py --nosplash   # skip startup splash screen
 
 # Uplink command dashboard (curses)
 python3 MAV_TX2.py
+python3 MAV_TX2.py --nosplash
 ```
 
 Press `Ctrl+C` to stop.
@@ -98,14 +110,14 @@ Each monitor session writes two log files to `logs/`:
 - `.jsonl` — machine-readable, one JSON object per packet
 - `.txt` — human-readable plain text
 
-The command terminal logs uplink transmissions to a separate `.jsonl` file. Logging can be disabled with `--nolog` on the monitor.
+RX logs are named `downlink_YYYYMMDD_HHMMSS.*`, TX logs are named `uplink_YYYYMMDD_HHMMSS.*`. Logging can be toggled at runtime in the RX monitor via the `log` command or config panel.
 
 ## Command Schema
 
 `maveric_commands.yml` defines the argument schema for each known command. When present:
 
 - **RX** parses known commands deterministically by position and type (skips regex/heuristic scanning)
-- **TX2** validates arguments and rejects invalid commands — they are not added to the queue
+- **TX** validates arguments and rejects invalid commands — they are not added to the queue
 - Unknown commands fall back to heuristic parsing automatically
 
 Supported arg types: `str`, `int`, `float`, `epoch_ms`, `bool`. See the file header for full documentation.
@@ -114,15 +126,11 @@ Supported arg types: `str`, `int`, `float`, `epoch_ms`, `bool`. See the file hea
 
 | Variable | Default | Where |
 |----------|---------|-------|
-| `ZMQ_PORT` | `52001` | MAV_RX — downlink subscribe port |
+| `ZMQ_PORT` | `52001` | MAV_RX2 — downlink subscribe port |
 | `ZMQ_ADDR` | `tcp://127.0.0.1:52002` | MAV_TX2 — uplink publish port |
-| `ZMQ_RECV_TIMEOUT_MS` | `200` | MAV_RX — receive timeout (ms) |
+| `ZMQ_RECV_TIMEOUT_MS` | `200` | MAV_RX2 — receive timeout (ms) |
 | `LOG_DIR` | `logs` | Both — log output directory |
 | `CMD_DEFS_PATH` | `maveric_commands.yml` | Both — command schema file |
-
-## Theming
-
-ANSI colors for MAV_RX are defined in `mav_gss_lib/display.py` in the `Theme` class. Curses color pairs for MAV_TX2 are defined in `mav_gss_lib/curses_ui.py`. Both use the same semantic roles (LABEL, VALUE, SUCCESS, WARNING, ERROR).
 
 ## Decoder
 

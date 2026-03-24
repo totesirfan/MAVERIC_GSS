@@ -27,11 +27,12 @@ from mav_gss_lib.protocol import (
     load_command_defs, validate_args,
 )
 from mav_gss_lib.transport import init_zmq_pub, send_pdu
-from mav_gss_lib.curses_ui import (
-    init_colors, calculate_layout,
+from mav_gss_lib.curses_common import init_colors, draw_splash
+from mav_gss_lib.curses_tx import (
+    calculate_layout,
     draw_header, draw_queue, draw_history, draw_input,
     draw_config, config_get_values, config_apply, CONFIG_FIELDS,
-    draw_help, draw_splash,
+    draw_help,
 )
 
 
@@ -174,7 +175,7 @@ def dashboard(stdscr, *, show_splash=True):
     init_colors()
     stdscr.keypad(True)   # enable KEY_LEFT, KEY_UP, etc.
     if show_splash:
-        draw_splash(stdscr)
+        draw_splash(stdscr, subtitle="MAVERIC TX Dashboard")
     curses.halfdelay(5)   # 500ms timeout for getch — drives clock updates
 
     csp  = CSPConfig()
