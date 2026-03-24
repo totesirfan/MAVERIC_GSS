@@ -96,7 +96,7 @@ def draw_splash(stdscr):
 
 # -- Layout -------------------------------------------------------------------
 
-HEADER_ROWS = 4   # title + AX.25 + CSP + ZMQ/freq
+HEADER_ROWS = 5   # title + separator + AX.25 + CSP + ZMQ/freq
 INPUT_ROWS  = 3   # separator + prompt + hints
 MIN_QUEUE   = 3   # title + at least 2 data rows
 MIN_HISTORY = 3   # title + at least 2 data rows
@@ -184,10 +184,13 @@ def draw_header(stdscr, region, csp, ax25, zmq_addr, freq="435.0 MHz",
     _safe(stdscr, y, x + w - len(time_str) - 1, time_str,
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
 
-    # Row 1: AX.25 callsigns + CSP summary
-    _safe(stdscr, y + 1, x + 1, "AX.25",
+    # Row 1: separator under title
+    _hline(stdscr, y + 1, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+
+    # Row 2: AX.25 callsigns + CSP summary
+    _safe(stdscr, y + 2, x + 1, "AX.25",
           curses.color_pair(CP_LABEL))
-    _safe(stdscr, y + 1, x + 7,
+    _safe(stdscr, y + 2, x + 7,
           f"{ax25.src_call}-{ax25.src_ssid}"
           f" \u2192 {ax25.dest_call}-{ax25.dest_ssid}",
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
@@ -196,23 +199,23 @@ def draw_header(stdscr, region, csp, ax25, zmq_addr, freq="435.0 MHz",
                f"DPort:{csp.dport} SPort:{csp.sport} "
                f"Flags:0x{csp.flags:02X}")
     csp_x = w // 2
-    _safe(stdscr, y + 1, x + csp_x, "CSP",
+    _safe(stdscr, y + 2, x + csp_x, "CSP",
           curses.color_pair(CP_LABEL))
-    _safe(stdscr, y + 1, x + csp_x + 4, csp_str,
+    _safe(stdscr, y + 2, x + csp_x + 4, csp_str,
           curses.color_pair(CP_DIM) | curses.A_DIM)
 
-    # Row 2: ZMQ + Freq
-    _safe(stdscr, y + 2, x + 1, "ZMQ",
+    # Row 3: ZMQ + Freq
+    _safe(stdscr, y + 3, x + 1, "ZMQ",
           curses.color_pair(CP_LABEL))
-    _safe(stdscr, y + 2, x + 7,
+    _safe(stdscr, y + 3, x + 7,
           f"{zmq_addr} [BOUND]",
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
     freq_str = f"Freq: {freq}"
-    _safe(stdscr, y + 2, x + csp_x, freq_str,
+    _safe(stdscr, y + 3, x + csp_x, freq_str,
           curses.color_pair(CP_WARNING))
 
-    # Row 3: separator
-    _hline(stdscr, y + 3, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+    # Row 4: separator
+    _hline(stdscr, y + 4, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
 
 
 # -- Queue Panel --------------------------------------------------------------
