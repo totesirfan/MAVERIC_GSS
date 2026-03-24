@@ -605,6 +605,16 @@ def rx_dashboard(stdscr, show_splash=True):
                         status_expire = time.time() + dur
                     elif low == 'detail':
                         detail_open = not detail_open
+                    elif low == 'hclear':
+                        if packets:
+                            status_msg = f"Cleared {len(packets)} packets"
+                            status_expire = time.time() + 2
+                            packets.clear()
+                            selected_idx = -1
+                            scroll_offset = 0
+                        else:
+                            status_msg = "History already empty"
+                            status_expire = time.time() + 2
                     elif low == 'live':
                         selected_idx = -1
                     else:
@@ -688,12 +698,7 @@ def rx_dashboard(stdscr, show_splash=True):
                              log_jsonl=log.jsonl_path if log else "(disabled)",
                              version=VERSION)
             elif config_open and "side_panel" in layout:
-                cfg_vals = rx_config_get_values(
-                    show_hex, logging_enabled,
-                    log_path=log.text_path if log else "(disabled)",
-                    schema_count=len(cmd_defs),
-                    schema_path=CMD_DEFS_PATH,
-                    version=VERSION)
+                cfg_vals = rx_config_get_values(show_hex, logging_enabled)
                 draw_rx_config(stdscr, layout["side_panel"], cfg_vals,
                                selected=config_selected,
                                focused=config_focused)

@@ -21,8 +21,8 @@ import time
 from datetime import datetime
 
 from mav_gss_lib.protocol import (
-    NODE_NAMES,
-    node_label, resolve_node,
+    NODE_NAMES, PTYPE_NAMES,
+    node_label, resolve_node, resolve_ptype,
     build_cmd_raw, AX25Config, CSPConfig,
     load_command_defs, validate_args,
 )
@@ -80,13 +80,21 @@ def log_tx(f, n, dest, cmd, args, payload, csp_enabled):
 # -- Command Parsing ----------------------------------------------------------
 
 def parse_cmd_line(line):
-    parts = line.split(None, 2)
-    if len(parts) < 2:
+    """Parse command line: DEST ECHO TYPE CMD [ARGS]
+    Returns (dest, echo, ptype, cmd, args) or None on failure."""
+    parts = line.split(None, 4)
+    if len(parts) < 4:
         return None
     dest = resolve_node(parts[0])
     if dest is None:
         return None
-    return (dest, parts[1], parts[2] if len(parts) > 2 else "")
+    echo = resolve_node(parts[1])
+    if echo is None:
+        return None
+    ptype = resolve_ptype(parts[2])
+    if ptype is None:
+        return None
+    return (dest, echo, ptype, parts[3], parts[4] if len(parts) > 4 else "")
 
 
 # -- Config Handlers (return status strings instead of printing) --------------
@@ -168,7 +176,7 @@ def dashboard(stdscr, *, show_splash=True):
     ctx, sock = init_zmq_pub(ZMQ_ADDR)
     logf, logpath = open_log()
 
-    queue   = []       # list of (dest, cmd, args, raw_cmd)
+    queue   = []       # list of (dest, echo, ptype, cmd, args, raw_cmd)
     history = []       # list of dicts
     input_buf  = ""
     cursor_pos = 0
@@ -224,7 +232,7 @@ def dashboard(stdscr, *, show_splash=True):
             set_status("Nothing queued", 2)
             return
         count = len(queue)
-        for i, (dest, cmd, args, raw_cmd) in enumerate(queue):
+        for i, (dest, echo, ptype, cmd, args, raw_cmd) in enumerate(queue):
             # Show this command as "SENDING", previous as "SENT"
             redraw(sending_idx=i)
             if i > 0 and tx_delay_ms > 0:
@@ -233,8 +241,6 @@ def dashboard(stdscr, *, show_splash=True):
             n += 1
             send_pdu(sock, payload)
             log_tx(logf, n, dest, cmd, args, payload, csp.enabled)
-            echo = raw_cmd[2]
-            ptype = raw_cmd[3]
             history.append({
                 "n": n,
                 "ts": datetime.now().strftime("%H:%M:%S"),
@@ -303,7 +309,9 @@ def dashboard(stdscr, *, show_splash=True):
                             config_selected, config_editing,
                             config_buf, config_cursor, config_focused)
             elif help_open and "side_panel" in layout:
-                draw_help(stdscr, layout["side_panel"])
+                draw_help(stdscr, layout["side_panel"],
+                          version=VERSION, schema_count=len(cmd_defs),
+                          schema_path=CMD_DEFS_PATH, log_path=logpath)
 
             stdscr.refresh()
 
@@ -460,7 +468,7 @@ def dashboard(stdscr, *, show_splash=True):
                     send_queue()
                     continue
 
-                # Clear
+                # Clear queue
                 if low == 'clear':
                     if queue:
                         set_status(f"Cleared {len(queue)} commands", 2)
@@ -468,6 +476,16 @@ def dashboard(stdscr, *, show_splash=True):
                         queue_scroll = 0
                     else:
                         set_status("Nothing to clear", 2)
+                    continue
+
+                # Clear sent history
+                if low == 'hclear':
+                    if history:
+                        set_status(f"Cleared {len(history)} history entries", 2)
+                        history.clear()
+                        hist_scroll = 0
+                    else:
+                        set_status("History already empty", 2)
                     continue
 
                 # Help
@@ -519,10 +537,10 @@ def dashboard(stdscr, *, show_splash=True):
                 # Parse as command — queue it
                 parsed = parse_cmd_line(line)
                 if parsed is None:
-                    set_status("Bad command: need <dest> <cmd> [args]", 3)
+                    set_status("Bad command: need <dest> <echo> <type> <cmd> [args]", 3)
                     continue
 
-                dest, cmd, args = parsed
+                dest, echo, ptype, cmd, args = parsed
 
                 # Schema validation — reject invalid commands
                 valid, issues = validate_args(cmd, args, cmd_defs)
@@ -533,13 +551,13 @@ def dashboard(stdscr, *, show_splash=True):
                     set_status(f"Rejected: '{cmd}' not in command schema", 3)
                     continue
 
-                raw_cmd = build_cmd_raw(dest, cmd, args)
+                raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype)
                 if len(raw_cmd) + csp.overhead() + ax25.overhead() > MAX_RS_PAYLOAD:
                     set_status("Command too large for RS payload", 3)
                     continue
 
-                queue.append((dest, cmd, args, raw_cmd))
-                set_status(f"Queued: {node_label(dest)} {cmd} {args} ({len(raw_cmd)}B)", 2)
+                queue.append((dest, echo, ptype, cmd, args, raw_cmd))
+                set_status(f"Queued: {node_label(dest)} echo:{echo} {PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
                 continue
 
             # Text editing (backspace, arrows, Ctrl+W, printable chars, etc.)

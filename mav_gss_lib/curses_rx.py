@@ -15,7 +15,7 @@ Author:  Irfan Annuar - USC ISI SERC
 import curses
 from datetime import datetime, timezone
 
-from mav_gss_lib.protocol import NODE_NAMES, node_label, ptype_label
+from mav_gss_lib.protocol import PTYPE_NAMES, node_label, ptype_label
 from mav_gss_lib.curses_common import (
     _safe, _hline, _vline,
     CP_LABEL, CP_VALUE, CP_SUCCESS, CP_WARNING, CP_ERROR, CP_DIM,
@@ -23,16 +23,10 @@ from mav_gss_lib.curses_common import (
 )
 
 
-def _compact_node(node_id):
-    """Compact node label: '2(EPS)' or '99' if unknown."""
-    name = NODE_NAMES.get(node_id)
-    return f"{node_id}({name})" if name else str(node_id)
-
-
 # -- Layout -------------------------------------------------------------------
 
 RX_HEADER_ROWS = 3    # title+clock + separator + ZMQ/toggles
-RX_INPUT_ROWS  = 2    # status line + prompt/hints line
+RX_INPUT_ROWS  = 4    # status + separator + prompt + hints
 RX_MIN_LIST    = 5    # title + at least 4 data rows
 RX_DETAIL_H    = 15   # detail panel height when open
 RX_MIN_ROWS    = RX_HEADER_ROWS + RX_INPUT_ROWS + RX_MIN_LIST
@@ -70,9 +64,10 @@ def calculate_rx_layout(max_y, max_x, detail_open=False, side_panel=False):
 
     if side_panel:
         ly, lx, lh, lw = layout["packet_list"]
-        half = lw // 2
-        layout["packet_list"] = (ly, lx, lh, half)
-        layout["side_panel"] = (ly, half, lh, lw - half)
+        side_w = lw * 4 // 10
+        main_w = lw - side_w
+        layout["packet_list"] = (ly, lx, lh, main_w)
+        layout["side_panel"] = (ly, main_w, lh, side_w)
 
     return layout
 
@@ -196,10 +191,10 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
         cmd = pkt.get("cmd")
         if cmd:
             cmd_id = cmd["cmd_id"]
-            cmd_src = _compact_node(cmd["src"])
-            cmd_dest = _compact_node(cmd["dest"])
-            cmd_echo = _compact_node(cmd["echo"])
-            cmd_type = ptype_label(cmd["pkt_type"])
+            cmd_src = node_label(cmd["src"])
+            cmd_dest = node_label(cmd["dest"])
+            cmd_echo = node_label(cmd["echo"])
+            cmd_ptype = PTYPE_NAMES.get(cmd["pkt_type"], str(cmd["pkt_type"]))
             # Build args string
             if cmd.get("schema_match"):
                 arg_parts = []
@@ -215,7 +210,7 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
                 args_str = " ".join(str(a) for a in cmd.get("args", []))
         else:
             cmd_id = "--"
-            cmd_src = cmd_dest = cmd_echo = cmd_type = "--"
+            cmd_src = cmd_dest = cmd_echo = cmd_ptype = "--"
             args_str = ""
 
         # Payload size
@@ -272,6 +267,17 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
         _safe(stdscr, row_y, col, route_str,
               base_attr | curses.color_pair(CP_LABEL))
         col += len(route_str) + 1
+
+        # Echo
+        echo_str = f"E:{cmd_echo}"
+        _safe(stdscr, row_y, col, echo_str,
+              base_attr | curses.color_pair(CP_DIM))
+        col += len(echo_str) + 1
+
+        # Packet type
+        _safe(stdscr, row_y, col, cmd_ptype,
+              base_attr | curses.color_pair(CP_LABEL))
+        col += len(cmd_ptype) + 1
 
         # Command ID
         cmd_display = cmd_id[:14] if len(cmd_id) > 14 else cmd_id
@@ -471,33 +477,33 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
         row += 1
 
 
-
 # -- Input Panel --------------------------------------------------------------
 
 def draw_rx_input(stdscr, region, buf, cursor_pos, silence_secs, pkt_count,
                   rate_per_min, receiving=False, spinner_char="\u2588",
                   status_msg="", error_msg=""):
-    """Draw the 2-row input area: status line on top, prompt+hints on bottom."""
+    """Draw the 3-row input area: status line + separator + prompt/hints."""
     y, x, h, w = region
 
     # Row 0: status line (spinner + receiving/silence + stats)
     col = x + 1
 
+    status_y = y
     if error_msg:
-        _safe(stdscr, y, col, error_msg[:w - 2],
+        _safe(stdscr, status_y, col, error_msg[:w - 2],
               curses.color_pair(CP_ERROR))
     elif status_msg:
-        _safe(stdscr, y, col, status_msg[:w - 2],
+        _safe(stdscr, status_y, col, status_msg[:w - 2],
               curses.color_pair(CP_WARNING))
     else:
         # Spinner
-        _safe(stdscr, y, col, spinner_char,
+        _safe(stdscr, status_y, col, spinner_char,
               curses.color_pair(CP_LABEL) | curses.A_BOLD)
         col += 2
 
         # Receiving / Silence
         if receiving:
-            _safe(stdscr, y, col, "Receiving",
+            _safe(stdscr, status_y, col, "Receiving",
                   curses.color_pair(CP_SUCCESS) | curses.A_BOLD)
             col += 11
         else:
@@ -508,29 +514,25 @@ def draw_rx_input(stdscr, region, buf, cursor_pos, silence_secs, pkt_count,
             else:
                 silence_attr = curses.color_pair(CP_ERROR)
             silence_str = f"Silence: {silence_secs:05.1f}s"
-            _safe(stdscr, y, col, silence_str, silence_attr)
+            _safe(stdscr, status_y, col, silence_str, silence_attr)
             col += len(silence_str) + 2
 
         # Packet count + rate
         stats = f"{pkt_count} pkts"
         if rate_per_min > 0:
             stats += f"  {rate_per_min:.0f} pkt/min"
-        _safe(stdscr, y, col, stats,
+        _safe(stdscr, status_y, col, stats,
               curses.color_pair(CP_DIM) | curses.A_DIM)
 
-    # Row 1: prompt + input buffer (left) + hints (right)
-    row1 = y + 1
+    # Row 1: separator
+    _hline(stdscr, y + 1, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+
+    # Row 2: prompt + input buffer
+    row1 = y + 2
     _safe(stdscr, row1, x + 1, "> ",
           curses.color_pair(CP_LABEL) | curses.A_BOLD)
 
-    # Right side: hints
-    hints = "help | cfg | q"
-    hints_x = x + w - len(hints) - 1
-    _safe(stdscr, row1, hints_x, hints,
-          curses.color_pair(CP_DIM) | curses.A_DIM)
-
-    # Input buffer (between prompt and hints)
-    max_input_w = hints_x - (x + 3) - 1
+    max_input_w = w - 5
     visible_start = 0
     if cursor_pos > max_input_w - 1:
         visible_start = cursor_pos - max_input_w + 1
@@ -541,7 +543,7 @@ def draw_rx_input(stdscr, region, buf, cursor_pos, silence_secs, pkt_count,
 
     # Draw cursor
     cursor_screen_x = x + 3 + (cursor_pos - visible_start)
-    if cursor_screen_x < hints_x - 1:
+    if cursor_screen_x < w - 1:
         ch = buf[cursor_pos] if cursor_pos < len(buf) else " "
         try:
             stdscr.addch(row1, cursor_screen_x, ord(ch),
@@ -549,26 +551,32 @@ def draw_rx_input(stdscr, region, buf, cursor_pos, silence_secs, pkt_count,
         except curses.error:
             pass
 
+    # Row 3: hints
+    hints = "Enter: detail | cfg | help | Ctrl+C: quit"
+    _safe(stdscr, y + 3, x + 1, hints,
+          curses.color_pair(CP_DIM) | curses.A_DIM)
+
 
 # -- Help Side Panel ----------------------------------------------------------
 
 RX_HELP_LINES = [
-    ("KEYBOARD", None),
-    ("Up / Down", "Select packet (Down on last \u2192 LIVE)"),
+    ("KEYS", None),
+    ("Up / Down", "Select packet"),
     ("PgUp / PgDn", "Scroll page"),
-    ("Home / End", "First / last packet"),
-    ("Enter", "Toggle detail panel"),
+    ("Enter", "Toggle detail"),
+    ("Ctrl+A / Ctrl+E", "Cursor start / end"),
+    ("Ctrl+W / Ctrl+U", "Del word / clear input"),
     ("Ctrl+C", "Quit"),
-    ("", ""),
     ("COMMANDS", None),
-    ("help", "Toggle this panel"),
-    ("cfg / config", "Toggle config panel"),
-    ("q / quit", "Exit"),
-    ("", ""),
+    ("cfg / help", "Toggle panels"),
+    ("hclear", "Clear history"),
+    ("hex / log", "Toggle hex / logging"),
+    ("detail / live", "Toggle detail / follow"),
+    ("q", "Exit"),
     ("INDICATORS", None),
     ("[LIVE]", "Auto-follow newest"),
     ("DUP", "Duplicate packet"),
-    ("CRC:OK / FAIL", "Integrity check"),
+    ("CRC:OK/FAIL", "Integrity check"),
 ]
 
 
@@ -581,15 +589,11 @@ RX_CONFIG_FIELDS = [
 ]
 
 
-def rx_config_get_values(show_hex, logging_enabled, log_path="",
-                         schema_count=0, schema_path="", version=""):
+def rx_config_get_values(show_hex, logging_enabled):
     """Read current RX config into a dict."""
     return {
         "show_hex":     "ON" if show_hex else "OFF",
         "logging":      "ON" if logging_enabled else "OFF",
-        "log_path":     log_path,
-        "schema":       f"{schema_count} cmds ({schema_path})" if schema_count else "MISSING",
-        "version":      version,
     }
 
 
@@ -635,19 +639,6 @@ def draw_rx_config(stdscr, region, values, selected=0, focused=False):
             val_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
         _safe(stdscr, row, val_x, val, val_attr)
 
-    # Info section below editable fields
-    info_row = y + 2 + len(RX_CONFIG_FIELDS) + 1
-    _hline(stdscr, info_row, x + 1, w - 1, dim)
-    info_row += 1
-
-    for label, key in [("Log File", "log_path"), ("Schema", "schema"),
-                       ("Version", "version")]:
-        if info_row >= y + h - 1:
-            break
-        _safe(stdscr, info_row, x + 3, label, dim)
-        _safe(stdscr, info_row, val_x, values.get(key, "")[:w - val_x - 1], dim)
-        info_row += 1
-
     # Hints at bottom
     hints = "Tab:focus Up/Dn:select Enter:toggle"
     _safe(stdscr, y + h - 1, x + 2, hints[:inner_w], dim)
@@ -669,7 +660,7 @@ def draw_rx_help(stdscr, region, schema_count=0, schema_path="",
     _hline(stdscr, y + 1, x + 1, w - 1, dim)
 
     # Two-column layout
-    left_col_w = min(18, inner_w // 2)
+    left_col_w = inner_w * 5 // 10
     right_col_x = x + 2 + left_col_w + 1
     max_right_w = w - left_col_w - 5
 

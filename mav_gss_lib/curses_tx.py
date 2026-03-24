@@ -16,17 +16,12 @@ Author:  Irfan Annuar - USC ISI SERC
 import curses
 from datetime import datetime, timezone
 
-from mav_gss_lib.protocol import NODE_NAMES, node_label, ptype_label, GS_NODE
+from mav_gss_lib.protocol import NODE_NAMES, PTYPE_NAMES, node_label, GS_NODE
 from mav_gss_lib.curses_common import (
     _safe, _hline, _vline,
     CP_LABEL, CP_VALUE, CP_SUCCESS, CP_WARNING, CP_ERROR, CP_DIM,
     MIN_COLS,
 )
-
-
-def _node_name(node_id):
-    """Just the name, no number. E.g. 'EPS' instead of '2 (EPS)'."""
-    return NODE_NAMES.get(node_id, str(node_id))
 
 
 # -- Layout -------------------------------------------------------------------
@@ -65,9 +60,10 @@ def calculate_layout(max_y, max_x, side_panel=False):
     }
 
     if side_panel:
-        half = w // 2
-        layout["history"]    = (hist_y, 0, history_h, half)
-        layout["side_panel"] = (hist_y, half, history_h, w - half)
+        side_w = w * 4 // 10
+        main_w = w - side_w
+        layout["history"]    = (hist_y, 0, history_h, main_w)
+        layout["side_panel"] = (hist_y, main_w, history_h, side_w)
     else:
         layout["history"] = (hist_y, 0, history_h, w)
 
@@ -157,50 +153,62 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1,
               curses.color_pair(CP_DIM) | curses.A_DIM)
     else:
         visible = queue[scroll_offset:scroll_offset + data_rows]
-        for i, (dest, cmd, args, raw_cmd) in enumerate(visible):
+        for i, (dest, echo, ptype, cmd, args, raw_cmd) in enumerate(visible):
             row_y = y + 1 + i
             if row_y >= y + h:
                 break
             idx = scroll_offset + i + 1
             abs_idx = scroll_offset + i  # 0-based index into queue
-            dest_lbl = _node_name(dest)
+            dest_lbl = node_label(dest)
+            echo_lbl = node_label(echo)
+            ptype_lbl = PTYPE_NAMES.get(ptype, str(ptype))
             col = x + 1
 
             # Determine row style based on send progress
             if sending_idx >= 0 and abs_idx < sending_idx:
                 _dim = curses.color_pair(CP_DIM) | curses.A_DIM
-                lbl_attr = val_attr = idx_attr = _dim
+                base = _dim
                 tag, tag_attr = " SENT", curses.color_pair(CP_SUCCESS) | curses.A_DIM
             elif sending_idx >= 0 and abs_idx == sending_idx:
                 _grn = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
-                lbl_attr = val_attr = idx_attr = _grn
+                base = _grn
                 tag, tag_attr = " SENDING", _grn
             else:
-                lbl_attr = curses.color_pair(CP_LABEL) | curses.A_BOLD
-                val_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
-                idx_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+                base = 0
                 tag, tag_attr = "", 0
 
             idx_str = f"{idx:>2}."
-            _safe(stdscr, row_y, col, idx_str, idx_attr)
+            _safe(stdscr, row_y, col, idx_str,
+                  base | curses.color_pair(CP_WARNING))
             col += len(idx_str) + 1
 
-            _safe(stdscr, row_y, col, dest_lbl, lbl_attr)
+            _safe(stdscr, row_y, col, dest_lbl,
+                  base | curses.color_pair(CP_LABEL))
             col += len(dest_lbl) + 1
 
-            _safe(stdscr, row_y, col, cmd, val_attr)
+            echo_str = f"E:{echo_lbl}"
+            _safe(stdscr, row_y, col, echo_str,
+                  base | curses.color_pair(CP_DIM))
+            col += len(echo_str) + 1
+
+            _safe(stdscr, row_y, col, ptype_lbl,
+                  base | curses.color_pair(CP_LABEL))
+            col += len(ptype_lbl) + 1
+
+            _safe(stdscr, row_y, col, cmd,
+                  base | curses.color_pair(CP_VALUE) | curses.A_BOLD)
             col += len(cmd) + 1
 
             if args:
                 _safe(stdscr, row_y, col, args,
-                      val_attr & ~curses.A_BOLD if sending_idx < 0 else val_attr)
+                      base | curses.color_pair(CP_DIM))
 
             # Right side: size + optional tag
             right = f"({len(raw_cmd)}B)"
             if tag:
                 right = tag + "  " + right
             _safe(stdscr, row_y, x + w - len(right) - 2, right,
-                  tag_attr if tag else curses.color_pair(CP_DIM) | curses.A_DIM)
+                  tag_attr if tag else curses.color_pair(CP_DIM))
 
         if count > data_rows:
             ind = f"[{scroll_offset + 1}-{min(scroll_offset + data_rows, count)}/{count}]"
@@ -240,10 +248,12 @@ def draw_history(stdscr, region, history, scroll_offset=0):
                 break
             n = rec["n"]
             ts = rec["ts"]
-            dest_name = _node_name(rec["dest"])
+            src_name = node_label(GS_NODE)
+            dest_name = node_label(rec["dest"])
+            echo_name = node_label(rec["echo"])
+            ptype_name = PTYPE_NAMES.get(rec["ptype"], str(rec["ptype"]))
             cmd = rec["cmd"]
             args = rec["args"]
-            ptype_lbl = ptype_label(rec["ptype"])
             size = f"{rec['payload_len']}B"
 
             col = x + 1
@@ -254,37 +264,38 @@ def draw_history(stdscr, region, history, scroll_offset=0):
             col += max(len(tag), 4) + 1
 
             _safe(stdscr, row_y, col, ts,
-                  curses.color_pair(CP_DIM) | curses.A_DIM)
-            col += 10
+                  curses.color_pair(CP_DIM))
+            col += len(ts) + 1
 
-            _safe(stdscr, row_y, col, dest_name,
-                  curses.color_pair(CP_LABEL) | curses.A_BOLD)
-            col += len(dest_name) + 1
+            route_str = f"{src_name} \u2192 {dest_name}"
+            _safe(stdscr, row_y, col, route_str,
+                  curses.color_pair(CP_LABEL))
+            col += len(route_str) + 1
+
+            echo_str = f"E:{echo_name}"
+            _safe(stdscr, row_y, col, echo_str,
+                  curses.color_pair(CP_DIM))
+            col += len(echo_str) + 1
+
+            _safe(stdscr, row_y, col, ptype_name,
+                  curses.color_pair(CP_LABEL))
+            col += len(ptype_name) + 1
 
             _safe(stdscr, row_y, col, cmd,
                   curses.color_pair(CP_VALUE) | curses.A_BOLD)
             col += len(cmd) + 1
 
-            # Right side metadata — only if enough room
-            right = (f"Src:{GS_NODE}  Dest:{rec['dest']}  "
-                     f"Echo:{rec['echo']}  Type:{ptype_lbl}  "
-                     f"{size}")
-            right_x = x + w - len(right) - 1
+            # Right-aligned block
+            right = f"({size})"
+            right_x = x + w - len(right) - 2
 
-            if args:
-                if right_x > col + 2:
-                    max_args_w = max(0, right_x - col - 1)
-                    _safe(stdscr, row_y, col, args[:max_args_w],
-                          curses.color_pair(CP_VALUE))
-                else:
-                    # No room for right side, just show args
-                    _safe(stdscr, row_y, col, args[:w - col - 1],
-                          curses.color_pair(CP_VALUE))
-                    continue
+            if args and col < right_x - 1:
+                max_args_w = right_x - col - 1
+                _safe(stdscr, row_y, col, args[:max_args_w],
+                      curses.color_pair(CP_DIM))
 
-            if right_x > col:
-                _safe(stdscr, row_y, right_x, right,
-                      curses.color_pair(CP_DIM) | curses.A_DIM)
+            _safe(stdscr, row_y, right_x, right,
+                  curses.color_pair(CP_DIM))
 
         if count > data_rows:
             ind = f"[{start + 1}-{end}/{count}]"
@@ -354,7 +365,6 @@ def draw_config(stdscr, region, values, selected, editing,
     """Draw the config panel in a side region."""
     y, x, h, w = region
     dim = curses.color_pair(CP_DIM) | curses.A_DIM
-    inner_w = w - 3
 
     # Vertical separator on the left edge
     _vline(stdscr, x, y, h, dim)
@@ -423,40 +433,29 @@ def draw_config(stdscr, region, values, selected, editing,
 
 HELP_LINES = [
     ("COMMAND FORMAT", None),
-    ("<dest> <cmd> [args]", "e.g. EPS SET_VOLTAGE 3.3"),
-    ("", ""),
-    ("DESTINATIONS", None),
-    ("Node name or number", "EPS, LPPM, 2, 3"),
-    ("nodes", "List all node IDs"),
-    ("", ""),
-    ("COMMAND SCHEMA", None),
-    ("maveric_commands.yml", "Valid command defs"),
-    ("Invalid cmds rejected", "Edit YAML to add"),
-    ("", ""),
-    ("KEYBOARD SHORTCUTS", None),
-    ("Ctrl+S", "Send queued"),
-    ("Ctrl+X", "Clear queue"),
+    ("DEST ECHO TYPE CMD [ARGS]", ""),
+    ("  DEST/ECHO", "Node name or ID"),
+    ("  TYPE", "REQ|RES|ACK|NONE"),
+    ("SRC always GS (6)", ""),
+    ("e.g.", "EPS UPPM REQ PING"),
+    ("e.g.", "2 3 1 SET_VOLTAGE 3.3"),
+    ("KEYS", None),
+    ("Ctrl+S / Ctrl+X", "Send / clear queue"),
     ("Up / Down", "History recall"),
     ("PgUp / PgDn", "Scroll history"),
-    ("Ctrl+A / Ctrl+E", "Start / end"),
-    ("Ctrl+W / Ctrl+U", "Del word / clear"),
-    ("", ""),
+    ("Ctrl+A / Ctrl+E", "Cursor start / end"),
+    ("Ctrl+W / Ctrl+U", "Del word / clear input"),
     ("COMMANDS", None),
     ("send", "Send all queued"),
-    ("clear", "Clear queue"),
-    ("config / cfg", "Config panel"),
-    ("help", "This panel"),
-    ("nodes", "List node IDs"),
+    ("clear / hclear", "Clear queue / history"),
+    ("cfg / help / nodes", "Panels & info"),
     ("raw <hex>", "Send raw bytes"),
-    ("q / quit", "Exit"),
-    ("", ""),
-    ("LOGGING", None),
-    ("All TX logged to", "logs/uplink_*.jsonl"),
-    ("Log path in", "config panel"),
+    ("q", "Exit"),
 ]
 
 
-def draw_help(stdscr, region):
+def draw_help(stdscr, region, version="", schema_count=0,
+              schema_path="", log_path=""):
     """Draw the help panel in a side region."""
     y, x, h, w = region
     dim = curses.color_pair(CP_DIM) | curses.A_DIM
@@ -471,29 +470,39 @@ def draw_help(stdscr, region):
     _hline(stdscr, y + 1, x + 1, w - 1, dim)
 
     # Two-column layout
-    left_col_w = min(22, inner_w // 2)
+    left_col_w = inner_w * 5 // 10
     right_col_x = x + 2 + left_col_w + 1
     max_right_w = w - left_col_w - 5
 
-    visible = min(len(HELP_LINES), h - 3)
-    for i in range(visible):
-        left, right = HELP_LINES[i]
-        row = y + 2 + i
-        if row >= y + h - 1:
+    row = y + 2
+    for left, right in HELP_LINES:
+        if row >= y + h - 5:
             break
-
         if right is None:
-            # Section header
             _safe(stdscr, row, x + 2, left[:inner_w],
                   curses.color_pair(CP_LABEL) | curses.A_BOLD)
         elif left == "":
+            row += 1
             continue
         else:
             _safe(stdscr, row, x + 3, left[:left_col_w],
                   curses.color_pair(CP_VALUE) | curses.A_BOLD)
             if right and max_right_w > 0:
-                _safe(stdscr, row, right_col_x, right[:max_right_w],
-                      curses.color_pair(CP_DIM) | curses.A_DIM)
+                _safe(stdscr, row, right_col_x, right[:max_right_w], dim)
+        row += 1
+
+    # Info section at bottom
+    info_start = y + h - 5
+    if info_start > row:
+        _hline(stdscr, info_start, x + 1, w - 1, dim)
+        if version:
+            _safe(stdscr, info_start + 1, x + 2, f"Version: {version}", dim)
+        if schema_count > 0:
+            _safe(stdscr, info_start + 2, x + 2,
+                  f"Schema: {schema_count} cmds ({schema_path})", dim)
+        if log_path:
+            _safe(stdscr, info_start + 3, x + 2,
+                  f"Log: {log_path}"[:inner_w], dim)
 
     # Hint
     _safe(stdscr, y + h - 1, x + 2, "Esc: close"[:inner_w], dim)

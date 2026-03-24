@@ -68,6 +68,19 @@ def resolve_node(s):
     return None
 
 
+def resolve_ptype(s):
+    """Resolve a packet type name ('REQ') or numeric string ('1') to an int.
+    Returns int ptype ID or None if unrecognized."""
+    upper = s.upper()
+    if upper in PTYPE_IDS:
+        return PTYPE_IDS[upper]
+    if s.isdigit():
+        pid = int(s)
+        if pid in PTYPE_NAMES:
+            return pid
+    return None
+
+
 # =============================================================================
 #  KISS FRAMING
 #
