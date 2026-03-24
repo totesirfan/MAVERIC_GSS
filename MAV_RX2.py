@@ -52,7 +52,7 @@ from mav_gss_lib.curses_rx import (
 
 CFG = load_gss_config()
 
-VERSION = "1.0"
+VERSION = CFG["general"]["version"]
 ZMQ_PORT = str(CFG["rx"]["zmq_port"])
 ZMQ_ADDR = CFG["rx"]["zmq_addr"]
 ZMQ_RECV_TIMEOUT_MS = 200

@@ -170,10 +170,13 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
     if config_lines:
         row += 2
         label_w = max(len(lbl) for lbl, _ in config_lines)
+        # Find widest rendered line to compute a single left margin
+        max_line_w = max(label_w + 2 + len(val) for _, val in config_lines)
+        left_col = max(0, (max_x - max_line_w) // 2)
+        val_col = left_col + label_w + 2
         for label, value in config_lines:
-            line = f"{label:<{label_w}}  {value}"
-            col = max(0, (max_x - len(line)) // 2)
-            _safe(stdscr, row, col, line, dim)
+            _safe(stdscr, row, left_col, f"{label:<{label_w}}", dim)
+            _safe(stdscr, row, val_col, value, dim)
             row += 1
 
     # Press any key

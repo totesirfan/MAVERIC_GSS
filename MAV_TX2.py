@@ -41,7 +41,7 @@ from mav_gss_lib.curses_tx import (
 
 CFG = load_gss_config()
 
-VERSION        = "1.0"
+VERSION        = CFG["general"]["version"]
 ZMQ_ADDR       = CFG["tx"]["zmq_addr"]
 LOG_DIR        = CFG["general"]["log_dir"]
 MAX_RS_PAYLOAD = 223
