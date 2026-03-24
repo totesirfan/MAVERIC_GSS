@@ -37,7 +37,7 @@ _DEFAULTS = {
         "zmq_addr": "tcp://127.0.0.1:52001",
     },
     "general": {
-        "version":      "2.2.1",
+        "version":      "2.2.2",
         "log_dir":      "logs",
         "command_defs": "maveric_commands.yml",
         "decoder_yml":  "maveric_decoder.yml",
