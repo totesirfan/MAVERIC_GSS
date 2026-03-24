@@ -5,21 +5,22 @@ Uplink command interface for the MAVERIC CubeSat mission. Builds raw
 commands with a CSP v1 header + CRC-32C and publishes them as PMT PDUs
 over ZMQ for the AX.25 encoder flowgraph in GNU Radio.
 
-Output PDU matches the downlink wire format:
-    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]
+Output PDU ready for HDLC framer:
+    [AX.25 header 16B][CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]
 
 Single command:    EPS PING
 Batch commands:    + EPS SET_MODE auto / + EPS SET_VOLTAGE 3.3 / send
                    (each queued command is sent as its own packet)
 CSP config:        csp / csp dest 8 / csp dport 24
+AX.25 config:      ax25 / ax25 dest WS9XSW / ax25 src WM2XBB
 
 When maveric_commands.yml is present, args are validated against the schema
 before sending. Type mismatches and missing args produce warnings but do
 not block transmission -- the operator always has final say.
 
 Requires GNU Radio flowgraph:
-    ZMQ SUB Source (:52002) -> AX.25 Encoder -> GFSK Mod -> USRP Sink
-    (PDU is already a complete CSP packet — no KISS framing)
+    ZMQ SUB Source (:52002) -> HDLC Framer -> GFSK Mod -> USRP Sink
+    (PDU already includes AX.25 header — no custom GRC blocks needed)
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -37,7 +38,7 @@ except ImportError:
 from mav_gss_lib.protocol import (
     NODE_NAMES, NODE_IDS, GS_NODE,
     node_label, ptype_label, resolve_node,
-    build_cmd_raw, CSPConfig,
+    build_cmd_raw, AX25Config, CSPConfig,
     load_command_defs, validate_args,
 )
 from mav_gss_lib.display import (
@@ -79,6 +80,41 @@ def log_tx(f, n, dest, cmd, args, payload, csp_enabled):
     }
     f.write(json.dumps(rec) + "\n")
     f.flush()
+
+
+# -- AX.25 CLI ----------------------------------------------------------------
+
+def ax25_show(ax25):
+    state = f"{C.SUCCESS}enabled{C.END}" if ax25.enabled else f"{C.DIM}disabled{C.END}"
+    print(f" {C.DIM}AX.25{C.END}       {state}  "
+          f"{C.DIM}Dest:{ax25.dest_call}-{ax25.dest_ssid} "
+          f"Src:{ax25.src_call}-{ax25.src_ssid}{C.END}")
+
+
+def ax25_handle(ax25, args):
+    if not args:
+        ax25_show(ax25)
+        return
+    parts = args.split()
+    cmd = parts[0].lower()
+    if cmd == 'on':
+        ax25.enabled = True
+        print(f"  {C.SUCCESS}AX.25 header enabled{C.END}")
+    elif cmd == 'off':
+        ax25.enabled = False
+        print(f"  {C.WARNING}AX.25 header disabled{C.END}")
+    elif cmd == 'dest' and len(parts) > 1:
+        ax25.dest_call = parts[1].upper()[:6]
+        if len(parts) > 2 and parts[2].isdigit():
+            ax25.dest_ssid = int(parts[2]) & 0x0F
+        print(f"  AX.25 dest = {ax25.dest_call}-{ax25.dest_ssid}")
+    elif cmd == 'src' and len(parts) > 1:
+        ax25.src_call = parts[1].upper()[:6]
+        if len(parts) > 2 and parts[2].isdigit():
+            ax25.src_ssid = int(parts[2]) & 0x0F
+        print(f"  AX.25 src = {ax25.src_call}-{ax25.src_ssid}")
+    else:
+        print(f"  {C.ERROR}ax25 [on|off|dest <call> [ssid]|src <call> [ssid]]{C.END}")
 
 
 # -- CSP CLI ------------------------------------------------------------------
@@ -216,6 +252,7 @@ def check_args(cmd, args, cmd_defs):
 
 def main():
     csp = CSPConfig()
+    ax25 = AX25Config()
 
     # Load command schema for pre-send validation
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
@@ -224,7 +261,7 @@ def main():
     print()
     info_line("ZMQ", ZMQ_ADDR)
     info_line("Origin", f"GS ({GS_NODE})")
-    info_line("Framing", "CSP v1 + CRC-32C → AX.25")
+    info_line("Framing", "CSP v1 + CRC-32C → AX.25 → HDLC")
     if cmd_defs:
         info_line("Schema", f"{len(cmd_defs)} commands from {CMD_DEFS_PATH}")
     else:
@@ -235,6 +272,7 @@ def main():
     print(f" {C.DIM}Log{C.END}         {logpath}")
     print()
     csp_show(csp)
+    ax25_show(ax25)
     print(f"\n {C.DIM}Type a command or 'help'{C.END}\n")
 
     n = 0
@@ -275,6 +313,12 @@ def main():
     {C.LABEL}csp dest N{C.END}              set destination
     {C.LABEL}csp dport N{C.END}             set destination port
 
+  {C.BOLD}AX.25 config:{C.END}
+    {C.LABEL}ax25{C.END}                    show AX.25 settings
+    {C.LABEL}ax25 on/off{C.END}             enable/disable
+    {C.LABEL}ax25 dest CALL [SSID]{C.END}   set dest callsign
+    {C.LABEL}ax25 src  CALL [SSID]{C.END}   set src callsign
+
   {C.BOLD}Other:{C.END}
     {C.LABEL}!!{C.END}                      repeat last command
     {C.LABEL}nodes{C.END}                   list node IDs
@@ -293,6 +337,10 @@ def main():
 
             if low == 'csp' or low.startswith('csp '):
                 csp_handle(csp, line[3:].strip() if len(line) > 3 else "")
+                continue
+
+            if low == 'ax25' or low.startswith('ax25 '):
+                ax25_handle(ax25, line[4:].strip() if len(line) > 4 else "")
                 continue
 
             if low == 'batch':
@@ -322,7 +370,7 @@ def main():
                 num = len(batch)
                 print(f"  {C.WARNING}sending {num} commands (one per packet)...{C.END}")
                 for dest, cmd, args, raw_cmd in batch:
-                    payload = csp.wrap(raw_cmd)
+                    payload = ax25.wrap(csp.wrap(raw_cmd))
                     n += 1
                     send_pdu(sock, payload)
                     render_single(n, dest, cmd, args, payload, csp, raw_cmd)
@@ -343,7 +391,7 @@ def main():
                 dest, cmd, args = parsed
                 check_args(cmd, args, cmd_defs)
                 raw_cmd = build_cmd_raw(dest, cmd, args)
-                if len(raw_cmd) + csp.overhead() > MAX_RS_PAYLOAD:
+                if len(raw_cmd) + csp.overhead() + ax25.overhead() > MAX_RS_PAYLOAD:
                     print(f"  {C.ERROR}command too large{C.END}")
                     continue
                 batch.append((dest, cmd, args, raw_cmd))
@@ -378,10 +426,10 @@ def main():
             check_args(cmd, args, cmd_defs)
 
             raw_cmd = build_cmd_raw(dest, cmd, args)
-            if len(raw_cmd) + csp.overhead() > MAX_RS_PAYLOAD:
+            if len(raw_cmd) + csp.overhead() + ax25.overhead() > MAX_RS_PAYLOAD:
                 print(f"  {C.ERROR}command too large{C.END}")
                 continue
-            payload = csp.wrap(raw_cmd)
+            payload = ax25.wrap(csp.wrap(raw_cmd))
             n += 1
             send_pdu(sock, payload)
             render_single(n, dest, cmd, args, payload, csp, raw_cmd)

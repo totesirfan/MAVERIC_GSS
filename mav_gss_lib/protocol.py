@@ -294,6 +294,70 @@ def try_parse_csp_v1(payload):
     return csp, plausible
 
 
+# =============================================================================
+#  AX.25 HEADER
+#
+#  16-byte header for HDLC framing (UI frame, no L3 protocol):
+#    [dest callsign 6B shifted][dest SSID 1B]
+#    [src  callsign 6B shifted][src  SSID 1B]
+#    [control 0x03][PID 0xF0]
+#
+#  Callsign bytes are ASCII shifted left 1 bit, space-padded to 6 chars.
+#  SSID byte: 0b0SSSS0E1 where SSID is 0-15, E is end-of-address flag.
+# =============================================================================
+
+class AX25Config:
+    """Configurable AX.25 header for uplink (TX direction).
+
+    Wraps a payload with a 16-byte AX.25 UI frame header so the PDU
+    is ready for an HDLC framer with no custom GRC blocks needed.
+
+    Default callsigns:
+        dest  WS9XSW-0  (satellite)
+        src   WM2XBB-0  (ground station)
+    """
+
+    HEADER_LEN = 16  # 7 dest + 7 src + 1 control + 1 PID
+
+    def __init__(self):
+        self.enabled   = True
+        self.dest_call = "WS9XSW"
+        self.dest_ssid = 0
+        self.src_call  = "WM2XBB"
+        self.src_ssid  = 0
+
+    @staticmethod
+    def _encode_callsign(call, ssid, last=False):
+        """Encode callsign + SSID into 7 AX.25 address bytes.
+
+        Each character is shifted left 1 bit. Callsign is space-padded
+        to 6 characters. SSID byte: 0b0SSSS0E1 (E=1 if last address)."""
+        call = call.upper().ljust(6)[:6]
+        addr = bytearray(ord(c) << 1 for c in call)
+        ssid_byte = 0x60 | ((ssid & 0x0F) << 1)
+        if last:
+            ssid_byte |= 0x01  # end-of-address bit
+        addr.append(ssid_byte)
+        return bytes(addr)
+
+    def overhead(self):
+        """Number of bytes the AX.25 header adds to a payload."""
+        return self.HEADER_LEN if self.enabled else 0
+
+    def wrap(self, payload):
+        """Prepend 16-byte AX.25 UI frame header if enabled.
+
+        Output: [dest 7B][src 7B][0x03][0xF0][payload]"""
+        if self.enabled:
+            header = (
+                self._encode_callsign(self.dest_call, self.dest_ssid, last=False)
+                + self._encode_callsign(self.src_call, self.src_ssid, last=True)
+                + b'\x03\xF0'
+            )
+            return header + payload
+        return payload
+
+
 class CSPConfig:
     """Configurable CSP v1 header for uplink (TX direction).
 
