@@ -33,7 +33,7 @@ from mav_gss_lib.curses_ui import (
     init_colors, calculate_layout,
     draw_header, draw_queue, draw_history, draw_input,
     draw_config, config_get_values, config_apply, CONFIG_FIELDS,
-    draw_help,
+    draw_help, draw_splash,
     CP_ERROR, CP_WARNING, CP_SUCCESS, CP_DIM,
 )
 
@@ -135,6 +135,7 @@ def dashboard(stdscr):
     curses.set_escdelay(25)  # fast Esc response (25ms instead of default 1000ms)
     init_colors()
     stdscr.keypad(True)   # enable KEY_LEFT, KEY_UP, etc.
+    draw_splash(stdscr)
     curses.halfdelay(5)   # 500ms timeout for getch — drives clock updates
 
     csp  = CSPConfig()

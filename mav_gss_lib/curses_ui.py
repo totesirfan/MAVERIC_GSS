@@ -33,6 +33,8 @@ CP_WARNING = 4   # yellow — warnings, batch mode
 CP_ERROR   = 5   # red    — errors
 CP_DIM     = 6   # white  — secondary info (use with A_DIM)
 CP_HEADER  = 7   # cyan   — header bar (use with A_REVERSE)
+CP_USC_CARDINAL = 8   # red    — USC cardinal (splash)
+CP_USC_GOLD     = 9   # yellow — USC gold (splash)
 
 
 def init_colors():
@@ -46,6 +48,69 @@ def init_colors():
     curses.init_pair(CP_ERROR,   curses.COLOR_RED,    -1)
     curses.init_pair(CP_DIM,     curses.COLOR_WHITE,  -1)
     curses.init_pair(CP_HEADER,  curses.COLOR_CYAN,   -1)
+    curses.init_pair(CP_USC_CARDINAL, curses.COLOR_RED,    -1)
+    curses.init_pair(CP_USC_GOLD,     curses.COLOR_YELLOW, -1)
+
+
+# -- Splash screen ------------------------------------------------------------
+
+_USC_LOGO = [
+    "██    ██  ██████   ██████ ",
+    "██    ██  ██       ██     ",
+    "██    ██  ██████   ██     ",
+    "██    ██       ██  ██     ",
+    " ██████   ██████   ██████ ",
+]
+
+
+def draw_splash(stdscr):
+    """Full-screen centered splash with USC logo in cardinal/gold."""
+    stdscr.erase()
+    max_y, max_x = stdscr.getmaxyx()
+
+    # Total block: 5 logo + blank + ISI + SERC full + blank + subtitle = 10 lines
+    block_h = 10
+    start_y = max(0, (max_y - block_h) // 2)
+
+    cardinal = curses.color_pair(CP_USC_CARDINAL) | curses.A_BOLD
+    gold = curses.color_pair(CP_USC_GOLD) | curses.A_BOLD
+
+    # USC block letters
+    for i, line in enumerate(_USC_LOGO):
+        col = max(0, (max_x - len(line)) // 2)
+        try:
+            stdscr.addnstr(start_y + i, col, line, max_x - col, cardinal)
+        except curses.error:
+            pass
+
+    # ISI
+    isi = "ISI"
+    col = max(0, (max_x - len(isi)) // 2)
+    try:
+        stdscr.addnstr(start_y + 6, col, isi, max_x - col, gold)
+    except curses.error:
+        pass
+
+    # Space Engineering Research Center
+    serc = "Space Engineering Research Center"
+    col = max(0, (max_x - len(serc)) // 2)
+    try:
+        stdscr.addnstr(start_y + 7, col, serc, max_x - col, gold)
+    except curses.error:
+        pass
+
+    # Subtitle
+    sub = "MAVERIC Ground Station"
+    col = max(0, (max_x - len(sub)) // 2)
+    try:
+        stdscr.addnstr(start_y + 9, col, sub, max_x - col,
+                        curses.color_pair(CP_DIM))
+    except curses.error:
+        pass
+
+    stdscr.refresh()
+    curses.napms(2000)
+    curses.flushinp()
 
 
 # -- Layout -------------------------------------------------------------------
@@ -548,8 +613,6 @@ def draw_input(stdscr, region, buf, cursor_pos, queue_count, status_msg=""):
         _safe(stdscr, y + 2, x + 1, status_msg,
               curses.color_pair(CP_WARNING))
     else:
-        qc = f" ({queue_count})" if queue_count > 0 else ""
-        hints = (f"Enter: queue | Ctrl+S: send{qc} | "
-                 f"Ctrl+X: clear | Ctrl+C: quit")
+        hints = "Enter: queue | cfg | help | Ctrl+C: quit"
         _safe(stdscr, y + 2, x + 1, hints,
               curses.color_pair(CP_DIM) | curses.A_DIM)
