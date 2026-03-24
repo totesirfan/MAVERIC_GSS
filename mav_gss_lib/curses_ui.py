@@ -78,35 +78,16 @@ def draw_splash(stdscr):
     # USC block letters
     for i, line in enumerate(_USC_LOGO):
         col = max(0, (max_x - len(line)) // 2)
-        try:
-            stdscr.addnstr(start_y + i, col, line, max_x - col, cardinal)
-        except curses.error:
-            pass
+        _safe(stdscr, start_y + i, col, line, cardinal)
 
-    # ISI
-    isi = "ISI"
-    col = max(0, (max_x - len(isi)) // 2)
-    try:
-        stdscr.addnstr(start_y + 6, col, isi, max_x - col, gold)
-    except curses.error:
-        pass
-
-    # Space Engineering Research Center
-    serc = "Space Engineering Research Center"
-    col = max(0, (max_x - len(serc)) // 2)
-    try:
-        stdscr.addnstr(start_y + 7, col, serc, max_x - col, gold)
-    except curses.error:
-        pass
-
-    # Subtitle
-    sub = "MAVERIC Ground Station"
-    col = max(0, (max_x - len(sub)) // 2)
-    try:
-        stdscr.addnstr(start_y + 9, col, sub, max_x - col,
-                        curses.color_pair(CP_DIM))
-    except curses.error:
-        pass
+    # ISI + SERC + subtitle
+    for offset, text, attr in [
+        (6, "ISI", gold),
+        (7, "Space Engineering Research Center", gold),
+        (9, "MAVERIC Ground Station", curses.color_pair(CP_DIM)),
+    ]:
+        col = max(0, (max_x - len(text)) // 2)
+        _safe(stdscr, start_y + offset, col, text, attr)
 
     stdscr.refresh()
     curses.napms(2000)
@@ -271,34 +252,19 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1):
             col = x + 1
 
             # Determine row style based on send progress
-            if sending_idx >= 0:
-                if abs_idx < sending_idx:
-                    # Already sent — dim
-                    lbl_attr = curses.color_pair(CP_DIM) | curses.A_DIM
-                    val_attr = curses.color_pair(CP_DIM) | curses.A_DIM
-                    idx_attr = curses.color_pair(CP_DIM) | curses.A_DIM
-                    tag = " SENT"
-                    tag_attr = curses.color_pair(CP_SUCCESS) | curses.A_DIM
-                elif abs_idx == sending_idx:
-                    # Currently sending — green highlight
-                    lbl_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
-                    val_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
-                    idx_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
-                    tag = " SENDING"
-                    tag_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
-                else:
-                    # Waiting
-                    lbl_attr = curses.color_pair(CP_LABEL) | curses.A_BOLD
-                    val_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
-                    idx_attr = curses.color_pair(CP_DIM) | curses.A_DIM
-                    tag = ""
-                    tag_attr = 0
+            if sending_idx >= 0 and abs_idx < sending_idx:
+                _dim = curses.color_pair(CP_DIM) | curses.A_DIM
+                lbl_attr = val_attr = idx_attr = _dim
+                tag, tag_attr = " SENT", curses.color_pair(CP_SUCCESS) | curses.A_DIM
+            elif sending_idx >= 0 and abs_idx == sending_idx:
+                _grn = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+                lbl_attr = val_attr = idx_attr = _grn
+                tag, tag_attr = " SENDING", _grn
             else:
                 lbl_attr = curses.color_pair(CP_LABEL) | curses.A_BOLD
                 val_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
                 idx_attr = curses.color_pair(CP_DIM) | curses.A_DIM
-                tag = ""
-                tag_attr = 0
+                tag, tag_attr = "", 0
 
             idx_str = f"{idx:>2}."
             _safe(stdscr, row_y, col, idx_str, idx_attr)

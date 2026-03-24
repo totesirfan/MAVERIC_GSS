@@ -1,9 +1,8 @@
 """
 MAV_TX2 -- MAVERIC Command Terminal (Curses Dashboard)
 
-Persistent curses-based dashboard for the MAVERIC CubeSat uplink.
-Same protocol stack as MAV_TX.py (CSP v1 + CRC-32C + AX.25 + ZMQ),
-but with a live dashboard showing:
+Persistent curses-based uplink dashboard (CSP v1 + CRC-32C + AX.25 + ZMQ)
+with a live display showing:
   - Header: AX.25 callsigns, CSP config, clock, ZMQ status, frequency
   - TX Queue: pending commands (scrollable)
   - Sent History: transmitted commands with full metadata (scrollable)
@@ -11,21 +10,19 @@ but with a live dashboard showing:
 
 All commands go to the queue first. Ctrl+S sends, Ctrl+X clears.
 
-Fallback: run MAV_TX.py for the original interactive CLI.
-
 Author:  Irfan Annuar - USC ISI SERC
 """
 
 import argparse
 import curses
-import os
 import json
+import os
 import time
 from datetime import datetime
 
 from mav_gss_lib.protocol import (
-    NODE_NAMES, NODE_IDS, GS_NODE,
-    node_label, ptype_label, resolve_node,
+    NODE_NAMES,
+    node_label, resolve_node,
     build_cmd_raw, AX25Config, CSPConfig,
     load_command_defs, validate_args,
 )
@@ -35,7 +32,6 @@ from mav_gss_lib.curses_ui import (
     draw_header, draw_queue, draw_history, draw_input,
     draw_config, config_get_values, config_apply, CONFIG_FIELDS,
     draw_help, draw_splash,
-    CP_ERROR, CP_WARNING, CP_SUCCESS, CP_DIM,
 )
 
 
@@ -127,6 +123,45 @@ def csp_handle_msg(csp, args):
         setattr(csp, cmd, val)
         return f"CSP {cmd} = {val}"
     return "csp [prio|src|dest|dport|sport|flags] [value]"
+
+
+# -- Buffer Editing -----------------------------------------------------------
+
+def _edit_buffer(ch, buf, cursor):
+    """Handle a keystroke for text buffer editing.
+    Returns (new_buf, new_cursor, handled)."""
+    if ch in (curses.KEY_BACKSPACE, 127, 8):
+        if cursor > 0:
+            return buf[:cursor - 1] + buf[cursor:], cursor - 1, True
+        return buf, cursor, True
+    if ch == curses.KEY_DC:
+        if cursor < len(buf):
+            return buf[:cursor] + buf[cursor + 1:], cursor, True
+        return buf, cursor, True
+    if ch == curses.KEY_LEFT:
+        return buf, max(0, cursor - 1), True
+    if ch == curses.KEY_RIGHT:
+        return buf, min(len(buf), cursor + 1), True
+    if ch in (curses.KEY_HOME, 1):  # Ctrl+A
+        return buf, 0, True
+    if ch in (curses.KEY_END, 5):  # Ctrl+E
+        return buf, len(buf), True
+    if ch == 21:  # Ctrl+U — clear line
+        return "", 0, True
+    if ch == 11:  # Ctrl+K — kill to end
+        return buf[:cursor], cursor, True
+    if ch == 23:  # Ctrl+W — delete word backwards
+        if cursor > 0:
+            p = cursor - 1
+            while p > 0 and buf[p - 1] == ' ':
+                p -= 1
+            while p > 0 and buf[p - 1] != ' ':
+                p -= 1
+            return buf[:p] + buf[cursor:], p, True
+        return buf, cursor, True
+    if 32 <= ch <= 126:
+        return buf[:cursor] + chr(ch) + buf[cursor:], cursor + 1, True
+    return buf, cursor, False
 
 
 # -- Dashboard ----------------------------------------------------------------
@@ -336,24 +371,9 @@ def dashboard(stdscr, *, show_splash=True):
                         set_status("Invalid value", 2)
                         config_values = config_get_values(
                             csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
-                elif ch in (curses.KEY_BACKSPACE, 127, 8):
-                    if config_cursor > 0:
-                        config_buf = config_buf[:config_cursor - 1] + config_buf[config_cursor:]
-                        config_cursor -= 1
-                elif ch == curses.KEY_LEFT:
-                    config_cursor = max(0, config_cursor - 1)
-                elif ch == curses.KEY_RIGHT:
-                    config_cursor = min(len(config_buf), config_cursor + 1)
-                elif ch in (curses.KEY_HOME, 1):
-                    config_cursor = 0
-                elif ch in (curses.KEY_END, 5):
-                    config_cursor = len(config_buf)
-                elif ch == 21:  # Ctrl+U
-                    config_buf = ""
-                    config_cursor = 0
-                elif 32 <= ch <= 126:
-                    config_buf = config_buf[:config_cursor] + chr(ch) + config_buf[config_cursor:]
-                    config_cursor += 1
+                else:
+                    config_buf, config_cursor, _ = _edit_buffer(
+                        ch, config_buf, config_cursor)
                 continue
 
             # -- Config navigation (Tab toggles focus, Up/Down/Enter when focused) --
@@ -424,63 +444,6 @@ def dashboard(stdscr, *, show_splash=True):
                     else:
                         input_buf = cmd_history[cmd_hist_idx]
                     cursor_pos = len(input_buf)
-                continue
-
-            # Backspace
-            if ch in (curses.KEY_BACKSPACE, 127, 8):
-                if cursor_pos > 0:
-                    input_buf = input_buf[:cursor_pos - 1] + input_buf[cursor_pos:]
-                    cursor_pos -= 1
-                continue
-
-            # Delete key
-            if ch == curses.KEY_DC:
-                if cursor_pos < len(input_buf):
-                    input_buf = input_buf[:cursor_pos] + input_buf[cursor_pos + 1:]
-                continue
-
-            # Left arrow
-            if ch == curses.KEY_LEFT:
-                cursor_pos = max(0, cursor_pos - 1)
-                continue
-
-            # Right arrow
-            if ch == curses.KEY_RIGHT:
-                cursor_pos = min(len(input_buf), cursor_pos + 1)
-                continue
-
-            # Home / Ctrl+A
-            if ch in (curses.KEY_HOME, 1):
-                cursor_pos = 0
-                continue
-
-            # End / Ctrl+E
-            if ch in (curses.KEY_END, 5):
-                cursor_pos = len(input_buf)
-                continue
-
-            # Ctrl+U — clear line
-            if ch == 21:
-                input_buf = ""
-                cursor_pos = 0
-                continue
-
-            # Ctrl+K — kill to end of line
-            if ch == 11:
-                input_buf = input_buf[:cursor_pos]
-                continue
-
-            # Ctrl+W — delete word backwards
-            if ch == 23:
-                if cursor_pos > 0:
-                    # Find start of previous word
-                    p = cursor_pos - 1
-                    while p > 0 and input_buf[p - 1] == ' ':
-                        p -= 1
-                    while p > 0 and input_buf[p - 1] != ' ':
-                        p -= 1
-                    input_buf = input_buf[:p] + input_buf[cursor_pos:]
-                    cursor_pos = p
                 continue
 
             # Enter
@@ -589,10 +552,8 @@ def dashboard(stdscr, *, show_splash=True):
                 set_status(f"Queued: {node_label(dest)} {cmd} {args} ({len(raw_cmd)}B)", 2)
                 continue
 
-            # Printable character
-            if 32 <= ch <= 126:
-                input_buf = input_buf[:cursor_pos] + chr(ch) + input_buf[cursor_pos:]
-                cursor_pos += 1
+            # Text editing (backspace, arrows, Ctrl+W, printable chars, etc.)
+            input_buf, cursor_pos, _ = _edit_buffer(ch, input_buf, cursor_pos)
 
     finally:
         logf.close()

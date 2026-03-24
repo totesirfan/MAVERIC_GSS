@@ -2,11 +2,10 @@
 mav_gss_lib.display -- Terminal Display Helpers
 
 ANSI color theme, 80-column box drawing, and text formatting utilities
-shared between MAV_RX and MAV_TX for consistent visual output.
+for the MAVERIC GSS terminal UI. MAV_TX2 uses curses_ui.py instead.
 
-Color theme is centralized in the Theme class -- change colors in one
-place and both tools update. All display code references C.LABEL,
-C.VALUE, etc. instead of raw ANSI codes.
+Color theme is centralized in the Theme class. All display code
+references C.LABEL, C.VALUE, etc. instead of raw ANSI codes.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -19,7 +18,7 @@ import re
 #
 #  All terminal colors are defined here. To retheme the entire GSS suite,
 #  edit only this class. Every display function references C.<role> so
-#  colors stay consistent across MAV_RX and MAV_TX.
+#  colors stay consistent across MAV_RX.
 #
 #  Supports standard ANSI (16-color), 256-color, and 24-bit true color.
 #  Examples:

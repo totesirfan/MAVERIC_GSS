@@ -12,8 +12,10 @@ mav_gss_lib/              Shared library
     curses_ui.py          Curses dashboard panels, layout, color pairs
 
 MAV_RX.py                 Downlink packet monitor
-MAV_TX.py                 Uplink command terminal (CLI)
 MAV_TX2.py                Uplink command dashboard (curses)
+
+legacy/                   Archived tools
+    MAV_TX_old.py         Original CLI command terminal
 
 maveric_commands.yml      Command schema (arg names, types, validation)
 maveric_decoder.yml       gr-satellites satellite definition file
@@ -41,24 +43,9 @@ With `--loud`, hex dump, ASCII, CRC values, and SHA-256 are also shown in the te
 
 Raw hex is ground truth. All parsed fields are diagnostic until the telemetry map is finalized.
 
-## MAV_TX — Command Terminal (CLI)
-
-Interactive CLI for sending commands to the satellite. Each command is wrapped with a CSP v1 header and CRC-32C, then published as a PMT PDU over ZMQ to a GNU Radio flowgraph that handles AX.25 encoding, GFSK modulation, and transmission.
-
-Output PDU format: `[AX.25 header 16B][CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]`
-
-Features:
-
-- Single commands: `EPS PING`
-- Batch mode: queue multiple commands with `+`, each sent as its own packet
-- Runtime CSP/AX.25 config
-- Command schema validation against `maveric_commands.yml` (warnings only — operator has final say)
-- Command history and arrow key navigation (readline)
-- JSONL uplink logging
-
 ## MAV_TX2 — Command Dashboard (Curses)
 
-Persistent curses-based dashboard for uplink operations. Same protocol stack as MAV_TX.py but with a live multi-panel interface.
+Persistent curses-based dashboard for uplink operations (CSP v1 + CRC-32C + AX.25 + ZMQ) with a live multi-panel interface.
 
 Layout:
 
@@ -98,9 +85,6 @@ python3 MAV_RX.py
 python3 MAV_RX.py --loud       # includes hex, ASCII, CRC, SHA256
 python3 MAV_RX.py --nolog      # display only, no log files
 
-# Uplink command terminal (CLI)
-python3 MAV_TX.py
-
 # Uplink command dashboard (curses)
 python3 MAV_TX2.py
 ```
@@ -121,8 +105,7 @@ The command terminal logs uplink transmissions to a separate `.jsonl` file. Logg
 `maveric_commands.yml` defines the argument schema for each known command. When present:
 
 - **RX** parses known commands deterministically by position and type (skips regex/heuristic scanning)
-- **TX (CLI)** validates arguments before sending (type mismatches produce warnings but don't block transmission)
-- **TX (Dashboard)** rejects invalid commands — they are not added to the queue
+- **TX2** validates arguments and rejects invalid commands — they are not added to the queue
 - Unknown commands fall back to heuristic parsing automatically
 
 Supported arg types: `str`, `int`, `float`, `epoch_ms`, `bool`. See the file header for full documentation.
@@ -132,14 +115,14 @@ Supported arg types: `str`, `int`, `float`, `epoch_ms`, `bool`. See the file hea
 | Variable | Default | Where |
 |----------|---------|-------|
 | `ZMQ_PORT` | `52001` | MAV_RX — downlink subscribe port |
-| `ZMQ_ADDR` | `tcp://127.0.0.1:52002` | MAV_TX / MAV_TX2 — uplink publish port |
+| `ZMQ_ADDR` | `tcp://127.0.0.1:52002` | MAV_TX2 — uplink publish port |
 | `ZMQ_RECV_TIMEOUT_MS` | `200` | MAV_RX — receive timeout (ms) |
 | `LOG_DIR` | `logs` | Both — log output directory |
 | `CMD_DEFS_PATH` | `maveric_commands.yml` | Both — command schema file |
 
 ## Theming
 
-ANSI colors for the CLI tools (MAV_RX, MAV_TX) are defined in `mav_gss_lib/display.py` in the `Theme` class. Curses color pairs for the dashboard (MAV_TX2) are defined in `mav_gss_lib/curses_ui.py`. Both use the same semantic roles (LABEL, VALUE, SUCCESS, WARNING, ERROR).
+ANSI colors for MAV_RX are defined in `mav_gss_lib/display.py` in the `Theme` class. Curses color pairs for MAV_TX2 are defined in `mav_gss_lib/curses_ui.py`. Both use the same semantic roles (LABEL, VALUE, SUCCESS, WARNING, ERROR).
 
 ## Decoder
 
