@@ -28,6 +28,7 @@ from mav_gss_lib.protocol import (
 )
 from mav_gss_lib.transport import init_zmq_pub, send_pdu
 from mav_gss_lib.curses_common import init_colors, draw_splash, edit_buffer
+from mav_gss_lib.config import load_gss_config, apply_ax25, apply_csp
 from mav_gss_lib.curses_tx import (
     calculate_layout,
     draw_header, draw_queue, draw_history, draw_input,
@@ -38,13 +39,15 @@ from mav_gss_lib.curses_tx import (
 
 # -- Config -------------------------------------------------------------------
 
-VERSION       = "1.0"
-ZMQ_ADDR      = "tcp://127.0.0.1:52002"
-LOG_DIR       = "logs"
+CFG = load_gss_config()
+
+VERSION        = "1.0"
+ZMQ_ADDR       = CFG["tx"]["zmq_addr"]
+LOG_DIR        = CFG["general"]["log_dir"]
 MAX_RS_PAYLOAD = 223
-CMD_DEFS_PATH  = "maveric_commands.yml"
-FREQUENCY      = "437.25 MHz"
-TX_DELAY_MS    = 500
+CMD_DEFS_PATH  = CFG["general"]["command_defs"]
+FREQUENCY      = CFG["tx"]["frequency"]
+TX_DELAY_MS    = CFG["tx"]["delay_ms"]
 MAX_HISTORY      = 500
 MAX_CMD_HISTORY  = 500
 
@@ -136,11 +139,26 @@ def dashboard(stdscr, *, show_splash=True):
     init_colors()
     stdscr.keypad(True)   # enable KEY_LEFT, KEY_UP, etc.
     if show_splash:
-        draw_splash(stdscr, subtitle="MAVERIC TX Dashboard")
+        ax = CFG["ax25"]
+        cs = CFG["csp"]
+        splash_lines = [
+            f"ZMQ PUB:    {ZMQ_ADDR}",
+            f"Frequency:  {FREQUENCY}",
+            f"TX Delay:   {TX_DELAY_MS} ms",
+            f"AX.25:      {ax['src_call']}-{ax['src_ssid']}"
+            f" -> {ax['dest_call']}-{ax['dest_ssid']}",
+            f"CSP:        Src:{cs['source']} -> Dest:{cs['destination']}"
+            f" DPort:{cs['dest_port']}",
+            f"Commands:   {CMD_DEFS_PATH}",
+        ]
+        draw_splash(stdscr, subtitle="MAVERIC TX Dashboard",
+                     config_lines=splash_lines)
     curses.halfdelay(5)   # 500ms timeout for getch — drives clock updates
 
     csp  = CSPConfig()
     ax25 = AX25Config()
+    apply_csp(CFG, csp)
+    apply_ax25(CFG, ax25)
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
 
     ctx, sock = init_zmq_pub(ZMQ_ADDR)

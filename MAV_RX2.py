@@ -40,6 +40,7 @@ from mav_gss_lib.protocol import (
 )
 from mav_gss_lib.transport import init_zmq_sub, receive_pdu
 from mav_gss_lib.curses_common import init_colors, draw_splash, _safe, edit_buffer
+from mav_gss_lib.config import load_gss_config
 from mav_gss_lib.curses_rx import (
     calculate_rx_layout,
     draw_rx_header, draw_packet_list, draw_packet_detail,
@@ -49,13 +50,15 @@ from mav_gss_lib.curses_rx import (
 
 # -- Config -------------------------------------------------------------------
 
+CFG = load_gss_config()
+
 VERSION = "1.0"
-ZMQ_PORT = "52001"
-ZMQ_ADDR = f"tcp://127.0.0.1:{ZMQ_PORT}"
+ZMQ_PORT = str(CFG["rx"]["zmq_port"])
+ZMQ_ADDR = CFG["rx"]["zmq_addr"]
 ZMQ_RECV_TIMEOUT_MS = 200
-LOG_DIR = "logs"
-CMD_DEFS_PATH = "maveric_commands.yml"
-DECODER_YML_PATH = "maveric_decoder.yml"
+LOG_DIR = CFG["general"]["log_dir"]
+CMD_DEFS_PATH = CFG["general"]["command_defs"]
+DECODER_YML_PATH = CFG["general"]["decoder_yml"]
 MAX_PACKETS = 500
 MAX_SEEN_FPS = 10_000
 GC_INTERVAL = 300
@@ -251,7 +254,13 @@ def rx_dashboard(stdscr, show_splash=True):
     init_colors()
     stdscr.keypad(True)
     if show_splash:
-        draw_splash(stdscr, subtitle="MAVERIC RX Monitor")
+        splash_lines = [
+            f"ZMQ SUB:    {ZMQ_ADDR}",
+            f"Decoder:    {DECODER_YML_PATH}",
+            f"Commands:   {CMD_DEFS_PATH}",
+        ]
+        draw_splash(stdscr, subtitle="MAVERIC RX Monitor",
+                     config_lines=splash_lines)
     curses.halfdelay(2)  # 200ms timeout for getch
 
     # -- Init ZMQ, logging, schema --

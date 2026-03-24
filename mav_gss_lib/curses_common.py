@@ -120,17 +120,30 @@ _USC_LOGO = [
 ]
 
 
-def draw_splash(stdscr, subtitle="MAVERIC Ground Station"):
-    """Full-screen centered splash with USC logo in cardinal/gold."""
+def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
+    """Full-screen centered splash with USC logo in cardinal/gold.
+
+    config_lines: optional list of strings shown below the GNURadio
+                  reminder (e.g. ZMQ address, frequency).
+    """
     stdscr.erase()
     max_y, max_x = stdscr.getmaxyx()
 
-    # Total block: 5 logo + blank + ISI + SERC full + blank + subtitle = 10 lines
-    block_h = 10
+    if config_lines is None:
+        config_lines = []
+
+    # Block height:
+    #   5 logo + 1 blank + ISI + SERC + 1 blank + subtitle
+    #   + 1 blank + gnuradio warning
+    #   + 1 blank + config lines
+    #   + 1 blank + "Press any key"
+    block_h = 10 + 2 + (len(config_lines) + 1 if config_lines else 0) + 2
     start_y = max(0, (max_y - block_h) // 2)
 
     cardinal = curses.color_pair(CP_USC_CARDINAL) | curses.A_BOLD
     gold = curses.color_pair(CP_USC_GOLD) | curses.A_BOLD
+    dim = curses.color_pair(CP_DIM)
+    warn = curses.color_pair(CP_WARNING) | curses.A_BOLD
 
     # USC block letters
     for i, line in enumerate(_USC_LOGO):
@@ -141,11 +154,32 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station"):
     for offset, text, attr in [
         (6, "ISI", gold),
         (7, "Space Engineering Research Center", gold),
-        (9, subtitle, curses.color_pair(CP_DIM)),
+        (9, subtitle, dim),
     ]:
         col = max(0, (max_x - len(text)) // 2)
         _safe(stdscr, start_y + offset, col, text, attr)
 
+    # GNURadio reminder
+    row = start_y + 11
+    gr_text = "!! Confirm GNURadio Flowgraph is running !!"
+    col = max(0, (max_x - len(gr_text)) // 2)
+    _safe(stdscr, row, col, gr_text, warn)
+
+    # Config details
+    if config_lines:
+        row += 2
+        for line in config_lines:
+            col = max(0, (max_x - len(line)) // 2)
+            _safe(stdscr, row, col, line, dim)
+            row += 1
+
+    # Press any key
+    row += 1
+    prompt = "Press any key to continue..."
+    col = max(0, (max_x - len(prompt)) // 2)
+    _safe(stdscr, row, col, prompt, dim | curses.A_BLINK)
+
     stdscr.refresh()
-    curses.napms(2000)
+    stdscr.nodelay(False)
+    stdscr.getch()
     curses.flushinp()

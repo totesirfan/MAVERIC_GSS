@@ -1,0 +1,32 @@
+# MAVERIC Ground Station Configuration
+# Shared by MAV_TX2 (uplink) and MAV_RX2 (downlink)
+# Values here set the startup defaults; the TUI config panel
+# can override them at runtime.
+
+ax25:
+  src_call: "WM2XBB"
+  src_ssid: 0
+  dest_call: "WS9XSW"
+  dest_ssid: 0
+
+csp:
+  priority: 2
+  source: 0
+  destination: 8
+  dest_port: 0
+  src_port: 24
+  flags: 0x00
+
+tx:
+  zmq_addr: "tcp://127.0.0.1:52002"
+  frequency: "437.25 MHz"
+  delay_ms: 500
+
+rx:
+  zmq_port: 52001
+  zmq_addr: "tcp://127.0.0.1:52001"
+
+general:
+  log_dir: "logs"
+  command_defs: "maveric_commands.yml"
+  decoder_yml: "maveric_decoder.yml"
