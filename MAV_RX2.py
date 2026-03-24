@@ -39,7 +39,7 @@ from mav_gss_lib.protocol import (
     verify_csp_crc32,
 )
 from mav_gss_lib.transport import init_zmq_sub, receive_pdu
-from mav_gss_lib.curses_common import init_colors, draw_splash, _safe
+from mav_gss_lib.curses_common import init_colors, draw_splash, _safe, edit_buffer
 from mav_gss_lib.curses_rx import (
     calculate_rx_layout,
     draw_rx_header, draw_packet_list, draw_packet_detail,
@@ -243,45 +243,6 @@ def _receiver_thread(sock, pkt_queue, stop_event, on_error=None):
 
 
 # =============================================================================
-#  BUFFER EDITING
-# =============================================================================
-
-def _edit_buffer(ch, buf, cursor):
-    """Handle a keystroke for text buffer editing.
-    Returns (new_buf, new_cursor, handled)."""
-    if ch in (curses.KEY_BACKSPACE, 127, 8):
-        if cursor > 0:
-            return buf[:cursor - 1] + buf[cursor:], cursor - 1, True
-        return buf, cursor, True
-    if ch == curses.KEY_DC:
-        if cursor < len(buf):
-            return buf[:cursor] + buf[cursor + 1:], cursor, True
-        return buf, cursor, True
-    if ch == curses.KEY_LEFT:
-        return buf, max(0, cursor - 1), True
-    if ch == curses.KEY_RIGHT:
-        return buf, min(len(buf), cursor + 1), True
-    if ch in (curses.KEY_HOME, 1):  # Ctrl+A
-        return buf, 0, True
-    if ch in (curses.KEY_END, 5):  # Ctrl+E
-        return buf, len(buf), True
-    if ch == 21:  # Ctrl+U — clear line
-        return "", 0, True
-    if ch == 23:  # Ctrl+W — delete word backwards
-        if cursor > 0:
-            p = cursor - 1
-            while p > 0 and buf[p - 1] == ' ':
-                p -= 1
-            while p > 0 and buf[p - 1] != ' ':
-                p -= 1
-            return buf[:p] + buf[cursor:], p, True
-        return buf, cursor, True
-    if 32 <= ch <= 126:
-        return buf[:cursor] + chr(ch) + buf[cursor:], cursor + 1, True
-    return buf, cursor, False
-
-
-# =============================================================================
 #  DASHBOARD
 # =============================================================================
 
@@ -334,6 +295,22 @@ def rx_dashboard(stdscr, show_splash=True):
 
     spinner = ["\u2588", "\u2593", "\u2592", "\u2591", "\u2592", "\u2593"]
     spin_idx = 0
+
+    def toggle_logging():
+        """Toggle logging on/off, returning a status message."""
+        nonlocal logging_enabled, log
+        if logging_enabled:
+            logging_enabled = False
+            if log:
+                log.write_summary(packet_count, session_start,
+                                  first_pkt_ts, last_pkt_ts)
+                log.close()
+                log = None
+            return "Logging OFF", 2
+        else:
+            logging_enabled = True
+            log = SessionLog(LOG_DIR, ZMQ_ADDR)
+            return f"Logging ON: {log.text_path}", 3
 
     # -- Start receiver thread --
     pkt_queue = queue.Queue()
@@ -550,20 +527,8 @@ def rx_dashboard(stdscr, show_splash=True):
                     status_msg = f"HEX {'ON' if show_hex else 'OFF'}"
                     status_expire = time.time() + 2
                 elif key == "logging":
-                    if logging_enabled:
-                        logging_enabled = False
-                        if log:
-                            log.write_summary(packet_count, session_start,
-                                              first_pkt_ts, last_pkt_ts)
-                            log.close()
-                            log = None
-                        status_msg = "Logging OFF"
-                        status_expire = time.time() + 2
-                    else:
-                        logging_enabled = True
-                        log = SessionLog(LOG_DIR, ZMQ_ADDR)
-                        status_msg = f"Logging ON: {log.text_path}"
-                        status_expire = time.time() + 3
+                    status_msg, dur = toggle_logging()
+                    status_expire = time.time() + dur
 
             elif ch == curses.KEY_UP:
                 if selected_idx == -1:
@@ -619,20 +584,8 @@ def rx_dashboard(stdscr, show_splash=True):
                         status_msg = f"HEX {'ON' if show_hex else 'OFF'}"
                         status_expire = time.time() + 2
                     elif low == 'log':
-                        if logging_enabled:
-                            logging_enabled = False
-                            if log:
-                                log.write_summary(packet_count, session_start,
-                                                  first_pkt_ts, last_pkt_ts)
-                                log.close()
-                                log = None
-                            status_msg = "Logging OFF"
-                            status_expire = time.time() + 2
-                        else:
-                            logging_enabled = True
-                            log = SessionLog(LOG_DIR, ZMQ_ADDR)
-                            status_msg = f"Logging ON: {log.text_path}"
-                            status_expire = time.time() + 3
+                        status_msg, dur = toggle_logging()
+                        status_expire = time.time() + dur
                     elif low == 'detail':
                         detail_open = not detail_open
                     elif low == 'live':
@@ -642,7 +595,7 @@ def rx_dashboard(stdscr, show_splash=True):
                         status_expire = time.time() + 3
             else:
                 # Text editing
-                input_buf, cursor_pos, _ = _edit_buffer(ch, input_buf, cursor_pos)
+                input_buf, cursor_pos, _ = edit_buffer(ch, input_buf, cursor_pos)
 
             # Clear expired messages
             now_t = time.time()

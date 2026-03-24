@@ -113,8 +113,10 @@ def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
     # Right side: HEX and LOG toggles
     hex_state = "ON" if show_hex else "OFF"
     log_state = "ON" if logging_enabled else "OFF"
-    hex_attr = curses.color_pair(CP_SUCCESS) if show_hex else curses.color_pair(CP_DIM) | curses.A_DIM
-    log_attr = curses.color_pair(CP_SUCCESS) if logging_enabled else curses.color_pair(CP_DIM) | curses.A_DIM
+    on_attr = curses.color_pair(CP_SUCCESS)
+    off_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+    hex_attr = on_attr if show_hex else off_attr
+    log_attr = on_attr if logging_enabled else off_attr
 
     toggles = f"HEX:{hex_state}  LOG:{log_state}"
     toggle_x = x + w - len(toggles) - 1
@@ -220,21 +222,16 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
         inner = pkt.get("inner_payload", b"")
         size_str = f"{len(inner)}B"
 
-        # CRC status
-        crc_status = pkt.get("crc_status", {})
-        crc_valid = crc_status.get("csp_crc32_valid")
+        # CRC status — prefer CSP CRC-32C, fall back to cmd-level CRC-16
+        crc_valid = pkt.get("crc_status", {}).get("csp_crc32_valid")
+        if crc_valid is None and cmd:
+            crc_valid = cmd.get("crc_valid")
         if crc_valid is True:
             crc_str = "CRC:OK"
         elif crc_valid is False:
             crc_str = "CRC:FAIL"
         else:
-            # Check cmd-level CRC
-            if cmd and cmd.get("crc_valid") is True:
-                crc_str = "CRC:OK"
-            elif cmd and cmd.get("crc_valid") is False:
-                crc_str = "CRC:FAIL"
-            else:
-                crc_str = ""
+            crc_str = ""
 
         # Base attribute for selected row
         if is_selected:
@@ -440,14 +437,9 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
             # Wrap hex across available lines
             hex_w = w - 16
             offset = 0
-            first = True
             while offset < len(hex_str) and row < max_row:
                 chunk = hex_str[offset:offset + hex_w]
-                if first:
-                    _safe(stdscr, row, x + 14, chunk, dim)
-                    first = False
-                else:
-                    _safe(stdscr, row, x + 14, chunk, dim)
+                _safe(stdscr, row, x + 14, chunk, dim)
                 offset += hex_w
                 row += 1
 

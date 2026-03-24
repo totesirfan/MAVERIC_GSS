@@ -27,7 +27,7 @@ from mav_gss_lib.protocol import (
     load_command_defs, validate_args,
 )
 from mav_gss_lib.transport import init_zmq_pub, send_pdu
-from mav_gss_lib.curses_common import init_colors, draw_splash
+from mav_gss_lib.curses_common import init_colors, draw_splash, edit_buffer
 from mav_gss_lib.curses_tx import (
     calculate_layout,
     draw_header, draw_queue, draw_history, draw_input,
@@ -125,45 +125,6 @@ def csp_handle_msg(csp, args):
         setattr(csp, cmd, val)
         return f"CSP {cmd} = {val}"
     return "csp [prio|src|dest|dport|sport|flags] [value]"
-
-
-# -- Buffer Editing -----------------------------------------------------------
-
-def _edit_buffer(ch, buf, cursor):
-    """Handle a keystroke for text buffer editing.
-    Returns (new_buf, new_cursor, handled)."""
-    if ch in (curses.KEY_BACKSPACE, 127, 8):
-        if cursor > 0:
-            return buf[:cursor - 1] + buf[cursor:], cursor - 1, True
-        return buf, cursor, True
-    if ch == curses.KEY_DC:
-        if cursor < len(buf):
-            return buf[:cursor] + buf[cursor + 1:], cursor, True
-        return buf, cursor, True
-    if ch == curses.KEY_LEFT:
-        return buf, max(0, cursor - 1), True
-    if ch == curses.KEY_RIGHT:
-        return buf, min(len(buf), cursor + 1), True
-    if ch in (curses.KEY_HOME, 1):  # Ctrl+A
-        return buf, 0, True
-    if ch in (curses.KEY_END, 5):  # Ctrl+E
-        return buf, len(buf), True
-    if ch == 21:  # Ctrl+U — clear line
-        return "", 0, True
-    if ch == 11:  # Ctrl+K — kill to end
-        return buf[:cursor], cursor, True
-    if ch == 23:  # Ctrl+W — delete word backwards
-        if cursor > 0:
-            p = cursor - 1
-            while p > 0 and buf[p - 1] == ' ':
-                p -= 1
-            while p > 0 and buf[p - 1] != ' ':
-                p -= 1
-            return buf[:p] + buf[cursor:], p, True
-        return buf, cursor, True
-    if 32 <= ch <= 126:
-        return buf[:cursor] + chr(ch) + buf[cursor:], cursor + 1, True
-    return buf, cursor, False
 
 
 # -- Dashboard ----------------------------------------------------------------
@@ -377,7 +338,7 @@ def dashboard(stdscr, *, show_splash=True):
                         config_values = config_get_values(
                             csp, ax25, freq, zmq_addr_disp, tx_delay_ms, logpath)
                 else:
-                    config_buf, config_cursor, _ = _edit_buffer(
+                    config_buf, config_cursor, _ = edit_buffer(
                         ch, config_buf, config_cursor)
                 continue
 
@@ -560,7 +521,7 @@ def dashboard(stdscr, *, show_splash=True):
                 continue
 
             # Text editing (backspace, arrows, Ctrl+W, printable chars, etc.)
-            input_buf, cursor_pos, _ = _edit_buffer(ch, input_buf, cursor_pos)
+            input_buf, cursor_pos, _ = edit_buffer(ch, input_buf, cursor_pos)
 
     finally:
         logf.close()

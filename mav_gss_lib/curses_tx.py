@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from mav_gss_lib.protocol import NODE_NAMES, node_label, ptype_label, GS_NODE
 from mav_gss_lib.curses_common import (
     _safe, _hline, _vline,
-    CP_LABEL, CP_VALUE, CP_SUCCESS, CP_WARNING, CP_ERROR, CP_DIM, CP_HEADER,
+    CP_LABEL, CP_VALUE, CP_SUCCESS, CP_WARNING, CP_ERROR, CP_DIM,
     MIN_COLS,
 )
 
@@ -139,15 +139,11 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1,
 
     # Title row
     count = len(queue)
-    total_ms = (count - 1) * tx_delay_ms if count > 1 else 0
-    if total_ms >= 1000:
-        total_str = f"{total_ms / 1000:.1f}s"
-    else:
-        total_str = f"{total_ms}ms"
+    title = f" TX QUEUE ({count})  buf: {tx_delay_ms}ms"
     if count > 1:
-        title = f" TX QUEUE ({count})  buf: {tx_delay_ms}ms  total: {total_str}"
-    else:
-        title = f" TX QUEUE ({count})  buf: {tx_delay_ms}ms"
+        total_ms = (count - 1) * tx_delay_ms
+        total_str = f"{total_ms / 1000:.1f}s" if total_ms >= 1000 else f"{total_ms}ms"
+        title += f"  total: {total_str}"
     _safe(stdscr, y, x, title,
           curses.color_pair(CP_WARNING) | curses.A_BOLD)
     hints = "Ctrl+S: send | Ctrl+X: clear"

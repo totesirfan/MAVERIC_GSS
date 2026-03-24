@@ -10,6 +10,48 @@ Author:  Irfan Annuar - USC ISI SERC
 import curses
 
 
+# -- Buffer editing -----------------------------------------------------------
+
+def edit_buffer(ch, buf, cursor):
+    """Handle a keystroke for text buffer editing.
+    Returns (new_buf, new_cursor, handled).
+
+    Shared by MAV_TX2 and MAV_RX2 dashboards.
+    """
+    if ch in (curses.KEY_BACKSPACE, 127, 8):
+        if cursor > 0:
+            return buf[:cursor - 1] + buf[cursor:], cursor - 1, True
+        return buf, cursor, True
+    if ch == curses.KEY_DC:
+        if cursor < len(buf):
+            return buf[:cursor] + buf[cursor + 1:], cursor, True
+        return buf, cursor, True
+    if ch == curses.KEY_LEFT:
+        return buf, max(0, cursor - 1), True
+    if ch == curses.KEY_RIGHT:
+        return buf, min(len(buf), cursor + 1), True
+    if ch in (curses.KEY_HOME, 1):  # Ctrl+A
+        return buf, 0, True
+    if ch in (curses.KEY_END, 5):  # Ctrl+E
+        return buf, len(buf), True
+    if ch == 21:  # Ctrl+U — clear line
+        return "", 0, True
+    if ch == 11:  # Ctrl+K — kill to end
+        return buf[:cursor], cursor, True
+    if ch == 23:  # Ctrl+W — delete word backwards
+        if cursor > 0:
+            p = cursor - 1
+            while p > 0 and buf[p - 1] == ' ':
+                p -= 1
+            while p > 0 and buf[p - 1] != ' ':
+                p -= 1
+            return buf[:p] + buf[cursor:], p, True
+        return buf, cursor, True
+    if 32 <= ch <= 126:
+        return buf[:cursor] + chr(ch) + buf[cursor:], cursor + 1, True
+    return buf, cursor, False
+
+
 # -- Color pairs (indices) ----------------------------------------------------
 
 CP_LABEL   = 1   # cyan   — field labels
