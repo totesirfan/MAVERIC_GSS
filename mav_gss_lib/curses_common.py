@@ -123,8 +123,9 @@ _USC_LOGO = [
 def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
     """Full-screen centered splash with USC logo in cardinal/gold.
 
-    config_lines: optional list of strings shown below the GNURadio
-                  reminder (e.g. ZMQ address, frequency).
+    config_lines: optional list of (label, value) tuples shown below
+                  the GNURadio reminder.  Labels are right-padded for
+                  column alignment.
     """
     stdscr.erase()
     max_y, max_x = stdscr.getmaxyx()
@@ -165,10 +166,12 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
     col = max(0, (max_x - len(gr_text)) // 2)
     _safe(stdscr, row, col, gr_text, warn)
 
-    # Config details
+    # Config details — each entry is (label, value) for aligned columns
     if config_lines:
         row += 2
-        for line in config_lines:
+        label_w = max(len(lbl) for lbl, _ in config_lines)
+        for label, value in config_lines:
+            line = f"{label:<{label_w}}  {value}"
             col = max(0, (max_x - len(line)) // 2)
             _safe(stdscr, row, col, line, dim)
             row += 1

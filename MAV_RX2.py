@@ -255,11 +255,11 @@ def rx_dashboard(stdscr, show_splash=True):
     stdscr.keypad(True)
     if show_splash:
         splash_lines = [
-            f"ZMQ SUB:    {ZMQ_ADDR}",
-            f"Decoder:    {DECODER_YML_PATH}",
-            f"Commands:   {CMD_DEFS_PATH}",
+            ("ZMQ SUB",  ZMQ_ADDR),
+            ("Decoder",  DECODER_YML_PATH),
+            ("Commands", CMD_DEFS_PATH),
         ]
-        draw_splash(stdscr, subtitle="MAVERIC RX Monitor",
+        draw_splash(stdscr, subtitle=f"MAVERIC RX Monitor  v{VERSION}",
                      config_lines=splash_lines)
     curses.halfdelay(2)  # 200ms timeout for getch
 

@@ -142,16 +142,16 @@ def dashboard(stdscr, *, show_splash=True):
         ax = CFG["ax25"]
         cs = CFG["csp"]
         splash_lines = [
-            f"ZMQ PUB:    {ZMQ_ADDR}",
-            f"Frequency:  {FREQUENCY}",
-            f"TX Delay:   {TX_DELAY_MS} ms",
-            f"AX.25:      {ax['src_call']}-{ax['src_ssid']}"
-            f" -> {ax['dest_call']}-{ax['dest_ssid']}",
-            f"CSP:        Src:{cs['source']} -> Dest:{cs['destination']}"
-            f" DPort:{cs['dest_port']}",
-            f"Commands:   {CMD_DEFS_PATH}",
+            ("ZMQ PUB",   ZMQ_ADDR),
+            ("Frequency", FREQUENCY),
+            ("TX Delay",  f"{TX_DELAY_MS} ms"),
+            ("AX.25",     f"{ax['src_call']}-{ax['src_ssid']}"
+                          f" -> {ax['dest_call']}-{ax['dest_ssid']}"),
+            ("CSP",       f"Src:{cs['source']} -> Dest:{cs['destination']}"
+                          f" DPort:{cs['dest_port']}"),
+            ("Commands",  CMD_DEFS_PATH),
         ]
-        draw_splash(stdscr, subtitle="MAVERIC TX Dashboard",
+        draw_splash(stdscr, subtitle=f"MAVERIC TX Dashboard  v{VERSION}",
                      config_lines=splash_lines)
     curses.halfdelay(5)   # 500ms timeout for getch — drives clock updates
 
