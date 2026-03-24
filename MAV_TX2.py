@@ -44,7 +44,8 @@ MAX_RS_PAYLOAD = 223
 CMD_DEFS_PATH  = "maveric_commands.yml"
 FREQUENCY      = "437.25 MHz"
 TX_DELAY_MS    = 500
-MAX_HISTORY    = 500
+MAX_HISTORY      = 500
+MAX_CMD_HISTORY  = 500
 
 
 # -- Logging ------------------------------------------------------------------
@@ -461,6 +462,8 @@ def dashboard(stdscr, *, show_splash=True):
 
                 # Save to command history (newest first)
                 cmd_history.insert(0, line)
+                if len(cmd_history) > MAX_CMD_HISTORY:
+                    del cmd_history[MAX_CMD_HISTORY:]
 
                 low = line.lower()
 

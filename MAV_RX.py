@@ -18,10 +18,12 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 import argparse
+import gc
 import json
 import os
 import sys
 import time
+from collections import OrderedDict
 from datetime import datetime
 
 from mav_gss_lib.protocol import (
@@ -354,11 +356,14 @@ def main():
     session_start = time.time()
     first_pkt_ts = None
     last_pkt_ts = None
-    seen_fps = set()
+    MAX_SEEN_FPS = 10_000
+    seen_fps = OrderedDict()       # fp -> None, bounded LRU for dup detection
     pkt_times = []
     last_render = 0.0
     render_skipped = 0
     RENDER_INTERVAL = 0.25
+    last_gc = time.time()
+    GC_INTERVAL = 300              # force gc.collect() every 5 min
 
     spinner = ["\u2588", "\u2593", "\u2592", "\u2591", "\u2592", "\u2593"]
     spin_idx = 0
@@ -403,6 +408,10 @@ def main():
                 )
                 sys.stdout.flush()
                 spin_idx = (spin_idx + 1) % len(spinner)
+                now_idle = time.time()
+                if now_idle - last_gc > GC_INTERVAL:
+                    gc.collect()
+                    last_gc = now_idle
                 continue
 
             # -- Packet received --
@@ -450,7 +459,13 @@ def main():
             text = clean_text(inner_payload)
 
             is_dup = fp in seen_fps
-            seen_fps.add(fp)
+            if is_dup:
+                seen_fps.move_to_end(fp)
+            else:
+                seen_fps[fp] = None
+            if len(seen_fps) > MAX_SEEN_FPS:
+                for _ in range(MAX_SEEN_FPS // 5):
+                    seen_fps.popitem(last=False)
             pkt_times.append(now)
             pkt_times[:] = [t for t in pkt_times if t > now - 60.0]
 
