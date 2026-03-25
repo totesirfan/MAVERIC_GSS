@@ -1,6 +1,6 @@
 # MAVERIC Ground Station Software
 
-Ground station tools for the MAVERIC CubeSat mission. Supports full-duplex operation with a single USRP B210 — simultaneous uplink and downlink using MAV_TX2 and MAV_RX2 with a shared GNU Radio flowgraph. Uplink echoes received on the downlink are automatically tagged (UL) for easy identification.
+Ground station tools for the MAVERIC CubeSat mission. Supports full-duplex operation with a single USRP B210 — simultaneous uplink and downlink using MAV_TX2 and MAV_RX2 with the shared GNU Radio MAV_DUPLEX flowgraph. Uplink echoes received on the downlink are automatically tagged (UL) for easy identification.
 
 ## Structure
 
@@ -98,7 +98,7 @@ Side panels (appear to the right of sent history):
 
 ## Usage
 
-All scripts require the radioconda GNU Radio environment. **Start your GNU Radio flowgraph first** — the splash screen will remind you to confirm it is running before continuing.
+All scripts require the radioconda GNU Radio environment. **Start the GNU Radio MAV_DUPLEX flowgraph first** — the splash screen will remind you to confirm it is running before continuing.
 
 ```bash
 conda activate gnuradio
@@ -151,11 +151,11 @@ Supported arg types: `str`, `int`, `float`, `epoch_ms`, `bool`. See the file hea
 
 ## Configuration
 
-All startup defaults live in `maveric_gss.yml`, shared by both TX and RX scripts. Values can be changed at runtime via each TUI's config panel. Any changes that affect GNURadio (e.g. ZMQ addresses, baud rate, modulation) require a restart of the flowgraph. Note that the frequency field is for display only — it does not control the radio. If the config file is missing, hardcoded defaults in `mav_gss_lib/config.py` are used.
+All startup defaults live in `maveric_gss.yml`, shared by both TX and RX scripts. Values can be changed at runtime via each TUI's config panel. Any changes that affect GNU Radio (e.g. ZMQ addresses, baud rate, modulation) require a restart of the MAV_DUPLEX flowgraph. Note that the frequency field is for display only — it does not control the radio. If the config file is missing, hardcoded defaults in `mav_gss_lib/config.py` are used.
 
 ```yaml
 general:
-  version: "2.3.5"          # displayed on splash screen
+  version: "2.3.7"          # displayed on splash screen
   log_dir: "logs"
   command_defs: "maveric_commands.yml"
   decoder_yml: "maveric_decoder.yml"
@@ -198,4 +198,4 @@ rx:
 
 ## Status
 
-Early development (v2.3.6). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.
+Early development (v2.3.7). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.

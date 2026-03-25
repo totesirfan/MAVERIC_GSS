@@ -132,7 +132,7 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
     """Full-screen centered splash with USC logo in cardinal/gold.
 
     config_lines: optional list of (label, value) tuples shown below
-                  the GNURadio reminder.  Labels are right-padded for
+                  the GNU Radio warning.  Labels are right-padded for
                   column alignment.
     """
     stdscr.erase()
@@ -150,7 +150,7 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
     # Box interior rows: top border + 1 pad + 5 logo + blank + ISI + SERC
     #                    + blank + subtitle + 1 pad + bottom border = 14
     box_h = 14
-    # Total block: box + 1 blank + gnuradio + 1 blank + config + 1 blank + key
+    # Total block: box + 1 blank + gr warning + 1 blank + config + 1 blank + key
     config_h = (len(config_lines) + 1) if config_lines else 0
     block_h = box_h + 2 + config_h + 2
     start_y = max(0, (max_y - block_h) // 2)
@@ -185,9 +185,9 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
         col = box_x + 1 + (inner_w - len(text)) // 2
         safe_addstr(stdscr, start_y + row_off, col, text, attr)
 
-    # GNURadio reminder (below box)
+    # GNU Radio MAV_DUPLEX flowgraph warning (below box)
     row = start_y + box_h + 1
-    gr_text = "!! Confirm GNURadio Flowgraph is running !!"
+    gr_text = "!! Confirm GNU Radio MAV_DUPLEX Flowgraph is running !!"
     col = max(0, (max_x - len(gr_text)) // 2)
     safe_addstr(stdscr, row, col, gr_text, warn)
 
