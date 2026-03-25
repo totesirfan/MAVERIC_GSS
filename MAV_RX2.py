@@ -161,7 +161,11 @@ def rx_dashboard(stdscr, show_splash=True):
             logging_enabled = False
             if log:
                 log.write_summary(packet_count, session_start,
-                                  first_pkt_ts, last_pkt_ts)
+                                  first_pkt_ts, last_pkt_ts,
+                                  unique=len(seen_fps),
+                                  duplicates=packet_count - len(seen_fps),
+                                  unknown=unknown_count,
+                                  uplink_echoes=uplink_echo_count)
                 log.close()
                 log = None
             return "Logging OFF", 2
@@ -221,17 +225,7 @@ def rx_dashboard(stdscr, show_splash=True):
                 if logging_enabled and log:
                     log_record = build_rx_log_record(pkt_record, VERSION, meta)
                     log.write_jsonl(log_record)
-                    log.write_text(
-                        pkt_record["pkt_num"], pkt_record["gs_ts"],
-                        pkt_record["frame_type"], pkt_record["raw"],
-                        pkt_record["inner_payload"], pkt_record["stripped_hdr"],
-                        pkt_record["csp"], pkt_record["csp_plausible"],
-                        pkt_record["ts_result"], pkt_record["cmd"],
-                        pkt_record["cmd_tail"], pkt_record["text"],
-                        pkt_record["warnings"], pkt_record["delta_t"],
-                        pkt_record["crc_status"],
-                        pkt_record["is_dup"], pkt_record["is_uplink_echo"],
-                    )
+                    log.write_packet(pkt_record)
 
                 # Store packet record for display
                 packets.append(pkt_record)
@@ -464,7 +458,11 @@ def rx_dashboard(stdscr, show_splash=True):
         rx_thread.join(timeout=1)
         if log:
             log.write_summary(packet_count, session_start,
-                              first_pkt_ts, last_pkt_ts)
+                              first_pkt_ts, last_pkt_ts,
+                              unique=len(seen_fps),
+                              duplicates=packet_count - len(seen_fps),
+                              unknown=unknown_count,
+                              uplink_echoes=uplink_echo_count)
             log.close()
         sock.close()
         context.term()

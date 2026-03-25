@@ -91,7 +91,8 @@ def dashboard(stdscr, *, show_splash=True):
     cmd_defs = load_command_defs(CMD_DEFS_PATH)
 
     ctx, sock = init_zmq_pub(ZMQ_ADDR)
-    tx_log = TXLog(LOG_DIR)
+    tx_log = TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
+    session_start = time.time()
 
     queue   = []       # list of (src, dest, echo, ptype, cmd, args, raw_cmd)
     history = []       # list of dicts
@@ -133,7 +134,7 @@ def dashboard(stdscr, *, show_splash=True):
         if layout is None:
             return
         draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
-                    freq=freq, log_path=tx_log.path)
+                    freq=freq, log_path=tx_log.text_path)
         draw_queue(stdscr, layout["queue"], queue,
                    scroll_offset=queue_scroll, sending_idx=sending_idx,
                    tx_delay_ms=tx_delay_ms)
@@ -157,8 +158,8 @@ def dashboard(stdscr, *, show_splash=True):
             payload = ax25.wrap(csp.wrap(raw_cmd))
             n += 1
             send_pdu(sock, payload)
-            tx_log.write(n, dest, protocol.NODE_NAMES.get(dest, "?"),
-                         cmd, args, payload, csp.enabled)
+            tx_log.write_command(n, src, dest, echo, ptype, cmd, args,
+                                 raw_cmd, payload, ax25, csp)
             history.append({
                 "n": n,
                 "ts": datetime.now().strftime("%H:%M:%S"),
@@ -211,7 +212,7 @@ def dashboard(stdscr, *, show_splash=True):
 
             # -- Draw panels --
             draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
-                        freq=freq, log_path=tx_log.path)
+                        freq=freq, log_path=tx_log.text_path)
             draw_queue(stdscr, layout["queue"], queue,
                        scroll_offset=queue_scroll, tx_delay_ms=tx_delay_ms)
             draw_history(stdscr, layout["history"], history,
@@ -223,14 +224,14 @@ def dashboard(stdscr, *, show_splash=True):
             if config_open and "side_panel" in layout:
                 if not config_values:
                     config_values = config_get_values(
-                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.path)
+                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
                 draw_config(stdscr, layout["side_panel"], config_values,
                             config_selected, config_editing,
                             config_buf, config_cursor, config_focused)
             elif help_open and "side_panel" in layout:
                 draw_help(stdscr, layout["side_panel"],
                           version=VERSION, schema_count=len(cmd_defs),
-                          schema_path=CMD_DEFS_PATH, log_path=tx_log.path)
+                          schema_path=CMD_DEFS_PATH, log_path=tx_log.text_path)
 
             stdscr.refresh()
 
@@ -281,11 +282,11 @@ def dashboard(stdscr, *, show_splash=True):
                         freq, zmq_addr_disp, tx_delay_ms = config_apply(
                             config_values, csp, ax25)
                         config_values = config_get_values(
-                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.path)
+                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
                     except (ValueError, KeyError):
                         set_status("Invalid value", 2)
                         config_values = config_get_values(
-                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.path)
+                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
                 else:
                     config_buf, config_cursor, _ = edit_buffer(
                         ch, config_buf, config_cursor)
@@ -437,7 +438,7 @@ def dashboard(stdscr, *, show_splash=True):
                     config_selected = 0
                     config_editing = False
                     config_values = config_get_values(
-                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.path)
+                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
                     continue
 
                 # Nodes
@@ -503,11 +504,12 @@ def dashboard(stdscr, *, show_splash=True):
             input_buf, cursor_pos, _ = edit_buffer(ch, input_buf, cursor_pos)
 
     finally:
+        tx_log.write_summary(n, session_start)
         tx_log.close()
         sock.close()
         ctx.term()
 
-    return n, tx_log.path
+    return n, tx_log.text_path
 
 
 def main():
