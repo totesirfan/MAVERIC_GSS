@@ -82,9 +82,17 @@ def init_colors():
     curses.init_pair(CP_USC_GOLD,     curses.COLOR_YELLOW, -1)
 
 
+def init_dashboard(stdscr):
+    """Common curses initialization shared by TX and RX dashboards."""
+    curses.curs_set(0)
+    curses.set_escdelay(25)
+    init_colors()
+    stdscr.keypad(True)
+
+
 # -- Safe drawing helpers -----------------------------------------------------
 
-def _safe(win, y, x, text, attr=0):
+def safe_addstr(win, y, x, text, attr=0):
     """addstr that silently ignores writes past the window edge."""
     try:
         win.addnstr(y, x, text, win.getmaxyx()[1] - x - 1, attr)
@@ -92,7 +100,7 @@ def _safe(win, y, x, text, attr=0):
         pass
 
 
-def _hline(win, y, x, w, attr=0):
+def draw_hline(win, y, x, w, attr=0):
     """Draw a horizontal line."""
     try:
         win.addnstr(y, x, "\u2500" * w, w, attr)
@@ -100,7 +108,7 @@ def _hline(win, y, x, w, attr=0):
         pass
 
 
-def _vline(win, x, y_start, h, attr=0):
+def draw_vline(win, x, y_start, h, attr=0):
     """Draw a vertical line."""
     for row in range(h):
         try:
@@ -154,19 +162,19 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
     warn = curses.color_pair(CP_WARNING) | curses.A_BOLD
 
     # Draw box border
-    _safe(stdscr, start_y, box_x,
+    safe_addstr(stdscr, start_y, box_x,
           "╔" + "═" * inner_w + "╗", gold)
     for i in range(1, box_h - 1):
-        _safe(stdscr, start_y + i, box_x, "║", gold)
-        _safe(stdscr, start_y + i, box_x + box_w - 1, "║", gold)
-    _safe(stdscr, start_y + box_h - 1, box_x,
+        safe_addstr(stdscr, start_y + i, box_x, "║", gold)
+        safe_addstr(stdscr, start_y + i, box_x + box_w - 1, "║", gold)
+    safe_addstr(stdscr, start_y + box_h - 1, box_x,
           "╚" + "═" * inner_w + "╝", gold)
 
     # USC block letters (inside box, offset by 1 for top border + 1 padding)
     logo_y = start_y + 2
     for i, line in enumerate(_USC_LOGO):
         col = box_x + 1 + (inner_w - len(line)) // 2
-        _safe(stdscr, logo_y + i, col, line, cardinal)
+        safe_addstr(stdscr, logo_y + i, col, line, cardinal)
 
     # ISI + SERC + subtitle (inside box)
     for row_off, text, attr in [
@@ -175,13 +183,13 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
         (11, subtitle, dim),
     ]:
         col = box_x + 1 + (inner_w - len(text)) // 2
-        _safe(stdscr, start_y + row_off, col, text, attr)
+        safe_addstr(stdscr, start_y + row_off, col, text, attr)
 
     # GNURadio reminder (below box)
     row = start_y + box_h + 1
     gr_text = "!! Confirm GNURadio Flowgraph is running !!"
     col = max(0, (max_x - len(gr_text)) // 2)
-    _safe(stdscr, row, col, gr_text, warn)
+    safe_addstr(stdscr, row, col, gr_text, warn)
 
     # Config details — each entry is (label, value) for aligned columns
     if config_lines:
@@ -192,17 +200,101 @@ def draw_splash(stdscr, subtitle="MAVERIC Ground Station", config_lines=None):
         left_col = max(0, (max_x - max_line_w) // 2)
         val_col = left_col + label_w + 2
         for label, value in config_lines:
-            _safe(stdscr, row, left_col, f"{label:<{label_w}}", dim)
-            _safe(stdscr, row, val_col, value, dim)
+            safe_addstr(stdscr, row, left_col, f"{label:<{label_w}}", dim)
+            safe_addstr(stdscr, row, val_col, value, dim)
             row += 1
 
     # Press any key
     row += 1
     prompt = "Press any key to continue..."
     col = max(0, (max_x - len(prompt)) // 2)
-    _safe(stdscr, row, col, prompt, dim | curses.A_BLINK)
+    safe_addstr(stdscr, row, col, prompt, dim | curses.A_BLINK)
 
     stdscr.refresh()
     stdscr.nodelay(False)
     stdscr.getch()
     curses.flushinp()
+
+
+# -- Shared input rendering ---------------------------------------------------
+
+def render_input_line(stdscr, row_y, x, w, buf, cursor_pos):
+    """Draw prompt, buffer text, and block cursor on a single row.
+
+    Shared by both TX and RX input panels.
+    """
+    safe_addstr(stdscr, row_y, x + 1, "> ",
+                curses.color_pair(CP_LABEL) | curses.A_BOLD)
+
+    max_input_w = w - 5
+    visible_start = 0
+    if cursor_pos > max_input_w - 1:
+        visible_start = cursor_pos - max_input_w + 1
+    visible_buf = buf[visible_start:visible_start + max_input_w]
+
+    safe_addstr(stdscr, row_y, x + 3, visible_buf,
+                curses.color_pair(CP_VALUE) | curses.A_BOLD)
+
+    cursor_screen_x = x + 3 + (cursor_pos - visible_start)
+    if cursor_screen_x < w - 1:
+        ch = buf[cursor_pos] if cursor_pos < len(buf) else " "
+        try:
+            stdscr.addch(row_y, cursor_screen_x, ord(ch),
+                         curses.A_REVERSE | curses.color_pair(CP_LABEL))
+        except curses.error:
+            pass
+
+
+# -- Shared side panels -------------------------------------------------------
+
+def draw_help_panel(stdscr, region, help_lines, hint="Esc: close",
+                    version="", schema_count=0, schema_path="", log_path=""):
+    """Draw a two-column help panel in a side region.
+
+    Shared renderer for both TX and RX help panels. Only the help_lines
+    data, hint text, and info fields differ between them.
+    """
+    y, x, h, w = region
+    dim = curses.color_pair(CP_DIM) | curses.A_DIM
+    inner_w = w - 3
+
+    draw_vline(stdscr, x, y, h, dim)
+
+    safe_addstr(stdscr, y, x + 2, " HELP ",
+                curses.color_pair(CP_WARNING) | curses.A_BOLD)
+    draw_hline(stdscr, y + 1, x + 1, w - 1, dim)
+
+    left_col_w = inner_w * 5 // 10
+    right_col_x = x + 2 + left_col_w + 1
+    max_right_w = w - left_col_w - 5
+
+    row = y + 2
+    for left, right in help_lines:
+        if row >= y + h - 5:
+            break
+        if right is None:
+            safe_addstr(stdscr, row, x + 2, left[:inner_w],
+                        curses.color_pair(CP_LABEL) | curses.A_BOLD)
+        elif left == "":
+            row += 1
+            continue
+        else:
+            safe_addstr(stdscr, row, x + 3, left[:left_col_w],
+                        curses.color_pair(CP_VALUE) | curses.A_BOLD)
+            if right and max_right_w > 0:
+                safe_addstr(stdscr, row, right_col_x, right[:max_right_w], dim)
+        row += 1
+
+    info_start = y + h - 5
+    if info_start > row:
+        draw_hline(stdscr, info_start, x + 1, w - 1, dim)
+        if version:
+            safe_addstr(stdscr, info_start + 1, x + 2, f"Version: {version}", dim)
+        if schema_count > 0:
+            safe_addstr(stdscr, info_start + 2, x + 2,
+                        f"Schema: {schema_count} cmds ({schema_path})", dim)
+        if log_path:
+            safe_addstr(stdscr, info_start + 3, x + 2,
+                        f"Log: {log_path}"[:inner_w], dim)
+
+    safe_addstr(stdscr, y + h - 1, x + 2, hint[:inner_w], dim)

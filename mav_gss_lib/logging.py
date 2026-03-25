@@ -13,11 +13,10 @@ import os
 import time
 from datetime import datetime
 
-import mav_gss_lib.protocol as protocol
-from mav_gss_lib.protocol import node_label, ptype_label, clean_text, crc16, crc32c
+from mav_gss_lib.protocol import node_name, ptype_name, clean_text, format_arg_value, crc16, crc32c
 
 # Line width for text logs
-W = 80
+LOG_LINE_WIDTH = 80
 SEP_CHAR = "\u2500"      # ─
 HEADER_CHAR = "\u2550"   # ═
 
@@ -47,12 +46,12 @@ class _BaseLog:
         # Session header
         session_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
         self._write_text(
-            f"{HEADER_CHAR * W}\n"
+            f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
             f"  MAVERIC Ground Station Log  v{version}\n"
             f"  Mode:      {mode}\n"
             f"  Session:   {session_ts}\n"
             f"  ZMQ:       {zmq_addr}\n"
-            f"{HEADER_CHAR * W}\n\n"
+            f"{HEADER_CHAR * LOG_LINE_WIDTH}\n\n"
         )
         self._text_f.flush()
 
@@ -72,7 +71,7 @@ class _BaseLog:
         """Build thin separator: ──── #1  timestamp  extras ────────"""
         ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
         content = f"{SEP_CHAR * 4} {label}  {ts}  {extras}".rstrip()
-        pad = max(0, W - len(content) - 1)
+        pad = max(0, LOG_LINE_WIDTH - len(content) - 1)
         return content + " " + SEP_CHAR * pad
 
     @staticmethod
@@ -113,8 +112,8 @@ class _BaseLog:
     def _write_summary_block(self, summary_lines):
         """Write a summary block with ═ borders."""
         block = [
-            "", HEADER_CHAR * W, "  Session Summary", HEADER_CHAR * W,
-        ] + summary_lines + [HEADER_CHAR * W, ""]
+            "", HEADER_CHAR * LOG_LINE_WIDTH, "  Session Summary", HEADER_CHAR * LOG_LINE_WIDTH,
+        ] + summary_lines + [HEADER_CHAR * LOG_LINE_WIDTH, ""]
         self._write_text("\n".join(block) + "\n")
         self._text_f.flush()
 
@@ -191,22 +190,18 @@ class SessionLog(_BaseLog):
         # Command
         cmd = pkt.get("cmd")
         if cmd:
-            src_name = protocol.NODE_NAMES.get(cmd["src"], str(cmd["src"]))
-            dest_name = protocol.NODE_NAMES.get(cmd["dest"], str(cmd["dest"]))
-            echo_name = protocol.NODE_NAMES.get(cmd["echo"], str(cmd["echo"]))
-            ptype_name = protocol.PTYPE_NAMES.get(cmd["pkt_type"], str(cmd["pkt_type"]))
+            src_lbl = node_name(cmd["src"])
+            dest_lbl = node_name(cmd["dest"])
+            echo_lbl = node_name(cmd["echo"])
+            ptype_lbl = ptype_name(cmd["pkt_type"])
             lines.append(self._field("CMD",
-                f"{src_name} \u2192 {dest_name}  Echo:{echo_name}  Type:{ptype_name}"))
+                f"{src_lbl} \u2192 {dest_lbl}  Echo:{echo_lbl}  Type:{ptype_lbl}"))
             lines.append(self._field("CMD ID", cmd["cmd_id"]))
 
             # Schema-matched args
             if cmd.get("schema_match"):
                 for ta in cmd.get("typed_args", []):
-                    label = ta["name"].upper()
-                    if ta["type"] == "epoch_ms" and isinstance(ta["value"], dict):
-                        lines.append(self._field(label, str(ta["value"]["ms"])))
-                    else:
-                        lines.append(self._field(label, str(ta["value"])))
+                    lines.append(self._field(ta["name"].upper(), format_arg_value(ta)))
                 for i, extra in enumerate(cmd.get("extra_args", [])):
                     lines.append(self._field(f"ARG +{i}", str(extra)))
             else:
@@ -262,12 +257,12 @@ class TXLog(_BaseLog):
         # -- Text entry --
         lines = []
 
-        src_name = protocol.NODE_NAMES.get(src, str(src))
-        dest_name = protocol.NODE_NAMES.get(dest, str(dest))
-        echo_name = protocol.NODE_NAMES.get(echo, str(echo))
-        ptype_name = protocol.PTYPE_NAMES.get(ptype, str(ptype))
+        src_lbl = node_name(src)
+        dest_lbl = node_name(dest)
+        echo_lbl = node_name(echo)
+        ptype_lbl = ptype_name(ptype)
 
-        extras = f"{src_name} \u2192 {dest_name}  Echo:{echo_name}  {ptype_name}"
+        extras = f"{src_lbl} \u2192 {dest_lbl}  Echo:{echo_lbl}  {ptype_lbl}"
         lines.append(self._separator(f"#{n}", extras))
 
         lines.append(self._field("CMD ID", cmd))
@@ -319,13 +314,13 @@ class TXLog(_BaseLog):
             "n": n,
             "ts": datetime.now().astimezone().isoformat(),
             "src": src,
-            "src_lbl": src_name,
+            "src_lbl": src_lbl,
             "dest": dest,
-            "dest_lbl": dest_name,
+            "dest_lbl": dest_lbl,
             "echo": echo,
-            "echo_lbl": echo_name,
+            "echo_lbl": echo_lbl,
             "ptype": ptype,
-            "ptype_lbl": ptype_name,
+            "ptype_lbl": ptype_lbl,
             "cmd": cmd,
             "args": args,
             "raw_hex": raw_cmd.hex(),

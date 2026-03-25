@@ -26,7 +26,7 @@ from mav_gss_lib.protocol import (
 )
 from mav_gss_lib.transport import init_zmq_pub, send_pdu
 from mav_gss_lib.logging import TXLog
-from mav_gss_lib.curses_common import init_colors, draw_splash, edit_buffer
+from mav_gss_lib.curses_common import init_dashboard, draw_splash, edit_buffer
 from mav_gss_lib.config import (
     load_gss_config, apply_ax25, apply_csp,
     ax25_handle_msg, csp_handle_msg,
@@ -58,11 +58,8 @@ MAX_CMD_HISTORY  = 500
 # -- Dashboard ----------------------------------------------------------------
 
 def dashboard(stdscr, *, show_splash=True):
-    curses.curs_set(0)
+    init_dashboard(stdscr)
     curses.raw()          # disable Ctrl+S/Ctrl+Q flow control so Ctrl+S works
-    curses.set_escdelay(25)  # fast Esc response (25ms instead of default 1000ms)
-    init_colors()
-    stdscr.keypad(True)   # enable KEY_LEFT, KEY_UP, etc.
     if show_splash:
         ax = CFG["ax25"]
         cs = CFG["csp"]
@@ -94,11 +91,11 @@ def dashboard(stdscr, *, show_splash=True):
     tx_log = TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
     session_start = time.time()
 
-    queue   = []       # list of (src, dest, echo, ptype, cmd, args, raw_cmd)
+    tx_queue = []      # list of (src, dest, echo, ptype, cmd, args, raw_cmd)
     history = []       # list of dicts
     input_buf  = ""
     cursor_pos = 0
-    n = 0              # TX counter
+    tx_count = 0       # TX counter
     status_msg    = ""
     status_expire = 0
     queue_scroll  = 0
@@ -135,33 +132,33 @@ def dashboard(stdscr, *, show_splash=True):
             return
         draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
                     freq=freq, log_path=tx_log.text_path)
-        draw_queue(stdscr, layout["queue"], queue,
+        draw_queue(stdscr, layout["queue"], tx_queue,
                    scroll_offset=queue_scroll, sending_idx=sending_idx,
                    tx_delay_ms=tx_delay_ms)
         draw_history(stdscr, layout["history"], history,
                      scroll_offset=hist_scroll)
         draw_input(stdscr, layout["input"], input_buf, cursor_pos,
-                   len(queue), status_msg)
+                   len(tx_queue), status_msg)
         stdscr.refresh()
 
     def send_queue():
-        nonlocal n, queue_scroll, hist_scroll
-        if not queue:
+        nonlocal tx_count, queue_scroll, hist_scroll
+        if not tx_queue:
             set_status("Nothing queued", 2)
             return
-        count = len(queue)
-        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(queue):
+        count = len(tx_queue)
+        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(tx_queue):
             # Show this command as "SENDING", previous as "SENT"
             redraw(sending_idx=i)
             if i > 0 and tx_delay_ms > 0:
                 curses.napms(tx_delay_ms)
             payload = ax25.wrap(csp.wrap(raw_cmd))
-            n += 1
+            tx_count += 1
             send_pdu(sock, payload)
-            tx_log.write_command(n, src, dest, echo, ptype, cmd, args,
+            tx_log.write_command(tx_count, src, dest, echo, ptype, cmd, args,
                                  raw_cmd, payload, ax25, csp)
             history.append({
-                "n": n,
+                "n": tx_count,
                 "ts": datetime.now().strftime("%H:%M:%S"),
                 "src": src,
                 "dest": dest,
@@ -179,7 +176,7 @@ def dashboard(stdscr, *, show_splash=True):
         # Cap history (remove oldest from the front)
         if len(history) > MAX_HISTORY:
             del history[:len(history) - MAX_HISTORY]
-        queue.clear()
+        tx_queue.clear()
         queue_scroll = 0
         hist_scroll = max(0, len(history) - 1)  # auto-scroll to bottom
         set_status(f"Sent {count} command{'s' if count != 1 else ''}")
@@ -213,12 +210,12 @@ def dashboard(stdscr, *, show_splash=True):
             # -- Draw panels --
             draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
                         freq=freq, log_path=tx_log.text_path)
-            draw_queue(stdscr, layout["queue"], queue,
+            draw_queue(stdscr, layout["queue"], tx_queue,
                        scroll_offset=queue_scroll, tx_delay_ms=tx_delay_ms)
             draw_history(stdscr, layout["history"], history,
                          scroll_offset=hist_scroll)
             draw_input(stdscr, layout["input"], input_buf, cursor_pos,
-                       len(queue), status_msg)
+                       len(tx_queue), status_msg)
 
             # Side panels
             if config_open and "side_panel" in layout:
@@ -320,18 +317,18 @@ def dashboard(stdscr, *, show_splash=True):
 
             # Ctrl+Z — remove last queued command
             if ch == 26:
-                if queue:
-                    removed = queue.pop()
-                    set_status(f"Removed: {removed[4]} ({len(queue)} left)", 2)
+                if tx_queue:
+                    removed = tx_queue.pop()
+                    set_status(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
                 else:
                     set_status("Queue is empty", 2)
                 continue
 
             # Ctrl+X — clear queue
             if ch == 24:
-                if queue:
-                    set_status(f"Cleared {len(queue)} command{'s' if len(queue) != 1 else ''}", 2)
-                    queue.clear()
+                if tx_queue:
+                    set_status(f"Cleared {len(tx_queue)} command{'s' if len(tx_queue) != 1 else ''}", 2)
+                    tx_queue.clear()
                     queue_scroll = 0
                 continue
 
@@ -386,38 +383,38 @@ def dashboard(stdscr, *, show_splash=True):
                 if len(cmd_history) > MAX_CMD_HISTORY:
                     del cmd_history[MAX_CMD_HISTORY:]
 
-                low = line.lower()
+                cmd_lower = line.lower()
 
                 # Quit
-                if low in ('q', 'quit', 'exit'):
+                if cmd_lower in ('q', 'quit', 'exit'):
                     break
 
                 # Send
-                if low == 'send':
+                if cmd_lower == 'send':
                     send_queue()
                     continue
 
                 # Clear queue
-                if low == 'clear':
-                    if queue:
-                        set_status(f"Cleared {len(queue)} commands", 2)
-                        queue.clear()
+                if cmd_lower == 'clear':
+                    if tx_queue:
+                        set_status(f"Cleared {len(tx_queue)} commands", 2)
+                        tx_queue.clear()
                         queue_scroll = 0
                     else:
                         set_status("Nothing to clear", 2)
                     continue
 
                 # Remove last queued command
-                if low in ('undo', 'pop'):
-                    if queue:
-                        removed = queue.pop()
-                        set_status(f"Removed: {removed[4]} ({len(queue)} left)", 2)
+                if cmd_lower in ('undo', 'pop'):
+                    if tx_queue:
+                        removed = tx_queue.pop()
+                        set_status(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
                     else:
                         set_status("Queue is empty", 2)
                     continue
 
                 # Clear sent history
-                if low == 'hclear':
+                if cmd_lower == 'hclear':
                     if history:
                         set_status(f"Cleared {len(history)} history entries", 2)
                         history.clear()
@@ -427,12 +424,12 @@ def dashboard(stdscr, *, show_splash=True):
                     continue
 
                 # Help
-                if low == 'help':
+                if cmd_lower == 'help':
                     help_open = True
                     continue
 
                 # Config panel
-                if low in ('config', 'cfg'):
+                if cmd_lower in ('config', 'cfg'):
                     config_open = True
                     config_focused = True
                     config_selected = 0
@@ -442,20 +439,20 @@ def dashboard(stdscr, *, show_splash=True):
                     continue
 
                 # Nodes
-                if low == 'nodes':
+                if cmd_lower == 'nodes':
                     names = ", ".join(f"{nid}={protocol.NODE_NAMES[nid]}"
                                      for nid in sorted(protocol.NODE_NAMES))
                     set_status(f"Nodes: {names}", 5)
                     continue
 
                 # CSP config (quick inline)
-                if low == 'csp' or low.startswith('csp '):
+                if cmd_lower == 'csp' or cmd_lower.startswith('csp '):
                     msg = csp_handle_msg(csp, line[3:].strip() if len(line) > 3 else "")
                     set_status(msg, 4)
                     continue
 
                 # AX.25 config (quick inline)
-                if low == 'ax25' or low.startswith('ax25 '):
+                if cmd_lower == 'ax25' or cmd_lower.startswith('ax25 '):
                     msg = ax25_handle_msg(ax25, line[4:].strip() if len(line) > 4 else "")
                     set_status(msg, 4)
                     continue
@@ -484,7 +481,7 @@ def dashboard(stdscr, *, show_splash=True):
                     set_status("Command too large for RS payload", 3)
                     continue
 
-                queue.append((src, dest, echo, ptype, cmd, args, raw_cmd))
+                tx_queue.append((src, dest, echo, ptype, cmd, args, raw_cmd))
                 src_tag = f"{node_label(src)}\u2192" if src != protocol.GS_NODE else ""
                 set_status(f"Queued: {src_tag}{node_label(dest)} E:{echo} {protocol.PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
                 continue
@@ -494,7 +491,7 @@ def dashboard(stdscr, *, show_splash=True):
 
     finally:
         try:
-            tx_log.write_summary(n, session_start)
+            tx_log.write_summary(tx_count, session_start)
             tx_log.close()
         except Exception:
             pass
@@ -504,7 +501,7 @@ def dashboard(stdscr, *, show_splash=True):
         except Exception:
             pass
 
-    return n, tx_log.text_path
+    return tx_count, tx_log.text_path
 
 
 def main():
@@ -513,12 +510,12 @@ def main():
                         help="skip the startup splash screen")
     args = parser.parse_args()
 
-    n, logpath = curses.wrapper(lambda stdscr: dashboard(
+    tx_count, logpath = curses.wrapper(lambda stdscr: dashboard(
         stdscr, show_splash=not args.nosplash))
     # Print session summary after curses restores the terminal
     print()
     print(f"  Session ended")
-    print(f"  Transmitted:  {n}")
+    print(f"  Transmitted:  {tx_count}")
     print(f"  Log:          {logpath}")
     print()
 

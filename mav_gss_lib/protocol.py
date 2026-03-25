@@ -55,6 +55,16 @@ def init_nodes(cfg):
     GS_NODE = NODE_IDS.get(gs_name, 6)
 
 
+def node_name(node_id):
+    """Short node name: 'EPS' or '99' if unknown."""
+    return NODE_NAMES.get(node_id, str(node_id))
+
+
+def ptype_name(ptype_id):
+    """Short packet type name: 'REQ' or '99' if unknown."""
+    return PTYPE_NAMES.get(ptype_id, str(ptype_id))
+
+
 def node_label(node_id):
     """Format node ID for display: '2 (EPS)' or '99' if unknown."""
     name = NODE_NAMES.get(node_id)
@@ -210,14 +220,14 @@ def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=None):
         origin = GS_NODE
     header = bytes([origin & 0xFF, dest & 0xFF, echo & 0xFF, ptype & 0xFF,
                     len(cmd) & 0xFF, len(args) & 0xFF])
-    p = bytearray(header)
-    p.extend(cmd.encode('ascii'))
-    p.append(0x00)
-    p.extend(args.encode('ascii'))
-    p.append(0x00)
-    crc = crc16(p)
-    p.extend(crc.to_bytes(2, byteorder='little'))
-    return p
+    packet = bytearray(header)
+    packet.extend(cmd.encode('ascii'))
+    packet.append(0x00)
+    packet.extend(args.encode('ascii'))
+    packet.append(0x00)
+    crc = crc16(packet)
+    packet.extend(crc.to_bytes(2, byteorder='little'))
+    return packet
 
 
 def build_kiss_cmd(dest, cmd, args="", echo=0, ptype=1, origin=None):
@@ -677,6 +687,16 @@ def parse_cmd_line(line):
 # =============================================================================
 #  UTILITIES
 # =============================================================================
+
+def format_arg_value(typed_arg):
+    """Format a schema-typed argument value for display/logging.
+
+    For epoch_ms args with resolved dicts, returns the ms string.
+    For all other args, returns str(value)."""
+    if typed_arg["type"] == "epoch_ms" and isinstance(typed_arg["value"], dict):
+        return str(typed_arg["value"]["ms"])
+    return str(typed_arg["value"])
+
 
 def clean_text(data: bytes) -> str:
     """Printable ASCII representation with non-printable bytes as middle dot."""

@@ -31,7 +31,7 @@ from mav_gss_lib.protocol import init_nodes, load_command_defs
 from mav_gss_lib.transport import init_zmq_sub, receive_pdu
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
-from mav_gss_lib.curses_common import init_colors, draw_splash, edit_buffer
+from mav_gss_lib.curses_common import init_dashboard, draw_splash, edit_buffer
 from mav_gss_lib.config import load_gss_config
 from mav_gss_lib.curses_rx import (
     calculate_rx_layout,
@@ -91,10 +91,7 @@ def _receiver_thread(sock, pkt_queue, stop_event, on_error=None):
 # =============================================================================
 
 def rx_dashboard(stdscr, show_splash=True):
-    curses.curs_set(0)
-    curses.set_escdelay(25)  # fast Esc response (25ms instead of default 1000ms)
-    init_colors()
-    stdscr.keypad(True)
+    init_dashboard(stdscr)
     tx_freq_map = _load_tx_frequencies(DECODER_YML_PATH)
     # Pick first frequency from decoder YAML for display
     rx_freq = next(iter(tx_freq_map.values()), "N/A")
@@ -321,29 +318,29 @@ def rx_dashboard(stdscr, show_splash=True):
                     # No text — toggle detail panel
                     detail_open = not detail_open
                 else:
-                    low = line.lower()
-                    if low in ('q', 'quit', 'exit'):
+                    cmd_lower = line.lower()
+                    if cmd_lower in ('q', 'quit', 'exit'):
                         break
-                    elif low == 'help':
+                    elif cmd_lower == 'help':
                         help_open = not help_open
                         if help_open:
                             config_open = False
                             config_focused = False
-                    elif low in ('cfg', 'config'):
+                    elif cmd_lower in ('cfg', 'config'):
                         config_open = not config_open
                         config_focused = config_open
                         if config_open:
                             help_open = False
-                    elif low == 'hex':
+                    elif cmd_lower == 'hex':
                         show_hex = not show_hex
                         status_msg = f"HEX {'ON' if show_hex else 'OFF'}"
                         status_expire = time.time() + 2
-                    elif low == 'log':
+                    elif cmd_lower == 'log':
                         status_msg, dur = toggle_logging()
                         status_expire = time.time() + dur
-                    elif low == 'detail':
+                    elif cmd_lower == 'detail':
                         detail_open = not detail_open
-                    elif low == 'hclear':
+                    elif cmd_lower == 'hclear':
                         if packets:
                             status_msg = f"Cleared {len(packets)} packets"
                             status_expire = time.time() + 2
@@ -353,7 +350,7 @@ def rx_dashboard(stdscr, show_splash=True):
                         else:
                             status_msg = "History already empty"
                             status_expire = time.time() + 2
-                    elif low == 'live':
+                    elif cmd_lower == 'live':
                         selected_idx = -1
                     else:
                         status_msg = f"Unknown command: {line}"

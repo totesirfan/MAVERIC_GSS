@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label
 from mav_gss_lib.curses_common import (
-    _safe, _hline, _vline,
+    safe_addstr, draw_hline, draw_vline, render_input_line, draw_help_panel,
     CP_LABEL, CP_VALUE, CP_SUCCESS, CP_WARNING, CP_ERROR, CP_DIM,
     MIN_COLS,
 )
@@ -83,18 +83,18 @@ def draw_header(stdscr, region, csp, ax25, zmq_addr, freq="435.0 MHz",
 
     # Row 0: title + clock
     title = "MAVERIC TX DASHBOARD"
-    _safe(stdscr, y, x + 1, title,
+    safe_addstr(stdscr, y, x + 1, title,
           curses.color_pair(CP_SUCCESS) | curses.A_BOLD)
-    _safe(stdscr, y, x + w - len(time_str) - 1, time_str,
+    safe_addstr(stdscr, y, x + w - len(time_str) - 1, time_str,
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
 
     # Row 1: separator under title
-    _hline(stdscr, y + 1, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+    draw_hline(stdscr, y + 1, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
 
     # Row 2: AX.25 callsigns + CSP summary
-    _safe(stdscr, y + 2, x + 1, "AX.25",
+    safe_addstr(stdscr, y + 2, x + 1, "AX.25",
           curses.color_pair(CP_LABEL))
-    _safe(stdscr, y + 2, x + 7,
+    safe_addstr(stdscr, y + 2, x + 7,
           f"{ax25.src_call}-{ax25.src_ssid}"
           f" \u2192 {ax25.dest_call}-{ax25.dest_ssid}",
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
@@ -103,23 +103,23 @@ def draw_header(stdscr, region, csp, ax25, zmq_addr, freq="435.0 MHz",
                f"DPort:{csp.dport} SPort:{csp.sport} "
                f"Flags:0x{csp.flags:02X}")
     csp_x = w // 2
-    _safe(stdscr, y + 2, x + csp_x, "CSP",
+    safe_addstr(stdscr, y + 2, x + csp_x, "CSP",
           curses.color_pair(CP_LABEL))
-    _safe(stdscr, y + 2, x + csp_x + 4, csp_str,
+    safe_addstr(stdscr, y + 2, x + csp_x + 4, csp_str,
           curses.color_pair(CP_DIM) | curses.A_DIM)
 
     # Row 3: ZMQ + Freq
-    _safe(stdscr, y + 3, x + 1, "ZMQ",
+    safe_addstr(stdscr, y + 3, x + 1, "ZMQ",
           curses.color_pair(CP_LABEL))
-    _safe(stdscr, y + 3, x + 7,
+    safe_addstr(stdscr, y + 3, x + 7,
           f"{zmq_addr} [BOUND]",
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
     freq_str = f"Freq: {freq}"
-    _safe(stdscr, y + 3, x + csp_x, freq_str,
+    safe_addstr(stdscr, y + 3, x + csp_x, freq_str,
           curses.color_pair(CP_WARNING))
 
     # Row 4: separator
-    _hline(stdscr, y + 4, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+    draw_hline(stdscr, y + 4, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
 
 
 # -- Queue Panel --------------------------------------------------------------
@@ -141,16 +141,16 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1,
         total_ms = (count - 1) * tx_delay_ms
         total_str = f"{total_ms / 1000:.1f}s" if total_ms >= 1000 else f"{total_ms}ms"
         title += f"  total: {total_str}"
-    _safe(stdscr, y, x, title,
+    safe_addstr(stdscr, y, x, title,
           curses.color_pair(CP_WARNING) | curses.A_BOLD)
     hints = "Ctrl+S: send | Ctrl+X: clear"
-    _safe(stdscr, y, x + w - len(hints) - 2, hints,
+    safe_addstr(stdscr, y, x + w - len(hints) - 2, hints,
           curses.color_pair(CP_DIM) | curses.A_DIM)
 
     # Data rows
     data_rows = h - 1
     if count == 0:
-        _safe(stdscr, y + 1, x + 2, "(empty \u2014 type a command below)",
+        safe_addstr(stdscr, y + 1, x + 2, "(empty \u2014 type a command below)",
               curses.color_pair(CP_DIM) | curses.A_DIM)
     else:
         visible = queue[scroll_offset:scroll_offset + data_rows]
@@ -180,45 +180,45 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1,
                 tag, tag_attr = "", 0
 
             idx_str = f"{idx:>2}."
-            _safe(stdscr, row_y, col, idx_str,
+            safe_addstr(stdscr, row_y, col, idx_str,
                   base | curses.color_pair(CP_WARNING))
             col += len(idx_str) + 1
 
             route_str = f"{src_lbl} \u2192 {dest_lbl}"
-            _safe(stdscr, row_y, col, route_str,
+            safe_addstr(stdscr, row_y, col, route_str,
                   base | curses.color_pair(CP_LABEL))
             col += len(route_str) + 1
 
             echo_str = f"E:{echo_lbl}"
-            _safe(stdscr, row_y, col, echo_str,
+            safe_addstr(stdscr, row_y, col, echo_str,
                   base | curses.color_pair(CP_DIM))
             col += len(echo_str) + 1
 
-            _safe(stdscr, row_y, col, ptype_lbl,
+            safe_addstr(stdscr, row_y, col, ptype_lbl,
                   base | curses.color_pair(CP_LABEL))
             col += len(ptype_lbl) + 1
 
-            _safe(stdscr, row_y, col, cmd,
+            safe_addstr(stdscr, row_y, col, cmd,
                   base | curses.color_pair(CP_VALUE) | curses.A_BOLD)
             col += len(cmd) + 1
 
             if args:
-                _safe(stdscr, row_y, col, args,
+                safe_addstr(stdscr, row_y, col, args,
                       base | curses.color_pair(CP_DIM))
 
             # Right side: size + optional tag
             right = f"({len(raw_cmd)}B)"
             if tag:
                 right = tag + "  " + right
-            _safe(stdscr, row_y, x + w - len(right) - 2, right,
+            safe_addstr(stdscr, row_y, x + w - len(right) - 2, right,
                   tag_attr if tag else curses.color_pair(CP_DIM))
 
         if count > data_rows:
             ind = f"[{scroll_offset + 1}-{min(scroll_offset + data_rows, count)}/{count}]"
-            _safe(stdscr, y + h - 1, x + w - len(ind) - 2, ind,
+            safe_addstr(stdscr, y + h - 1, x + w - len(ind) - 2, ind,
                   curses.color_pair(CP_DIM) | curses.A_DIM)
 
-    _hline(stdscr, y + h - 1 if count <= data_rows - 1 else y + h,
+    draw_hline(stdscr, y + h - 1 if count <= data_rows - 1 else y + h,
            x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
 
 
@@ -228,17 +228,17 @@ def draw_history(stdscr, region, history, scroll_offset=0):
     """Draw the Sent History panel. Adapts to narrow width when side panel open."""
     y, x, h, w = region
 
-    _hline(stdscr, y, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+    draw_hline(stdscr, y, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
 
     count = len(history)
     title = f" SENT HISTORY ({count})"
-    _safe(stdscr, y + 1, x, title,
+    safe_addstr(stdscr, y + 1, x, title,
           curses.color_pair(CP_SUCCESS) | curses.A_BOLD)
 
     data_start = y + 2
     data_rows = h - 2
     if count == 0:
-        _safe(stdscr, data_start, x + 2, "(no commands sent yet)",
+        safe_addstr(stdscr, data_start, x + 2, "(no commands sent yet)",
               curses.color_pair(CP_DIM) | curses.A_DIM)
     else:
         # Bottom-anchored: scroll_offset is the last visible item index
@@ -262,29 +262,29 @@ def draw_history(stdscr, region, history, scroll_offset=0):
             col = x + 1
 
             tag = f"#{n}"
-            _safe(stdscr, row_y, col, tag,
+            safe_addstr(stdscr, row_y, col, tag,
                   curses.color_pair(CP_SUCCESS) | curses.A_BOLD)
             col += max(len(tag), 4) + 1
 
-            _safe(stdscr, row_y, col, ts,
+            safe_addstr(stdscr, row_y, col, ts,
                   curses.color_pair(CP_DIM))
             col += len(ts) + 1
 
             route_str = f"{src_name} \u2192 {dest_name}"
-            _safe(stdscr, row_y, col, route_str,
+            safe_addstr(stdscr, row_y, col, route_str,
                   curses.color_pair(CP_LABEL))
             col += len(route_str) + 1
 
             echo_str = f"E:{echo_name}"
-            _safe(stdscr, row_y, col, echo_str,
+            safe_addstr(stdscr, row_y, col, echo_str,
                   curses.color_pair(CP_DIM))
             col += len(echo_str) + 1
 
-            _safe(stdscr, row_y, col, ptype_name,
+            safe_addstr(stdscr, row_y, col, ptype_name,
                   curses.color_pair(CP_LABEL))
             col += len(ptype_name) + 1
 
-            _safe(stdscr, row_y, col, cmd,
+            safe_addstr(stdscr, row_y, col, cmd,
                   curses.color_pair(CP_VALUE) | curses.A_BOLD)
             col += len(cmd) + 1
 
@@ -294,15 +294,15 @@ def draw_history(stdscr, region, history, scroll_offset=0):
 
             if args and col < right_x - 1:
                 max_args_w = right_x - col - 1
-                _safe(stdscr, row_y, col, args[:max_args_w],
+                safe_addstr(stdscr, row_y, col, args[:max_args_w],
                       curses.color_pair(CP_DIM))
 
-            _safe(stdscr, row_y, right_x, right,
+            safe_addstr(stdscr, row_y, right_x, right,
                   curses.color_pair(CP_DIM))
 
         if count > data_rows:
             ind = f"[{start + 1}-{end}/{count}]"
-            _safe(stdscr, y + h - 1, x + w - len(ind) - 2, ind,
+            safe_addstr(stdscr, y + h - 1, x + w - len(ind) - 2, ind,
                   curses.color_pair(CP_DIM) | curses.A_DIM)
 
 
@@ -370,15 +370,15 @@ def draw_config(stdscr, region, values, selected, editing,
     dim = curses.color_pair(CP_DIM) | curses.A_DIM
 
     # Vertical separator on the left edge
-    _vline(stdscr, x, y, h, dim)
+    draw_vline(stdscr, x, y, h, dim)
 
     # Title — highlight when focused
     title_attr = curses.color_pair(CP_WARNING) | curses.A_BOLD
     if not focused and not editing:
         title_attr = dim
-    _safe(stdscr, y, x + 2, " CONFIGURATION ",
+    safe_addstr(stdscr, y, x + 2, " CONFIGURATION ",
           title_attr)
-    _hline(stdscr, y + 1, x + 1, w - 1, dim)
+    draw_hline(stdscr, y + 1, x + 1, w - 1, dim)
 
     # Fields
     label_w = 16
@@ -394,16 +394,16 @@ def draw_config(stdscr, region, values, selected, editing,
         # Marker — only show when focused
         marker = "\u25b6" if (is_selected and (focused or editing)) else " "
         marker_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD if is_selected else dim
-        _safe(stdscr, row, x + 1, marker, marker_attr)
+        safe_addstr(stdscr, row, x + 1, marker, marker_attr)
 
         # Label
         lbl_attr = curses.color_pair(CP_LABEL) if editable else dim
-        _safe(stdscr, row, x + 3, label[:label_w], lbl_attr)
+        safe_addstr(stdscr, row, x + 3, label[:label_w], lbl_attr)
 
         # Value
         if editing and is_selected:
             display = edit_buf[:max_val_w]
-            _safe(stdscr, row, val_x, display,
+            safe_addstr(stdscr, row, val_x, display,
                   curses.color_pair(CP_VALUE) | curses.A_BOLD)
             # Cursor
             cx = val_x + min(edit_cursor, max_val_w - 1)
@@ -421,7 +421,7 @@ def draw_config(stdscr, region, values, selected, editing,
                 val_attr = dim
             if is_selected and not editing:
                 val_attr |= curses.A_UNDERLINE
-            _safe(stdscr, row, val_x, val[:max_val_w], val_attr)
+            safe_addstr(stdscr, row, val_x, val[:max_val_w], val_attr)
 
     # Hints at bottom
     hint_row = y + h - 1
@@ -429,7 +429,7 @@ def draw_config(stdscr, region, values, selected, editing,
         hints = "Enter:save Esc:cancel"
     else:
         hints = "Tab:focus Up/Dn:select Enter:edit"
-    _safe(stdscr, hint_row, x + 2, hints[:w - 3], dim)
+    safe_addstr(stdscr, hint_row, x + 2, hints[:w - 3], dim)
 
 
 # -- Help Side Panel ----------------------------------------------------------
@@ -461,56 +461,10 @@ HELP_LINES = [
 
 def draw_help(stdscr, region, version="", schema_count=0,
               schema_path="", log_path=""):
-    """Draw the help panel in a side region."""
-    y, x, h, w = region
-    dim = curses.color_pair(CP_DIM) | curses.A_DIM
-    inner_w = w - 3
-
-    # Vertical separator on the left edge
-    _vline(stdscr, x, y, h, dim)
-
-    # Title
-    _safe(stdscr, y, x + 2, " HELP ",
-          curses.color_pair(CP_WARNING) | curses.A_BOLD)
-    _hline(stdscr, y + 1, x + 1, w - 1, dim)
-
-    # Two-column layout
-    left_col_w = inner_w * 5 // 10
-    right_col_x = x + 2 + left_col_w + 1
-    max_right_w = w - left_col_w - 5
-
-    row = y + 2
-    for left, right in HELP_LINES:
-        if row >= y + h - 5:
-            break
-        if right is None:
-            _safe(stdscr, row, x + 2, left[:inner_w],
-                  curses.color_pair(CP_LABEL) | curses.A_BOLD)
-        elif left == "":
-            row += 1
-            continue
-        else:
-            _safe(stdscr, row, x + 3, left[:left_col_w],
-                  curses.color_pair(CP_VALUE) | curses.A_BOLD)
-            if right and max_right_w > 0:
-                _safe(stdscr, row, right_col_x, right[:max_right_w], dim)
-        row += 1
-
-    # Info section at bottom
-    info_start = y + h - 5
-    if info_start > row:
-        _hline(stdscr, info_start, x + 1, w - 1, dim)
-        if version:
-            _safe(stdscr, info_start + 1, x + 2, f"Version: {version}", dim)
-        if schema_count > 0:
-            _safe(stdscr, info_start + 2, x + 2,
-                  f"Schema: {schema_count} cmds ({schema_path})", dim)
-        if log_path:
-            _safe(stdscr, info_start + 3, x + 2,
-                  f"Log: {log_path}"[:inner_w], dim)
-
-    # Hint
-    _safe(stdscr, y + h - 1, x + 2, "Esc: close"[:inner_w], dim)
+    """Draw the TX help panel in a side region."""
+    draw_help_panel(stdscr, region, HELP_LINES, hint="Esc: close",
+                    version=version, schema_count=schema_count,
+                    schema_path=schema_path, log_path=log_path)
 
 
 # -- Input Panel --------------------------------------------------------------
@@ -520,36 +474,16 @@ def draw_input(stdscr, region, buf, cursor_pos, queue_count, status_msg=""):
     y, x, h, w = region
 
     # Row 0: separator
-    _hline(stdscr, y, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+    draw_hline(stdscr, y, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
 
-    # Row 1: prompt + input buffer
-    _safe(stdscr, y + 1, x + 1, "> ",
-          curses.color_pair(CP_LABEL) | curses.A_BOLD)
-
-    max_input_w = w - 5
-    visible_start = 0
-    if cursor_pos > max_input_w - 1:
-        visible_start = cursor_pos - max_input_w + 1
-    visible_buf = buf[visible_start:visible_start + max_input_w]
-
-    _safe(stdscr, y + 1, x + 3, visible_buf,
-          curses.color_pair(CP_VALUE) | curses.A_BOLD)
-
-    # Draw cursor
-    cursor_screen_x = x + 3 + (cursor_pos - visible_start)
-    if cursor_screen_x < w - 1:
-        ch = buf[cursor_pos] if cursor_pos < len(buf) else " "
-        try:
-            stdscr.addch(y + 1, cursor_screen_x, ord(ch),
-                         curses.A_REVERSE | curses.color_pair(CP_LABEL))
-        except curses.error:
-            pass
+    # Row 1: prompt + input buffer + cursor
+    render_input_line(stdscr, y + 1, x, w, buf, cursor_pos)
 
     # Row 2: hints + status
     if status_msg:
-        _safe(stdscr, y + 2, x + 1, status_msg,
+        safe_addstr(stdscr, y + 2, x + 1, status_msg,
               curses.color_pair(CP_WARNING))
     else:
         hints = "Enter: queue | cfg | help | Ctrl+C: quit"
-        _safe(stdscr, y + 2, x + 1, hints,
+        safe_addstr(stdscr, y + 2, x + 1, hints,
               curses.color_pair(CP_DIM) | curses.A_DIM)
