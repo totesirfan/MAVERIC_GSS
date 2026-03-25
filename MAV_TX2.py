@@ -418,6 +418,15 @@ def dashboard(stdscr, *, show_splash=True):
                 send_queue()
                 continue
 
+            # Ctrl+Z — remove last queued command
+            if ch == 26:
+                if queue:
+                    removed = queue.pop()
+                    set_status(f"Removed: {removed[4]} ({len(queue)} left)", 2)
+                else:
+                    set_status("Queue is empty", 2)
+                continue
+
             # Ctrl+X — clear queue
             if ch == 24:
                 if queue:
@@ -496,6 +505,15 @@ def dashboard(stdscr, *, show_splash=True):
                         queue_scroll = 0
                     else:
                         set_status("Nothing to clear", 2)
+                    continue
+
+                # Remove last queued command
+                if low in ('undo', 'pop'):
+                    if queue:
+                        removed = queue.pop()
+                        set_status(f"Removed: {removed[4]} ({len(queue)} left)", 2)
+                    else:
+                        set_status("Queue is empty", 2)
                     continue
 
                 # Clear sent history

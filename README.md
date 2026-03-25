@@ -133,7 +133,7 @@ All startup defaults live in `maveric_gss.yml`, shared by both TX and RX scripts
 
 ```yaml
 general:
-  version: "2.3.2"          # displayed on splash screen
+  version: "2.3.3"          # displayed on splash screen
   log_dir: "logs"
   command_defs: "maveric_commands.yml"
   decoder_yml: "maveric_decoder.yml"
@@ -176,4 +176,4 @@ rx:
 
 ## Status
 
-Early development (v2.3.2). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.
+Early development (v2.3.3). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.

@@ -282,6 +282,7 @@ def rx_dashboard(stdscr, show_splash=True):
     # -- State --
     packets = []
     packet_count = 0
+    unknown_count = 0
     uplink_echo_count = 0
     last_arrival = None
     last_watchdog = time.time()
@@ -362,7 +363,6 @@ def rx_dashboard(stdscr, show_splash=True):
                 delta_t = (now - last_arrival) if last_arrival is not None else None
                 last_arrival = now
                 last_watchdog = now
-                packet_count += 1
                 gs_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
                 gs_ts_short = datetime.now().strftime("%H:%M:%S")
                 if first_pkt_ts is None:
@@ -412,6 +412,15 @@ def rx_dashboard(stdscr, show_splash=True):
                 pkt_times.append(now)
                 pkt_times[:] = [t for t in pkt_times if t > now - 60.0]
 
+                # Unknown packet detection — no parseable command
+                is_unknown = cmd is None
+                unknown_num = None
+                if is_unknown:
+                    unknown_count += 1
+                    unknown_num = unknown_count
+                else:
+                    packet_count += 1
+
                 # Uplink echo detection — flag packets not addressed to GS
                 is_uplink_echo = bool(cmd and (cmd.get("dest") != GS_NODE or cmd.get("echo") != GS_NODE))
                 if is_uplink_echo:
@@ -427,6 +436,7 @@ def rx_dashboard(stdscr, show_splash=True):
                         "raw_len": len(raw), "payload_len": len(inner_payload),
                         "duplicate": is_dup,
                         "uplink_echo": is_uplink_echo,
+                        "unknown": is_unknown,
                     }
                     if delta_t is not None:
                         log_record["delta_t"] = round(delta_t, 4)
@@ -492,6 +502,8 @@ def rx_dashboard(stdscr, show_splash=True):
                     "crc_status": crc_status,
                     "is_dup": is_dup,
                     "is_uplink_echo": is_uplink_echo,
+                    "is_unknown": is_unknown,
+                    "unknown_num": unknown_num,
                 }
                 packets.append(pkt_record)
                 if len(packets) > MAX_PACKETS:
@@ -732,6 +744,7 @@ def rx_dashboard(stdscr, show_splash=True):
         "packet_count": packet_count,
         "unique": len(seen_fps),
         "duplicates": packet_count - len(seen_fps),
+        "unknown": unknown_count,
         "uplink_echoes": uplink_echo_count,
         "duration": time.time() - session_start,
         "log_txt": log.text_path if log else None,
@@ -758,7 +771,7 @@ def main():
     print(f"  Session ended")
     print(f"  Packets:    {result['packet_count']}  "
           f"({result['unique']} unique, {result['duplicates']} duplicate, "
-          f"{result['uplink_echoes']} uplink echo)")
+          f"{result['unknown']} unknown, {result['uplink_echoes']} uplink echo)")
     print(f"  Duration:   {result['duration']:.0f}s "
           f"({result['duration']/60:.1f} min)")
     if result.get("log_txt"):

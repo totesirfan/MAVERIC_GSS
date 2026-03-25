@@ -187,6 +187,8 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
         frame_type = pkt.get("frame_type", "???")
         is_dup = pkt.get("is_dup", False)
         is_uplink_echo = pkt.get("is_uplink_echo", False)
+        is_unknown = pkt.get("is_unknown", False)
+        unknown_num = pkt.get("unknown_num")
 
         # Command fields
         cmd = pkt.get("cmd")
@@ -241,10 +243,13 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
 
         col = x + 1
 
-        # Packet number
-        num_str = f"#{pkt_num:<5}"
+        # Packet number — unknown packets use U-N, valid packets use #N
+        if is_unknown and unknown_num is not None:
+            num_str = f"U-{unknown_num:<4}"
+        else:
+            num_str = f"#{pkt_num:<5}"
         _safe(stdscr, row_y, col, num_str,
-              base_attr | curses.color_pair(CP_DIM))
+              base_attr | curses.color_pair(CP_ERROR if is_unknown else CP_DIM))
         col += len(num_str)
 
         # Timestamp
@@ -252,39 +257,45 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
               base_attr | curses.color_pair(CP_DIM))
         col += len(ts_short) + 1
 
-        # Frame type
-        if frame_type == "AX.25":
-            ft_attr = curses.color_pair(CP_WARNING)
-        elif frame_type == "AX100":
-            ft_attr = curses.color_pair(CP_SUCCESS)
+        if is_unknown:
+            # Unknown packet — just show UNKNOWN label and size
+            _safe(stdscr, row_y, col, "UNKNOWN",
+                  base_attr | curses.color_pair(CP_ERROR) | curses.A_BOLD)
+            col += 8
         else:
-            ft_attr = curses.color_pair(CP_ERROR)
-        _safe(stdscr, row_y, col, f"{frame_type:<6}",
-              base_attr | ft_attr)
-        col += 7
+            # Frame type
+            if frame_type == "AX.25":
+                ft_attr = curses.color_pair(CP_WARNING)
+            elif frame_type == "AX100":
+                ft_attr = curses.color_pair(CP_SUCCESS)
+            else:
+                ft_attr = curses.color_pair(CP_ERROR)
+            _safe(stdscr, row_y, col, f"{frame_type:<6}",
+                  base_attr | ft_attr)
+            col += 7
 
-        # Command src→dest
-        route_str = f"{cmd_src} \u2192 {cmd_dest}"
-        _safe(stdscr, row_y, col, route_str,
-              base_attr | curses.color_pair(CP_LABEL))
-        col += len(route_str) + 1
+            # Command src→dest
+            route_str = f"{cmd_src} \u2192 {cmd_dest}"
+            _safe(stdscr, row_y, col, route_str,
+                  base_attr | curses.color_pair(CP_LABEL))
+            col += len(route_str) + 1
 
-        # Echo
-        echo_str = f"E:{cmd_echo}"
-        _safe(stdscr, row_y, col, echo_str,
-              base_attr | curses.color_pair(CP_DIM))
-        col += len(echo_str) + 1
+            # Echo
+            echo_str = f"E:{cmd_echo}"
+            _safe(stdscr, row_y, col, echo_str,
+                  base_attr | curses.color_pair(CP_DIM))
+            col += len(echo_str) + 1
 
-        # Packet type
-        _safe(stdscr, row_y, col, cmd_ptype,
-              base_attr | curses.color_pair(CP_LABEL))
-        col += len(cmd_ptype) + 1
+            # Packet type
+            _safe(stdscr, row_y, col, cmd_ptype,
+                  base_attr | curses.color_pair(CP_LABEL))
+            col += len(cmd_ptype) + 1
 
-        # Command ID
-        cmd_display = cmd_id[:14] if len(cmd_id) > 14 else cmd_id
-        _safe(stdscr, row_y, col, cmd_display,
-              base_attr | curses.color_pair(CP_VALUE) | curses.A_BOLD)
-        col += len(cmd_display) + 1
+            # Command ID
+            cmd_display = cmd_id[:14] if len(cmd_id) > 14 else cmd_id
+            _safe(stdscr, row_y, col, cmd_display,
+                  base_attr | curses.color_pair(CP_VALUE) | curses.A_BOLD)
+            col += len(cmd_display) + 1
 
         # Right-aligned block: args + size + CRC + DUP
         # Build right side first to know where it starts
@@ -340,13 +351,48 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
 
     # Top separator + title
     _hline(stdscr, y, x, w, dim)
+    is_unknown = packet.get("is_unknown", False)
+    unknown_num = packet.get("unknown_num")
     pkt_num = packet.get("pkt_num", 0)
-    title = f" PACKET #{pkt_num} DETAIL"
+
+    if is_unknown and unknown_num is not None:
+        title = f" UNKNOWN PACKET U-{unknown_num}"
+    else:
+        title = f" PACKET #{pkt_num} DETAIL"
     _safe(stdscr, y + 1, x, title,
-          curses.color_pair(CP_WARNING) | curses.A_BOLD)
+          curses.color_pair(CP_ERROR if is_unknown else CP_WARNING) | curses.A_BOLD)
 
     row = y + 2
     max_row = y + h - 1  # leave last row empty
+
+    # Unknown packets — only show HEX and ASCII, skip all protocol fields
+    if is_unknown:
+        # HEX dump
+        if show_hex and row < max_row:
+            raw = packet.get("raw", b"")
+            if raw:
+                hex_str = raw.hex(" ")
+                _safe(stdscr, row, x + 2, "HEX", lbl)
+                hex_w = w - 16
+                offset = 0
+                while offset < len(hex_str) and row < max_row:
+                    chunk = hex_str[offset:offset + hex_w]
+                    _safe(stdscr, row, x + 14, chunk, dim)
+                    offset += hex_w
+                    row += 1
+
+            text = packet.get("text", "")
+            if text and row < max_row:
+                _safe(stdscr, row, x + 2, "ASCII", lbl)
+                _safe(stdscr, row, x + 14, text[:w - 16], dim)
+                row += 1
+
+            inner = packet.get("inner_payload", b"")
+            if inner and row < max_row:
+                _safe(stdscr, row, x + 2, "SIZE", lbl)
+                _safe(stdscr, row, x + 14, f"{len(inner)}B (raw {len(raw)}B)", dim)
+                row += 1
+        return
 
     # Warnings
     for warning in packet.get("warnings", []):
