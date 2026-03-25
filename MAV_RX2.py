@@ -31,8 +31,9 @@ import time
 from collections import OrderedDict
 from datetime import datetime
 
+import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import (
-    GS_NODE, node_label, ptype_label,
+    init_nodes, node_label, ptype_label,
     try_parse_csp_v1, try_parse_command,
     clean_text,
     load_command_defs, apply_schema,
@@ -51,6 +52,7 @@ from mav_gss_lib.curses_rx import (
 # -- Config -------------------------------------------------------------------
 
 CFG = load_gss_config()
+init_nodes(CFG)
 
 VERSION = CFG["general"]["version"]
 ZMQ_PORT = str(CFG["rx"]["zmq_port"])
@@ -422,7 +424,7 @@ def rx_dashboard(stdscr, show_splash=True):
                     packet_count += 1
 
                 # Uplink echo detection — flag packets not addressed to GS
-                is_uplink_echo = bool(cmd and (cmd.get("dest") != GS_NODE or cmd.get("echo") != GS_NODE))
+                is_uplink_echo = bool(cmd and (cmd.get("dest") != protocol.GS_NODE or cmd.get("echo") != protocol.GS_NODE))
                 if is_uplink_echo:
                     uplink_echo_count += 1
 

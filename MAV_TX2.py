@@ -20,9 +20,9 @@ import os
 import time
 from datetime import datetime
 
+import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import (
-    NODE_NAMES, PTYPE_NAMES, GS_NODE,
-    node_label, resolve_node, resolve_ptype,
+    init_nodes, node_label, resolve_node, resolve_ptype,
     build_cmd_raw, AX25Config, CSPConfig,
     load_command_defs, validate_args,
 )
@@ -40,6 +40,7 @@ from mav_gss_lib.curses_tx import (
 # -- Config -------------------------------------------------------------------
 
 CFG = load_gss_config()
+init_nodes(CFG)
 
 VERSION        = CFG["general"]["version"]
 ZMQ_ADDR       = CFG["tx"]["zmq_addr"]
@@ -66,7 +67,7 @@ def log_tx(f, n, dest, cmd, args, payload, csp_enabled):
         "n": n,
         "ts": datetime.now().astimezone().isoformat(),
         "dest": dest,
-        "dest_lbl": NODE_NAMES.get(dest, "?"),
+        "dest_lbl": protocol.NODE_NAMES.get(dest, "?"),
         "cmd": cmd,
         "args": args,
         "hex": payload.hex(),
@@ -99,7 +100,7 @@ def parse_cmd_line(line):
             return None
         ptype = ptype3
     else:
-        offset, src = 0, GS_NODE
+        offset, src = 0, protocol.GS_NODE
         ptype = resolve_ptype(parts[2])
         if ptype is None:
             return None
@@ -543,8 +544,8 @@ def dashboard(stdscr, *, show_splash=True):
 
                 # Nodes
                 if low == 'nodes':
-                    names = ", ".join(f"{nid}={NODE_NAMES[nid]}"
-                                     for nid in sorted(NODE_NAMES))
+                    names = ", ".join(f"{nid}={protocol.NODE_NAMES[nid]}"
+                                     for nid in sorted(protocol.NODE_NAMES))
                     set_status(f"Nodes: {names}", 5)
                     continue
 
@@ -596,8 +597,8 @@ def dashboard(stdscr, *, show_splash=True):
                     continue
 
                 queue.append((src, dest, echo, ptype, cmd, args, raw_cmd))
-                src_tag = f"{node_label(src)}\u2192" if src != GS_NODE else ""
-                set_status(f"Queued: {src_tag}{node_label(dest)} E:{echo} {PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
+                src_tag = f"{node_label(src)}\u2192" if src != protocol.GS_NODE else ""
+                set_status(f"Queued: {src_tag}{node_label(dest)} E:{echo} {protocol.PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
                 continue
 
             # Text editing (backspace, arrows, Ctrl+W, printable chars, etc.)

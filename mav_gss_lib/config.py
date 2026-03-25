@@ -13,6 +13,13 @@ import yaml
 
 
 _DEFAULTS = {
+    "nodes": {
+        0: "NONE", 1: "LPPM", 2: "EPS", 3: "UPPM",
+        4: "HOLONAV", 5: "ASTROBOARD", 6: "GS", 7: "FTDI",
+    },
+    "ptypes": {
+        0: "NONE", 1: "REQ", 2: "RES", 3: "ACK",
+    },
     "ax25": {
         "src_call":  "WM2XBB",
         "src_ssid":  0,
@@ -41,6 +48,7 @@ _DEFAULTS = {
         "log_dir":      "logs",
         "command_defs": "maveric_commands.yml",
         "decoder_yml":  "maveric_decoder.yml",
+        "gs_node":      "GS",
     },
 }
 

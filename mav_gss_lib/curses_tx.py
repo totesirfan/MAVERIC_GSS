@@ -16,7 +16,8 @@ Author:  Irfan Annuar - USC ISI SERC
 import curses
 from datetime import datetime, timezone
 
-from mav_gss_lib.protocol import NODE_NAMES, PTYPE_NAMES, node_label, GS_NODE
+import mav_gss_lib.protocol as protocol
+from mav_gss_lib.protocol import node_label
 from mav_gss_lib.curses_common import (
     _safe, _hline, _vline,
     CP_LABEL, CP_VALUE, CP_SUCCESS, CP_WARNING, CP_ERROR, CP_DIM,
@@ -162,7 +163,7 @@ def draw_queue(stdscr, region, queue, scroll_offset=0, sending_idx=-1,
             src_lbl = node_label(src)
             dest_lbl = node_label(dest)
             echo_lbl = node_label(echo)
-            ptype_lbl = PTYPE_NAMES.get(ptype, str(ptype))
+            ptype_lbl = protocol.PTYPE_NAMES.get(ptype, str(ptype))
             col = x + 1
 
             # Determine row style based on send progress
@@ -250,10 +251,10 @@ def draw_history(stdscr, region, history, scroll_offset=0):
                 break
             n = rec["n"]
             ts = rec["ts"]
-            src_name = node_label(rec.get("src", GS_NODE))
+            src_name = node_label(rec.get("src", protocol.GS_NODE))
             dest_name = node_label(rec["dest"])
             echo_name = node_label(rec["echo"])
-            ptype_name = PTYPE_NAMES.get(rec["ptype"], str(rec["ptype"]))
+            ptype_name = protocol.PTYPE_NAMES.get(rec["ptype"], str(rec["ptype"]))
             cmd = rec["cmd"]
             args = rec["args"]
             size = f"{rec['payload_len']}B"

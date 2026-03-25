@@ -31,16 +31,28 @@ except ImportError:
 #  NODE & PACKET TYPE DEFINITIONS
 # =============================================================================
 
-NODE_NAMES = {
-    0: "NONE", 1: "LPPM", 2: "EPS", 3: "UPPM",
-    4: "HOLONAV", 5: "ASTROBOARD", 6: "GS", 7: "FTDI",
-}
-NODE_IDS = {v: k for k, v in NODE_NAMES.items()}
+NODE_NAMES = {}   # int → str, populated by init_nodes()
+NODE_IDS   = {}   # str → int
+PTYPE_NAMES = {}  # int → str, populated by init_nodes()
+PTYPE_IDS   = {}  # str → int
+GS_NODE     = 6   # default, updated by init_nodes()
 
-PTYPE_NAMES = {0: "NONE", 1: "REQ", 2: "RES", 3: "ACK"}
-PTYPE_IDS = {v: k for k, v in PTYPE_NAMES.items()}
 
-GS_NODE = NODE_IDS["GS"]  # 6
+def init_nodes(cfg):
+    """Populate node/ptype tables from a loaded config dict.
+
+    Must be called once at startup after load_gss_config().
+    """
+    global NODE_NAMES, NODE_IDS, PTYPE_NAMES, PTYPE_IDS, GS_NODE
+
+    NODE_NAMES = {int(k): v for k, v in cfg["nodes"].items()}
+    NODE_IDS   = {v: k for k, v in NODE_NAMES.items()}
+
+    PTYPE_NAMES = {int(k): v for k, v in cfg["ptypes"].items()}
+    PTYPE_IDS   = {v: k for k, v in PTYPE_NAMES.items()}
+
+    gs_name = cfg.get("general", {}).get("gs_node", "GS")
+    GS_NODE = NODE_IDS.get(gs_name, 6)
 
 
 def node_label(node_id):
@@ -190,10 +202,12 @@ def verify_csp_crc32(inner_payload):
 #    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]
 # =============================================================================
 
-def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=GS_NODE):
+def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=None):
     """Build raw MAVERIC command payload with CRC-16.
     Returns bytearray matching Commands.py wire format.
     Ready for CSP wrapping via CSPConfig.wrap()."""
+    if origin is None:
+        origin = GS_NODE
     header = bytes([origin & 0xFF, dest & 0xFF, echo & 0xFF, ptype & 0xFF,
                     len(cmd) & 0xFF, len(args) & 0xFF])
     p = bytearray(header)
@@ -206,7 +220,7 @@ def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=GS_NODE):
     return p
 
 
-def build_kiss_cmd(dest, cmd, args="", echo=0, ptype=1, origin=GS_NODE):
+def build_kiss_cmd(dest, cmd, args="", echo=0, ptype=1, origin=None):
     """Build a complete KISS-wrapped command.
     Returns (kiss_bytes, raw_bytes)."""
     raw = build_cmd_raw(dest, cmd, args, echo, ptype, origin)

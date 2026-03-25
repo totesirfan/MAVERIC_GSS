@@ -15,7 +15,8 @@ Author:  Irfan Annuar - USC ISI SERC
 import curses
 from datetime import datetime, timezone
 
-from mav_gss_lib.protocol import PTYPE_NAMES, node_label, ptype_label
+import mav_gss_lib.protocol as protocol
+from mav_gss_lib.protocol import node_label, ptype_label
 from mav_gss_lib.curses_common import (
     _safe, _hline, _vline,
     CP_LABEL, CP_VALUE, CP_SUCCESS, CP_WARNING, CP_ERROR, CP_DIM,
@@ -197,7 +198,7 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
             cmd_src = node_label(cmd["src"])
             cmd_dest = node_label(cmd["dest"])
             cmd_echo = node_label(cmd["echo"])
-            cmd_ptype = PTYPE_NAMES.get(cmd["pkt_type"], str(cmd["pkt_type"]))
+            cmd_ptype = protocol.PTYPE_NAMES.get(cmd["pkt_type"], str(cmd["pkt_type"]))
             # Build args string
             if cmd.get("schema_match"):
                 arg_parts = []

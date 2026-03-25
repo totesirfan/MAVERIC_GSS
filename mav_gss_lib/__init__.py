@@ -13,7 +13,7 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from mav_gss_lib.protocol import (
     NODE_NAMES, NODE_IDS, PTYPE_NAMES, PTYPE_IDS, GS_NODE,
-    node_label, ptype_label, resolve_node,
+    init_nodes, node_label, ptype_label, resolve_node,
     TS_MIN_MS, TS_MAX_MS,
     crc16, crc32c, verify_csp_crc32,
     build_cmd_raw,
