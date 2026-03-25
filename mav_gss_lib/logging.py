@@ -13,7 +13,7 @@ import os
 import time
 from datetime import datetime
 
-from mav_gss_lib.protocol import node_name, ptype_name, clean_text, format_arg_value, crc16, crc32c
+from mav_gss_lib.protocol import node_label, ptype_label, clean_text, format_arg_value, crc16, crc32c
 
 # Line width for text logs
 LOG_LINE_WIDTH = 80
@@ -100,6 +100,18 @@ class _BaseLog:
             offset += chunk_w + 1  # +1 for the space between chunks
         return lines
 
+    @staticmethod
+    def _route_line(src, dest, echo, ptype):
+        """Format routing fields: Src:x  Dest:x  Echo:x  Type:x"""
+        return (f"Src:{node_label(src)}  Dest:{node_label(dest)}  "
+                f"Echo:{node_label(echo)}  Type:{ptype_label(ptype)}")
+
+    @staticmethod
+    def _format_csp(prio, src, dest, dport, sport, flags):
+        """Format CSP header fields."""
+        return (f"Prio:{prio}  Src:{src}  Dest:{dest}  "
+                f"DPort:{dport}  SPort:{sport}  Flags:0x{flags:02X}")
+
     def write_jsonl(self, record):
         self._jsonl_f.write(json.dumps(record) + "\n")
         self._maybe_flush()
@@ -160,6 +172,9 @@ class SessionLog(_BaseLog):
         if is_uplink_echo:
             extras += "  [UL]"
         lines.append(self._separator(label, extras))
+        if is_uplink_echo:
+            banner = "  \u25b2\u25b2\u25b2 UPLINK ECHO \u25b2\u25b2\u25b2"
+            lines.append(banner)
 
         # Warnings
         for w in pkt.get("warnings", []):
@@ -174,10 +189,9 @@ class SessionLog(_BaseLog):
         csp = pkt.get("csp")
         if csp:
             tag = "CSP V1" if pkt.get("csp_plausible") else "CSP V1 [?]"
-            csp_str = (f"Prio:{csp['prio']}  Src:{csp['src']}  "
-                       f"Dest:{csp['dest']}  DPort:{csp['dport']}  "
-                       f"SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
-            lines.append(self._field(tag, csp_str))
+            lines.append(self._field(tag,
+                self._format_csp(csp['prio'], csp['src'], csp['dest'],
+                                 csp['dport'], csp['sport'], csp['flags'])))
 
         # SAT TIME (only when present)
         ts_result = pkt.get("ts_result")
@@ -190,12 +204,8 @@ class SessionLog(_BaseLog):
         # Command
         cmd = pkt.get("cmd")
         if cmd:
-            src_lbl = node_name(cmd["src"])
-            dest_lbl = node_name(cmd["dest"])
-            echo_lbl = node_name(cmd["echo"])
-            ptype_lbl = ptype_name(cmd["pkt_type"])
             lines.append(self._field("CMD",
-                f"{src_lbl} \u2192 {dest_lbl}  Echo:{echo_lbl}  Type:{ptype_lbl}"))
+                self._route_line(cmd["src"], cmd["dest"], cmd["echo"], cmd["pkt_type"])))
             lines.append(self._field("CMD ID", cmd["cmd_id"]))
 
             # Schema-matched args
@@ -257,12 +267,7 @@ class TXLog(_BaseLog):
         # -- Text entry --
         lines = []
 
-        src_lbl = node_name(src)
-        dest_lbl = node_name(dest)
-        echo_lbl = node_name(echo)
-        ptype_lbl = ptype_name(ptype)
-
-        extras = f"{src_lbl} \u2192 {dest_lbl}  Echo:{echo_lbl}  {ptype_lbl}"
+        extras = self._route_line(src, dest, echo, ptype)
         lines.append(self._separator(f"#{n}", extras))
 
         lines.append(self._field("CMD ID", cmd))
@@ -272,16 +277,16 @@ class TXLog(_BaseLog):
         # AX.25 state at time of send
         if ax25.enabled:
             lines.append(self._field("AX.25",
-                f"{ax25.src_call}-{ax25.src_ssid} \u2192 "
-                f"{ax25.dest_call}-{ax25.dest_ssid}"))
+                f"Src:{ax25.src_call}-{ax25.src_ssid}  "
+                f"Dest:{ax25.dest_call}-{ax25.dest_ssid}"))
             ax25_hdr = ax25.wrap(b"")  # get just the header (16 bytes)
             lines.extend(self._hex_lines(ax25_hdr, "AX.25 HDR"))
 
         # CSP state at time of send
         if csp.enabled:
             lines.append(self._field("CSP",
-                f"Prio:{csp.prio}  Src:{csp.src}  Dest:{csp.dest}  "
-                f"DPort:{csp.dport}  SPort:{csp.sport}  Flags:0x{csp.flags:02X}"))
+                self._format_csp(csp.prio, csp.src, csp.dest,
+                                 csp.dport, csp.sport, csp.flags)))
             lines.extend(self._hex_lines(csp.build_header(), "CSP HDR"))
 
         # CRC values (computed from the raw command)
@@ -314,13 +319,13 @@ class TXLog(_BaseLog):
             "n": n,
             "ts": datetime.now().astimezone().isoformat(),
             "src": src,
-            "src_lbl": src_lbl,
+            "src_lbl": node_label(src),
             "dest": dest,
-            "dest_lbl": dest_lbl,
+            "dest_lbl": node_label(dest),
             "echo": echo,
-            "echo_lbl": echo_lbl,
+            "echo_lbl": node_label(echo),
             "ptype": ptype,
-            "ptype_lbl": ptype_lbl,
+            "ptype_lbl": ptype_label(ptype),
             "cmd": cmd,
             "args": args,
             "raw_hex": raw_cmd.hex(),
