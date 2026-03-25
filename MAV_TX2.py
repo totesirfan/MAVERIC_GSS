@@ -75,7 +75,8 @@ def dashboard(stdscr, *, show_splash=True):
             ("CSP Ports", f"SPort:{cs['src_port']} DPort:{cs['dest_port']}"),
             ("CSP Flags", f"0x{int(cs['flags']):02X}"),
             ("Commands",  CMD_DEFS_PATH),
-            ("Log Dir",   LOG_DIR),
+            ("Log Text",  f"{LOG_DIR}/text"),
+            ("Log JSON",  f"{LOG_DIR}/json"),
         ]
         draw_splash(stdscr, subtitle=f"MAVERIC TX Dashboard  v{VERSION}",
                      config_lines=splash_lines)

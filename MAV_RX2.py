@@ -103,7 +103,8 @@ def rx_dashboard(stdscr, show_splash=True):
             ("Frequency", rx_freq),
             ("Decoder",   DECODER_YML_PATH),
             ("Commands",  CMD_DEFS_PATH),
-            ("Log Dir",   LOG_DIR),
+            ("Log Text",  f"{LOG_DIR}/text"),
+            ("Log JSON",  f"{LOG_DIR}/json"),
         ]
         draw_splash(stdscr, subtitle=f"MAVERIC RX Monitor  v{VERSION}",
                      config_lines=splash_lines)
@@ -407,7 +408,8 @@ def rx_dashboard(stdscr, show_splash=True):
 
             draw_rx_header(stdscr, layout["header"], ZMQ_ADDR,
                            freq=frequency, show_hex=show_hex,
-                           logging_enabled=logging_enabled)
+                           logging_enabled=logging_enabled,
+                           queue_depth=pkt_queue.qsize())
             draw_packet_list(stdscr, layout["packet_list"], packets,
                              actual_selected, scroll_offset,
                              auto_follow=auto_follow)

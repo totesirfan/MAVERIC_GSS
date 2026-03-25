@@ -26,7 +26,7 @@ from mav_gss_lib.curses_common import (
 
 # -- Layout -------------------------------------------------------------------
 
-RX_HEADER_ROWS = 3    # title+clock + separator + ZMQ/toggles
+RX_HEADER_ROWS = 4    # title+clock + separator + ZMQ/toggles + queue depth
 RX_INPUT_ROWS  = 4    # status + separator + prompt + hints
 RX_MIN_LIST    = 5    # title + at least 4 data rows
 RX_DETAIL_H    = 15   # detail panel height when open
@@ -76,8 +76,8 @@ def calculate_rx_layout(max_y, max_x, detail_open=False, side_panel=False):
 # -- Header Panel -------------------------------------------------------------
 
 def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
-                   show_hex=True, logging_enabled=True):
-    """Draw the 3-row RX header with live clock, ZMQ, freq, and toggles."""
+                   show_hex=True, logging_enabled=True, queue_depth=0):
+    """Draw the 4-row RX header with live clock, ZMQ, freq, toggles, queue."""
     y, x, h, w = region
     utc_now = datetime.now(timezone.utc).strftime("%H:%M:%S")
     local_now = datetime.now().strftime("%H:%M:%S")
@@ -96,13 +96,13 @@ def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
     # Row 2: ZMQ address + freq + toggle indicators
     safe_addstr(stdscr, y + 2, x + 1, "ZMQ",
           curses.color_pair(CP_LABEL))
-    safe_addstr(stdscr, y + 2, x + 5,
+    safe_addstr(stdscr, y + 2, x + 7,
           f"{zmq_addr} [SUB]",
           curses.color_pair(CP_VALUE) | curses.A_BOLD)
 
     # Frequency (middle area)
     freq_str = f"Freq: {freq}"
-    freq_x = x + 5 + len(zmq_addr) + 8
+    freq_x = x + 7 + len(zmq_addr) + 8
     safe_addstr(stdscr, y + 2, freq_x, freq_str,
           curses.color_pair(CP_WARNING))
 
@@ -122,6 +122,12 @@ def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
           curses.color_pair(CP_LABEL))
     safe_addstr(stdscr, y + 2, toggle_x + 4 + len(hex_state) + 6, log_state,
           log_attr)
+
+    # Row 3: RX queue depth
+    safe_addstr(stdscr, y + 3, x + 1, "Q",
+          curses.color_pair(CP_LABEL))
+    safe_addstr(stdscr, y + 3, x + 7, str(queue_depth),
+          curses.color_pair(CP_VALUE) | curses.A_BOLD)
 
 
 # -- Packet List Panel --------------------------------------------------------
