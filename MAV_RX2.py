@@ -26,6 +26,7 @@ import queue
 import threading
 import time
 from collections import OrderedDict
+from datetime import datetime
 
 from mav_gss_lib.protocol import init_nodes, load_command_defs
 from mav_gss_lib.transport import init_zmq_sub, receive_pdu
@@ -202,15 +203,18 @@ def rx_dashboard(stdscr, show_splash=True):
 
                 last_watchdog = time.time()
                 if first_pkt_ts is None:
-                    from datetime import datetime
                     first_pkt_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
                 # Process packet through library pipeline
-                pkt_record, counters = process_rx_packet(
-                    meta, raw, cmd_defs, seen_fps, tx_freq_map,
-                    last_arrival, packet_count, unknown_count,
-                    uplink_echo_count, pkt_times, MAX_SEEN_FPS,
-                )
+                try:
+                    pkt_record, counters = process_rx_packet(
+                        meta, raw, cmd_defs, seen_fps, tx_freq_map,
+                        last_arrival, packet_count, unknown_count,
+                        uplink_echo_count, pkt_times, MAX_SEEN_FPS,
+                    )
+                except Exception as e:
+                    error_msg = f"Packet error: {e}"
+                    continue
 
                 # Update state from counters
                 packet_count = counters["packet_count"]
@@ -223,9 +227,12 @@ def rx_dashboard(stdscr, show_splash=True):
 
                 # Log
                 if logging_enabled and log:
-                    log_record = build_rx_log_record(pkt_record, VERSION, meta)
-                    log.write_jsonl(log_record)
-                    log.write_packet(pkt_record)
+                    try:
+                        log_record = build_rx_log_record(pkt_record, VERSION, meta)
+                        log.write_jsonl(log_record)
+                        log.write_packet(pkt_record)
+                    except Exception as e:
+                        error_msg = f"Log error: {e}"
 
                 # Store packet record for display
                 packets.append(pkt_record)
@@ -320,8 +327,6 @@ def rx_dashboard(stdscr, show_splash=True):
                     max_y, _ = stdscr.getmaxyx()
                     page = max(1, max_y - 10)
                     selected_idx = min(len(packets) - 1, selected_idx + page)
-                    if selected_idx >= len(packets) - 1:
-                        selected_idx = -1
             elif ch in (10, 13):  # Enter
                 line = input_buf.strip()
                 input_buf = ""
@@ -456,16 +461,22 @@ def rx_dashboard(stdscr, show_splash=True):
     finally:
         stop_event.set()
         rx_thread.join(timeout=1)
-        if log:
-            log.write_summary(packet_count, session_start,
-                              first_pkt_ts, last_pkt_ts,
-                              unique=len(seen_fps),
-                              duplicates=packet_count - len(seen_fps),
-                              unknown=unknown_count,
-                              uplink_echoes=uplink_echo_count)
-            log.close()
-        sock.close()
-        context.term()
+        try:
+            if log:
+                log.write_summary(packet_count, session_start,
+                                  first_pkt_ts, last_pkt_ts,
+                                  unique=len(seen_fps),
+                                  duplicates=packet_count - len(seen_fps),
+                                  unknown=unknown_count,
+                                  uplink_echoes=uplink_echo_count)
+                log.close()
+        except Exception:
+            pass
+        try:
+            sock.close()
+            context.term()
+        except Exception:
+            pass
 
     return {
         "packet_count": packet_count,

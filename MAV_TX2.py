@@ -460,18 +460,6 @@ def dashboard(stdscr, *, show_splash=True):
                     set_status(msg, 4)
                     continue
 
-                # Raw hex
-                if low.startswith('raw '):
-                    try:
-                        raw_bytes = bytes.fromhex(line[4:].replace(' ', ''))
-                    except ValueError:
-                        set_status("Bad hex", 2)
-                        continue
-                    n += 1
-                    send_pdu(sock, raw_bytes)
-                    set_status(f"Sent raw #{n}: {len(raw_bytes)}B", 3)
-                    continue
-
                 # Parse as command — queue it
                 parsed = parse_cmd_line(line)
                 if parsed is None:
@@ -504,10 +492,16 @@ def dashboard(stdscr, *, show_splash=True):
             input_buf, cursor_pos, _ = edit_buffer(ch, input_buf, cursor_pos)
 
     finally:
-        tx_log.write_summary(n, session_start)
-        tx_log.close()
-        sock.close()
-        ctx.term()
+        try:
+            tx_log.write_summary(n, session_start)
+            tx_log.close()
+        except Exception:
+            pass
+        try:
+            sock.close()
+            ctx.term()
+        except Exception:
+            pass
 
     return n, tx_log.text_path
 

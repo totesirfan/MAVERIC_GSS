@@ -44,7 +44,7 @@ _DEFAULTS = {
         "zmq_addr": "tcp://127.0.0.1:52001",
     },
     "general": {
-        "version":      "2.3.5",
+        "version":      "2.3.6",
         "log_dir":      "logs",
         "command_defs": "maveric_commands.yml",
         "decoder_yml":  "maveric_decoder.yml",
@@ -69,6 +69,8 @@ def load_gss_config(path="maveric_gss.yml"):
     if os.path.isfile(path):
         with open(path, "r") as f:
             user = yaml.safe_load(f) or {}
+        if not isinstance(user, dict):
+            user = {}
         return _deep_merge(_DEFAULTS, user)
     return dict(_DEFAULTS)
 

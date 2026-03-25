@@ -105,7 +105,10 @@ def process_rx_packet(meta, raw, cmd_defs, seen_fps, tx_freq_map,
         packet_count += 1
 
     # Uplink echo detection
-    is_uplink_echo = bool(cmd and (cmd.get("dest") != protocol.GS_NODE or cmd.get("echo") != protocol.GS_NODE))
+    is_uplink_echo = bool(cmd and (
+        cmd.get("src") == protocol.GS_NODE
+        or (cmd.get("dest") != protocol.GS_NODE and cmd.get("echo") != protocol.GS_NODE)
+    ))
     if is_uplink_echo:
         uplink_echo_count += 1
 

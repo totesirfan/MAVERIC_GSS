@@ -500,7 +500,7 @@ def load_command_defs(path="maveric_commands.yml"):
                 "variadic": spec.get("variadic", False),
             }
         return defs
-    except (OSError, yaml.YAMLError, AttributeError, TypeError):
+    except (OSError, yaml.YAMLError):
         print(f"WARNING: Could not load {path} -- all commands will be unrecognized",
               file=sys.stderr)
         return {}
