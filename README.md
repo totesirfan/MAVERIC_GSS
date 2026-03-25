@@ -6,9 +6,12 @@ Ground station tools for the MAVERIC CubeSat mission. Supports full-duplex opera
 
 ```
 mav_gss_lib/              Shared library
-    protocol.py           Nodes, CSP v1, KISS, CRC-16/CRC-32C, command wire format
+    protocol.py           Nodes, CSP v1, KISS, CRC-16/CRC-32C, command wire format,
+                          frame normalization, TX command line parser
     transport.py          ZMQ PUB/SUB, PMT PDU send/receive
-    config.py             Shared config loader (maveric_gss.yml)
+    config.py             Shared config loader (maveric_gss.yml), AX.25/CSP handlers
+    parsing.py            RX packet processing pipeline
+    logging.py            Session logging (JSONL + text) for RX and TX
     curses_common.py      Shared curses utilities (colors, drawing, splash screen)
     curses_tx.py          TX dashboard panels and layout
     curses_rx.py          RX monitor panels and layout
@@ -16,9 +19,13 @@ mav_gss_lib/              Shared library
 MAV_RX2.py                Downlink packet monitor (curses)
 MAV_TX2.py                Uplink command dashboard (curses)
 
-maveric_gss.yml           Shared configuration (AX.25, CSP, ZMQ, paths, version)
+maveric_gss.yml           Shared configuration (nodes, ptypes, AX.25, CSP, ZMQ, paths)
 maveric_commands.yml      Command schema (arg names, types, validation)
 maveric_decoder.yml       gr-satellites satellite definition file
+
+logs/
+    text/                 Human-readable text logs (downlink_*.txt, uplink_*.txt)
+    json/                 Machine-readable JSONL logs (downlink_*.jsonl, uplink_*.jsonl)
 
 legacy/                   Archived tools (not tracked in git)
     MAV_RX.py             Original terminal-based packet monitor
@@ -111,12 +118,26 @@ Press `Ctrl+C` to stop.
 
 ## Logging
 
-Each monitor session writes two log files to `logs/`:
+Both RX and TX sessions produce paired log files in `logs/text/` (human-readable) and `logs/json/` (machine-readable JSONL):
 
-- `.jsonl` — machine-readable, one JSON object per packet
-- `.txt` — human-readable plain text
+- `downlink_YYYYMMDD_HHMMSS.txt` / `.jsonl` — RX packet log
+- `uplink_YYYYMMDD_HHMMSS.txt` / `.jsonl` — TX command log
 
-RX logs are named `downlink_YYYYMMDD_HHMMSS.*`, TX logs are named `uplink_YYYYMMDD_HHMMSS.*`. Logging can be toggled at runtime in the RX monitor via the `log` command or config panel.
+Both text logs share the same visual format:
+
+- Thin `────` separator with packet/command number, timestamp, and flags inline
+- Fixed 12-char label column for all fields
+- Hex dumps wrapped at 16 bytes per line
+- Session header with version, mode, and ZMQ address
+- Session summary with counts and duration
+
+**RX text log** includes: CSP header, satellite timestamp, command routing (short node names), schema-matched args, CRC-16/CRC-32C verification, hex+ASCII dump, and flags (DUP, UL, UNKNOWN).
+
+**TX text log** includes: command routing and args, AX.25 callsigns + header hex, CSP config + header hex (captured at time of send — reflects runtime changes), CRC-16/CRC-32C computed values, size breakdown, raw command hex, full wrapped payload hex, and ASCII.
+
+**TX JSONL** includes all routing fields (src/dest/echo/ptype with labels), AX.25 and CSP state, raw and wrapped hex, and CRC values.
+
+RX logging can be toggled at runtime via the `log` command or config panel.
 
 ## Command Schema
 
@@ -134,7 +155,7 @@ All startup defaults live in `maveric_gss.yml`, shared by both TX and RX scripts
 
 ```yaml
 general:
-  version: "2.3.3"          # displayed on splash screen
+  version: "2.3.5"          # displayed on splash screen
   log_dir: "logs"
   command_defs: "maveric_commands.yml"
   decoder_yml: "maveric_decoder.yml"
@@ -177,4 +198,4 @@ rx:
 
 ## Status
 
-Early development (v2.3.3). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.
+Early development (v2.3.5). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.
