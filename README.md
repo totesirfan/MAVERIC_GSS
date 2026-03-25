@@ -33,8 +33,8 @@ Curses-based downlink packet monitor. Subscribes to a ZMQ PUB socket where GNU R
 Layout:
 
 - **Header** — ZMQ address, frequency (auto-detected from gr-satellites metadata), UTC/local clock, HEX/LOG toggle indicators
-- **Packet List** — scrollable list with command src/dest routing, echo, packet type, command ID, arguments, payload size, CRC status, duplicate detection, uplink echo (UL) tagging. Auto-follows newest packets in `[LIVE]` mode
-- **Packet Detail** — expanded view of selected packet (Enter to toggle): uplink echo flag, AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification
+- **Packet List** — scrollable list with command src/dest routing, echo, packet type, command ID, arguments, payload size, CRC status, duplicate detection, uplink echo (UL) tagging. Unparseable signals are shown as `UNKNOWN` with separate `U-N` numbering (valid packet count is unaffected). Auto-follows newest packets in `[LIVE]` mode
+- **Packet Detail** — expanded view of selected packet (Enter to toggle): uplink echo flag, AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification. Unknown packets show only HEX, ASCII, and size
 - **Input** — command entry with live status (Receiving/Silence timer, packet count, rate)
 
 Typed commands:
@@ -69,14 +69,15 @@ Layout:
 - **Sent History** — transmitted commands with src→dest routing, echo, type metadata (scrollable)
 - **Input** — command entry with cursor editing, command history recall (Up/Down)
 
-Command format: `[SRC] DEST ECHO TYPE CMD [ARGS]` — SRC is optional (defaults to GS). Input is case-insensitive; command IDs are normalized to lowercase. Commands are validated against `maveric_commands.yml` and rejected if invalid. All commands go to the queue on Enter, then `Ctrl+S` sends the queue.
+Command format: `[SRC] DEST ECHO TYPE CMD [ARGS]` — SRC is optional (defaults to GS). Input is case-insensitive; command IDs are normalized to lowercase. Commands are validated against `maveric_commands.yml` and rejected if invalid. All commands go to the queue on Enter, then `Ctrl+S` sends the queue. Use `undo`/`pop` (or `Ctrl+Z`) to remove the last queued command, or `clear` (or `Ctrl+X`) to clear the entire queue.
 
 Keyboard shortcuts:
 
 | Key | Action |
 |-----|--------|
 | `Ctrl+S` | Send all queued commands |
-| `Ctrl+X` | Clear the queue |
+| `Ctrl+Z` | Remove last queued command |
+| `Ctrl+X` | Clear the entire queue |
 | `Up / Down` | Recall command history |
 | `PgUp / PgDn` | Scroll sent history |
 | `Ctrl+A / Ctrl+E` | Jump to start / end of input |
