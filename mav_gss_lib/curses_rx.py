@@ -357,6 +357,14 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
               curses.color_pair(CP_ERROR))
         row += 1
 
+    # Uplink echo flag
+    if packet.get("is_uplink_echo") and row < max_row:
+        _safe(stdscr, row, x + 2, "UL ECHO",
+              curses.color_pair(CP_WARNING) | curses.A_BOLD)
+        _safe(stdscr, row, x + 14, "Uplink echo \u2014 dest/echo not addressed to GS",
+              curses.color_pair(CP_WARNING))
+        row += 1
+
     # AX.25 header
     stripped_hdr = packet.get("stripped_hdr")
     if stripped_hdr and row < max_row:
@@ -387,14 +395,6 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
             _safe(stdscr, row, x + 14, ts_str, val)
         else:
             _safe(stdscr, row, x + 14, "--", dim)
-        row += 1
-
-    # Uplink echo flag
-    if packet.get("is_uplink_echo") and row < max_row:
-        _safe(stdscr, row, x + 2, "UL ECHO",
-              curses.color_pair(CP_WARNING) | curses.A_BOLD)
-        _safe(stdscr, row, x + 14, "Uplink echo \u2014 dest/echo not addressed to GS",
-              curses.color_pair(CP_WARNING))
         row += 1
 
     # Command

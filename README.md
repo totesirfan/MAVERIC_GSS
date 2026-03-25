@@ -1,6 +1,6 @@
 # MAVERIC Ground Station Software
 
-Ground station tools for the MAVERIC CubeSat mission. Receives and displays decoded satellite frames, and provides a command terminal for uplink operations.
+Ground station tools for the MAVERIC CubeSat mission. Supports full-duplex operation with a single USRP B210 — simultaneous uplink and downlink using MAV_TX2 and MAV_RX2 with a shared GNU Radio flowgraph. Uplink echoes received on the downlink are automatically tagged (UL) for easy identification.
 
 ## Structure
 
@@ -33,8 +33,8 @@ Curses-based downlink packet monitor. Subscribes to a ZMQ PUB socket where GNU R
 Layout:
 
 - **Header** — ZMQ address, frequency (auto-detected from gr-satellites metadata), UTC/local clock, HEX/LOG toggle indicators
-- **Packet List** — scrollable list with command src/dest routing, command ID, arguments, payload size, CRC status, duplicate detection. Auto-follows newest packets in `[LIVE]` mode
-- **Packet Detail** — expanded view of selected packet (Enter to toggle): AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification
+- **Packet List** — scrollable list with command src/dest routing, echo, packet type, command ID, arguments, payload size, CRC status, duplicate detection, uplink echo (UL) tagging. Auto-follows newest packets in `[LIVE]` mode
+- **Packet Detail** — expanded view of selected packet (Enter to toggle): uplink echo flag, AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification
 - **Input** — command entry with live status (Receiving/Silence timer, packet count, rate)
 
 Typed commands:
@@ -45,6 +45,7 @@ Typed commands:
 | `cfg` / `config` | Toggle config panel (hex/log toggles) |
 | `hex` | Toggle hex/ASCII display |
 | `log` | Toggle logging on/off |
+| `hclear` | Clear packet history |
 | `q` / `quit` | Exit |
 
 Keyboard:
@@ -64,11 +65,11 @@ Persistent curses-based dashboard for uplink operations (CSP v1 + CRC-32C + AX.2
 Layout:
 
 - **Header** — AX.25 source/destination callsigns, CSP config, UTC and local time, ZMQ status and port, frequency (437.25 MHz)
-- **TX Queue** — commands waiting to be sent, with destination, command ID, and args
-- **Sent History** — transmitted commands with payload src/dest, echo, type metadata (scrollable)
+- **TX Queue** — commands waiting to be sent, with src/dest routing, echo, type, command ID, and args
+- **Sent History** — transmitted commands with src→dest routing, echo, type metadata (scrollable)
 - **Input** — command entry with cursor editing, command history recall (Up/Down)
 
-Commands are validated against `maveric_commands.yml` and rejected if invalid. All commands go to the queue on Enter, then `Ctrl+S` sends the queue.
+Command format: `[SRC] DEST ECHO TYPE CMD [ARGS]` — SRC is optional (defaults to GS). Input is case-insensitive; command IDs are normalized to lowercase. Commands are validated against `maveric_commands.yml` and rejected if invalid. All commands go to the queue on Enter, then `Ctrl+S` sends the queue.
 
 Keyboard shortcuts:
 
@@ -132,7 +133,7 @@ All startup defaults live in `maveric_gss.yml`, shared by both TX and RX scripts
 
 ```yaml
 general:
-  version: "2.2.1"          # displayed on splash screen
+  version: "2.3.2"          # displayed on splash screen
   log_dir: "logs"
   command_defs: "maveric_commands.yml"
   decoder_yml: "maveric_decoder.yml"
@@ -175,4 +176,4 @@ rx:
 
 ## Status
 
-Early development (v2.2.2). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.
+Early development (v2.3.2). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.

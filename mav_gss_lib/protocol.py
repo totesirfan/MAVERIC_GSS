@@ -241,7 +241,7 @@ def try_parse_command(payload):
 
     id_start = 6
     id_end   = id_start + id_len
-    cmd_id   = payload[id_start:id_end].decode("ascii", errors="replace")
+    cmd_id   = payload[id_start:id_end].decode("ascii", errors="replace").lower()
 
     null_pos = id_end
     if null_pos < len(payload) and payload[null_pos] == 0x00:
@@ -481,7 +481,7 @@ def load_command_defs(path="maveric_commands.yml"):
                 if typ not in _TYPE_PARSERS:
                     typ = "str"
                 args.append({"name": name, "type": typ})
-            defs[cmd_id] = {
+            defs[cmd_id.lower()] = {
                 "args": args,
                 "variadic": spec.get("variadic", False),
             }

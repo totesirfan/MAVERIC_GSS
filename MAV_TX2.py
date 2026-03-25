@@ -113,7 +113,7 @@ def parse_cmd_line(line):
 
     cmd_idx = offset + 3
     args = " ".join(parts[cmd_idx + 1:]) if len(parts) > cmd_idx + 1 else ""
-    return (src, dest, echo, ptype, parts[cmd_idx], args)
+    return (src, dest, echo, ptype, parts[cmd_idx].lower(), args)
 
 
 # -- Config Handlers (return status strings instead of printing) --------------

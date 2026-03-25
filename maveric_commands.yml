@@ -36,7 +36,7 @@ commands:
 
   # -- General ----------------------------------------------------------------
 
-  PING:
+  ping:
     args: []
 
   # -- Telemetry Beacon -------------------------------------------------------
@@ -59,12 +59,12 @@ commands:
 
   # -- EPS --------------------------------------------------------------------
 
-  SET_MODE:
+  set_mode:
     args:
       - name: mode
         type: str
 
-  SET_VOLTAGE:
+  set_voltage:
     args:
       - name: voltage
         type: float
