@@ -77,10 +77,17 @@ def receive_pdu(sock, on_error=None):
 
 
 def send_pdu(sock, payload):
-    """Send payload bytes as a PMT PDU over ZMQ."""
+    """Send payload bytes as a PMT PDU over ZMQ.
+
+    Returns True on success, False on ZMQ socket error.
+    """
     meta = pmt.make_dict()
     vec = pmt.init_u8vector(len(payload), list(payload))
-    sock.send(pmt.serialize_str(pmt.cons(meta, vec)))
+    try:
+        sock.send(pmt.serialize_str(pmt.cons(meta, vec)))
+        return True
+    except zmq.ZMQError:
+        return False
 
 
 # -- ZMQ Socket Monitoring ---------------------------------------------------

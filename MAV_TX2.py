@@ -15,6 +15,9 @@ Author:  Irfan Annuar - USC ISI SERC
 
 import argparse
 import curses
+import json
+import os
+import threading
 import time
 from datetime import datetime
 
@@ -56,6 +59,61 @@ MAX_HISTORY      = 500
 MAX_CMD_HISTORY  = 500
 
 
+# -- Queue Persistence --------------------------------------------------------
+
+QUEUE_FILE = os.path.join(CFG["general"]["log_dir"], ".pending_queue.jsonl")
+
+
+def _queue_entry_to_dict(entry):
+    """Convert a queue tuple to a JSON-serializable dict."""
+    src, dest, echo, ptype, cmd, args, raw_cmd = entry
+    return {"src": src, "dest": dest, "echo": echo, "ptype": ptype,
+            "cmd": cmd, "args": args, "raw_cmd": raw_cmd.hex()}
+
+
+def _dict_to_queue_entry(d):
+    """Convert a dict back to the queue tuple format."""
+    return (d["src"], d["dest"], d["echo"], d["ptype"],
+            d["cmd"], d["args"], bytes.fromhex(d["raw_cmd"]))
+
+
+def _save_queue(tx_queue):
+    """Rewrite the entire queue file (used after pop/clear/send)."""
+    if not tx_queue:
+        try:
+            os.remove(QUEUE_FILE)
+        except FileNotFoundError:
+            pass
+        return
+    with open(QUEUE_FILE, "w") as f:
+        for entry in tx_queue:
+            f.write(json.dumps(_queue_entry_to_dict(entry)) + "\n")
+
+
+def _append_queue(entry):
+    """Append a single command to the queue file."""
+    with open(QUEUE_FILE, "a") as f:
+        f.write(json.dumps(_queue_entry_to_dict(entry)) + "\n")
+
+
+def _load_queue():
+    """Load queue from JSONL file. Skips malformed lines."""
+    queue = []
+    try:
+        with open(QUEUE_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    queue.append(_dict_to_queue_entry(json.loads(line)))
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    pass  # skip corrupted line
+    except FileNotFoundError:
+        pass
+    return queue
+
+
 # -- Dashboard ----------------------------------------------------------------
 
 def dashboard(stdscr, *, show_splash=True):
@@ -94,13 +152,13 @@ def dashboard(stdscr, *, show_splash=True):
     tx_log = TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
     session_start = time.time()
 
-    tx_queue = []      # list of (src, dest, echo, ptype, cmd, args, raw_cmd)
+    tx_queue = _load_queue()  # restore pending commands from previous session
     history = []       # list of dicts
     input_buf  = ""
     cursor_pos = 0
     tx_count = 0       # TX counter
-    status_msg    = ""
-    status_expire = 0
+    status_msg    = f"Restored {len(tx_queue)} queued command{'s' if len(tx_queue) != 1 else ''}" if tx_queue else ""
+    status_expire = time.time() + 5 if tx_queue else 0
     queue_scroll  = 0
     hist_scroll   = 0
     cmd_history   = []   # input history for up/down recall
@@ -120,45 +178,39 @@ def dashboard(stdscr, *, show_splash=True):
     config_cursor   = 0
     config_values   = {}
 
+    # -- Send thread state -------------------------------------------------------
+    send_abort = threading.Event()
+    send_lock  = threading.Lock()    # guards tx_queue mutations during send
+    sending    = {"active": False, "idx": -1, "total": 0}  # read by main loop
+
     def set_status(msg, duration=3):
         nonlocal status_msg, status_expire
         status_msg = msg
         status_expire = time.time() + duration
 
-    def redraw(sending_idx=-1):
-        """Redraw all panels (used during send to show progress)."""
-        max_y, max_x = stdscr.getmaxyx()
-        stdscr.erase()
-        side_open = config_open or help_open
-        layout = calculate_layout(max_y, max_x, side_panel=side_open)
-        if layout is None:
-            return
-        draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
-                    freq=freq, log_path=tx_log.text_path,
-                    zmq_status=zmq_status)
-        draw_queue(stdscr, layout["queue"], tx_queue,
-                   scroll_offset=queue_scroll, sending_idx=sending_idx,
-                   tx_delay_ms=tx_delay_ms)
-        draw_history(stdscr, layout["history"], history,
-                     scroll_offset=hist_scroll)
-        draw_input(stdscr, layout["input"], input_buf, cursor_pos,
-                   len(tx_queue), status_msg)
-        stdscr.refresh()
-
-    def send_queue():
-        nonlocal tx_count, queue_scroll, hist_scroll
-        if not tx_queue:
-            set_status("Nothing queued", 2)
-            return
-        count = len(tx_queue)
-        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(tx_queue):
-            # Show this command as "SENDING", previous as "SENT"
-            redraw(sending_idx=i)
-            if i > 0 and tx_delay_ms > 0:
-                curses.napms(tx_delay_ms)
+    def _send_worker(snapshot, delay_ms):
+        """Background thread: sends queued commands, updates shared state."""
+        nonlocal tx_count, hist_scroll
+        sent = 0
+        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(snapshot):
+            if send_abort.is_set():
+                break
+            sending["idx"] = i
+            if i > 0 and delay_ms > 0:
+                # Sleep in small increments so abort is responsive
+                remaining = delay_ms / 1000.0
+                while remaining > 0 and not send_abort.is_set():
+                    time.sleep(min(0.05, remaining))
+                    remaining -= 0.05
+                if send_abort.is_set():
+                    break
             payload = ax25.wrap(csp.wrap(raw_cmd))
+            ok = send_pdu(sock, payload)
+            if not ok:
+                set_status("ZMQ send error — aborting send", 5)
+                break
             tx_count += 1
-            send_pdu(sock, payload)
+            sent += 1
             tx_log.write_command(tx_count, src, dest, echo, ptype, cmd, args,
                                  raw_cmd, payload, ax25, csp)
             history.append({
@@ -173,17 +225,40 @@ def dashboard(stdscr, *, show_splash=True):
                 "payload_len": len(payload),
                 "csp_enabled": csp.enabled,
             })
-            hist_scroll = len(history) - 1  # keep history view on latest
-        # Brief flash showing all as sent before clearing
-        redraw(sending_idx=count)
-        curses.napms(300)
-        # Cap history (remove oldest from the front)
+            hist_scroll = len(history) - 1
+        # Remove sent commands from front of queue
+        with send_lock:
+            del tx_queue[:sent]
+            _save_queue(tx_queue)
+        # Cap history
         if len(history) > MAX_HISTORY:
             del history[:len(history) - MAX_HISTORY]
-        tx_queue.clear()
+        hist_scroll = max(0, len(history) - 1)
+        total = sending["total"]
+        if send_abort.is_set():
+            set_status(f"Aborted: sent {sent}/{total}, {total - sent} remain in queue", 5)
+        else:
+            set_status(f"Sent {sent} command{'s' if sent != 1 else ''}")
+        sending["active"] = False
+        sending["idx"] = -1
+
+    def start_send():
+        nonlocal queue_scroll
+        if sending["active"]:
+            set_status("Send already in progress", 2)
+            return
+        if not tx_queue:
+            set_status("Nothing queued", 2)
+            return
+        send_abort.clear()
+        snapshot = list(tx_queue)
+        sending["active"] = True
+        sending["total"] = len(snapshot)
+        sending["idx"] = 0
         queue_scroll = 0
-        hist_scroll = max(0, len(history) - 1)  # auto-scroll to bottom
-        set_status(f"Sent {count} command{'s' if count != 1 else ''}")
+        t = threading.Thread(target=_send_worker,
+                             args=(snapshot, tx_delay_ms), daemon=True)
+        t.start()
 
     try:
         while True:
@@ -217,7 +292,9 @@ def dashboard(stdscr, *, show_splash=True):
                         freq=freq, log_path=tx_log.text_path,
                         zmq_status=zmq_status)
             draw_queue(stdscr, layout["queue"], tx_queue,
-                       scroll_offset=queue_scroll, tx_delay_ms=tx_delay_ms)
+                       scroll_offset=queue_scroll,
+                       sending_idx=sending["idx"] if sending["active"] else -1,
+                       tx_delay_ms=tx_delay_ms)
             draw_history(stdscr, layout["history"], history,
                          scroll_offset=hist_scroll)
             draw_input(stdscr, layout["input"], input_buf, cursor_pos,
@@ -251,6 +328,10 @@ def dashboard(stdscr, *, show_splash=True):
                 continue
 
             if ch == 3:  # Ctrl+C
+                if sending["active"]:
+                    send_abort.set()
+                    set_status("Aborting send...", 2)
+                    continue
                 if help_open:
                     help_open = False
                     continue
@@ -261,8 +342,12 @@ def dashboard(stdscr, *, show_splash=True):
                     continue
                 break
 
-            # -- Esc: close side panels --
+            # -- Esc: abort send / close side panels --
             if ch == 27:
+                if sending["active"]:
+                    send_abort.set()
+                    set_status("Aborting send...", 2)
+                    continue
                 if config_editing:
                     config_editing = False
                     continue
@@ -318,13 +403,14 @@ def dashboard(stdscr, *, show_splash=True):
 
             # Ctrl+S — send queue
             if ch == 19:
-                send_queue()
+                start_send()
                 continue
 
             # Ctrl+Z — remove last queued command
             if ch == 26:
                 if tx_queue:
                     removed = tx_queue.pop()
+                    _save_queue(tx_queue)
                     set_status(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
                 else:
                     set_status("Queue is empty", 2)
@@ -335,6 +421,7 @@ def dashboard(stdscr, *, show_splash=True):
                 if tx_queue:
                     set_status(f"Cleared {len(tx_queue)} command{'s' if len(tx_queue) != 1 else ''}", 2)
                     tx_queue.clear()
+                    _save_queue(tx_queue)
                     queue_scroll = 0
                 continue
 
@@ -397,7 +484,7 @@ def dashboard(stdscr, *, show_splash=True):
 
                 # Send
                 if cmd_lower == 'send':
-                    send_queue()
+                    start_send()
                     continue
 
                 # Clear queue
@@ -405,6 +492,7 @@ def dashboard(stdscr, *, show_splash=True):
                     if tx_queue:
                         set_status(f"Cleared {len(tx_queue)} commands", 2)
                         tx_queue.clear()
+                        _save_queue(tx_queue)
                         queue_scroll = 0
                     else:
                         set_status("Nothing to clear", 2)
@@ -414,6 +502,7 @@ def dashboard(stdscr, *, show_splash=True):
                 if cmd_lower in ('undo', 'pop'):
                     if tx_queue:
                         removed = tx_queue.pop()
+                        _save_queue(tx_queue)
                         set_status(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
                     else:
                         set_status("Queue is empty", 2)
@@ -487,7 +576,9 @@ def dashboard(stdscr, *, show_splash=True):
                     set_status("Command too large for RS payload", 3)
                     continue
 
-                tx_queue.append((src, dest, echo, ptype, cmd, args, raw_cmd))
+                entry = (src, dest, echo, ptype, cmd, args, raw_cmd)
+                tx_queue.append(entry)
+                _append_queue(entry)
                 src_tag = f"{node_label(src)}\u2192" if src != protocol.GS_NODE else ""
                 set_status(f"Queued: {src_tag}{node_label(dest)} E:{echo} {protocol.PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
                 continue
