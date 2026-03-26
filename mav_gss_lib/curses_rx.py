@@ -20,6 +20,7 @@ from mav_gss_lib.protocol import node_label, ptype_label, format_arg_value
 from mav_gss_lib.curses_common import (
     safe_addstr, draw_hline, draw_vline, render_input_line, draw_help_panel,
     CP_LABEL, CP_VALUE, CP_SUCCESS, CP_WARNING, CP_ERROR, CP_DIM,
+    S_DIM, S_VALUE, S_SUCCESS,
     MIN_COLS,
 )
 
@@ -87,26 +88,26 @@ def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
     # Row 0: title + clock
     title = "MAVERIC RX MONITOR"
     safe_addstr(stdscr, y, x + 1, title,
-          curses.color_pair(CP_SUCCESS) | curses.A_BOLD)
+          S_SUCCESS)
     safe_addstr(stdscr, y, x + w - len(time_str) - 1, time_str,
-          curses.color_pair(CP_VALUE) | curses.A_BOLD)
+          S_VALUE)
 
     # Row 1: separator
-    draw_hline(stdscr, y + 1, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+    draw_hline(stdscr, y + 1, x, w, S_DIM)
 
     # Row 2: ZMQ address + freq + toggle indicators
     safe_addstr(stdscr, y + 2, x + 1, "ZMQ",
           curses.color_pair(CP_LABEL))
     zmq_tag = f"[{zmq_status}]"
     if zmq_status == "LIVE":
-        tag_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+        tag_attr = S_SUCCESS
     elif zmq_status == "DOWN":
         tag_attr = curses.color_pair(CP_ERROR) | curses.A_BOLD
     else:
-        tag_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
+        tag_attr = S_VALUE
     safe_addstr(stdscr, y + 2, x + 7,
           f"{zmq_addr} ",
-          curses.color_pair(CP_VALUE) | curses.A_BOLD)
+          S_VALUE)
     safe_addstr(stdscr, y + 2, x + 7 + len(zmq_addr) + 1,
           zmq_tag, tag_attr)
 
@@ -120,7 +121,7 @@ def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
     hex_state = "ON" if show_hex else "OFF"
     log_state = "ON" if logging_enabled else "OFF"
     on_attr = curses.color_pair(CP_SUCCESS)
-    off_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+    off_attr = S_DIM
     hex_attr = on_attr if show_hex else off_attr
     log_attr = on_attr if logging_enabled else off_attr
 
@@ -137,7 +138,7 @@ def draw_rx_header(stdscr, region, zmq_addr, freq="437.25 MHz",
     safe_addstr(stdscr, y + 3, x + 1, "Q",
           curses.color_pair(CP_LABEL))
     safe_addstr(stdscr, y + 3, x + 7, str(queue_depth),
-          curses.color_pair(CP_VALUE) | curses.A_BOLD)
+          S_VALUE)
 
 
 # -- Packet List Panel --------------------------------------------------------
@@ -154,12 +155,12 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
     count = len(packets)
 
     # Separator above
-    draw_hline(stdscr, y, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+    draw_hline(stdscr, y, x, w, S_DIM)
 
     # Title row
     title = f" PACKETS ({count})"
     safe_addstr(stdscr, y + 1, x, title,
-          curses.color_pair(CP_SUCCESS) | curses.A_BOLD)
+          S_SUCCESS)
 
     if auto_follow:
         safe_addstr(stdscr, y + 1, x + len(title) + 2, "[LIVE]",
@@ -171,7 +172,7 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
     if count == 0:
         safe_addstr(stdscr, data_start, x + 2,
               "(waiting for packets...)",
-              curses.color_pair(CP_DIM) | curses.A_DIM)
+              S_DIM)
         return
 
     # Compute visible window
@@ -187,7 +188,7 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
     if count > data_rows:
         ind = f"[{start + 1}-{end}/{count}]"
         safe_addstr(stdscr, y + 1, x + w - len(ind) - 2, ind,
-              curses.color_pair(CP_DIM) | curses.A_DIM)
+              S_DIM)
 
     visible = packets[start:end]
     for i, pkt in enumerate(visible):
@@ -305,7 +306,7 @@ def draw_packet_list(stdscr, region, packets, selected_idx, scroll_offset,
             # Command ID
             cmd_display = cmd_id[:14] if len(cmd_id) > 14 else cmd_id
             safe_addstr(stdscr, row_y, col, cmd_display,
-                  base_attr | curses.color_pair(CP_VALUE) | curses.A_BOLD)
+                  base_attr | S_VALUE)
             col += len(cmd_display) + 1
 
         # Right-aligned block: args + size + CRC + DUP
@@ -356,12 +357,10 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
     if not packet:
         return
 
-    dim = curses.color_pair(CP_DIM) | curses.A_DIM
     lbl = curses.color_pair(CP_LABEL)
-    val = curses.color_pair(CP_VALUE) | curses.A_BOLD
 
     # Top separator + title
-    draw_hline(stdscr, y, x, w, dim)
+    draw_hline(stdscr, y, x, w, S_DIM)
     is_unknown = packet.get("is_unknown", False)
     unknown_num = packet.get("unknown_num")
     pkt_num = packet.get("pkt_num", 0)
@@ -388,20 +387,20 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
                 offset = 0
                 while offset < len(hex_str) and row < max_row:
                     chunk = hex_str[offset:offset + hex_w]
-                    safe_addstr(stdscr, row, x + 14, chunk, dim)
+                    safe_addstr(stdscr, row, x + 14, chunk, S_DIM)
                     offset += hex_w
                     row += 1
 
             text = packet.get("text", "")
             if text and row < max_row:
                 safe_addstr(stdscr, row, x + 2, "ASCII", lbl)
-                safe_addstr(stdscr, row, x + 14, text[:w - 16], dim)
+                safe_addstr(stdscr, row, x + 14, text[:w - 16], S_DIM)
                 row += 1
 
             inner = packet.get("inner_payload", b"")
             if inner and row < max_row:
                 safe_addstr(stdscr, row, x + 2, "SIZE", lbl)
-                safe_addstr(stdscr, row, x + 14, f"{len(inner)}B (raw {len(raw)}B)", dim)
+                safe_addstr(stdscr, row, x + 14, f"{len(inner)}B (raw {len(raw)}B)", S_DIM)
                 row += 1
         return
 
@@ -426,7 +425,7 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
     stripped_hdr = packet.get("stripped_hdr")
     if stripped_hdr and row < max_row:
         safe_addstr(stdscr, row, x + 2, "AX.25 HDR", lbl)
-        safe_addstr(stdscr, row, x + 14, stripped_hdr[:w - 16], dim)
+        safe_addstr(stdscr, row, x + 14, stripped_hdr[:w - 16], S_DIM)
         row += 1
 
     # CSP
@@ -438,7 +437,7 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
         csp_str = (f"Prio:{csp['prio']}  Src:{csp['src']}  "
                    f"Dest:{csp['dest']}  DPort:{csp['dport']}  "
                    f"SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
-        safe_addstr(stdscr, row, x + 14, csp_str, val)
+        safe_addstr(stdscr, row, x + 14, csp_str, S_VALUE)
         row += 1
 
     # SAT TIME
@@ -449,9 +448,9 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
             dt_utc, dt_local, raw_ms = ts_result
             ts_str = (f"{dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}  \u2502  "
                       f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-            safe_addstr(stdscr, row, x + 14, ts_str, val)
+            safe_addstr(stdscr, row, x + 14, ts_str, S_VALUE)
         else:
-            safe_addstr(stdscr, row, x + 14, "--", dim)
+            safe_addstr(stdscr, row, x + 14, "--", S_DIM)
         row += 1
 
     # Command
@@ -462,12 +461,12 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
                     f"Dest:{node_label(cmd['dest'])}  "
                     f"Echo:{node_label(cmd['echo'])}  "
                     f"Type:{ptype_label(cmd['pkt_type'])}")
-        safe_addstr(stdscr, row, x + 14, cmd_info, val)
+        safe_addstr(stdscr, row, x + 14, cmd_info, S_VALUE)
         row += 1
 
         if row < max_row:
             safe_addstr(stdscr, row, x + 2, "CMD ID", lbl)
-            safe_addstr(stdscr, row, x + 14, cmd["cmd_id"], val)
+            safe_addstr(stdscr, row, x + 14, cmd["cmd_id"], S_VALUE)
             row += 1
 
         # Schema-matched args
@@ -478,13 +477,13 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
                 label = ta["name"].upper()
                 value = format_arg_value(ta)
                 safe_addstr(stdscr, row, x + 2, label[:12], lbl)
-                safe_addstr(stdscr, row, x + 14, value[:w - 16], val)
+                safe_addstr(stdscr, row, x + 14, value[:w - 16], S_VALUE)
                 row += 1
             for i, extra in enumerate(cmd.get("extra_args", [])):
                 if row >= max_row:
                     break
                 safe_addstr(stdscr, row, x + 2, f"ARG +{i}", lbl)
-                safe_addstr(stdscr, row, x + 14, str(extra)[:w - 16], val)
+                safe_addstr(stdscr, row, x + 14, str(extra)[:w - 16], S_VALUE)
                 row += 1
         elif not cmd.get("schema_match"):
             if cmd.get("schema_warning") and row < max_row:
@@ -496,7 +495,7 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
                 if row >= max_row:
                     break
                 safe_addstr(stdscr, row, x + 2, f"ARG {i}", lbl)
-                safe_addstr(stdscr, row, x + 14, str(arg)[:w - 16], val)
+                safe_addstr(stdscr, row, x + 14, str(arg)[:w - 16], S_VALUE)
                 row += 1
 
     # CRC status (before hex — matches log order)
@@ -530,7 +529,7 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
             offset = 0
             while offset < len(hex_str) and row < max_row:
                 chunk = hex_str[offset:offset + hex_w]
-                safe_addstr(stdscr, row, x + 14, chunk, dim)
+                safe_addstr(stdscr, row, x + 14, chunk, S_DIM)
                 offset += hex_w
                 row += 1
 
@@ -538,7 +537,7 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
         text = packet.get("text", "")
         if text and row < max_row:
             safe_addstr(stdscr, row, x + 2, "ASCII", lbl)
-            safe_addstr(stdscr, row, x + 14, text[:w - 16], dim)
+            safe_addstr(stdscr, row, x + 14, text[:w - 16], S_DIM)
             row += 1
 
 
@@ -569,7 +568,7 @@ def draw_rx_input(stdscr, region, buf, cursor_pos, silence_secs, pkt_count,
         # Receiving / Silence
         if receiving:
             safe_addstr(stdscr, status_y, col, "Receiving",
-                  curses.color_pair(CP_SUCCESS) | curses.A_BOLD)
+                  S_SUCCESS)
             col += 11
         else:
             if silence_secs <= 10:
@@ -587,10 +586,10 @@ def draw_rx_input(stdscr, region, buf, cursor_pos, silence_secs, pkt_count,
         if rate_per_min > 0:
             stats += f"  {rate_per_min:.0f} pkt/min"
         safe_addstr(stdscr, status_y, col, stats,
-              curses.color_pair(CP_DIM) | curses.A_DIM)
+              S_DIM)
 
     # Row 1: separator
-    draw_hline(stdscr, y + 1, x, w, curses.color_pair(CP_DIM) | curses.A_DIM)
+    draw_hline(stdscr, y + 1, x, w, S_DIM)
 
     # Row 2: prompt + input buffer + cursor
     render_input_line(stdscr, y + 2, x, w, buf, cursor_pos)
@@ -598,7 +597,7 @@ def draw_rx_input(stdscr, region, buf, cursor_pos, silence_secs, pkt_count,
     # Row 3: hints
     hints = "Enter: detail | cfg | help | Ctrl+C: quit"
     safe_addstr(stdscr, y + 3, x + 1, hints,
-          curses.color_pair(CP_DIM) | curses.A_DIM)
+          S_DIM)
 
 
 # -- Help Side Panel ----------------------------------------------------------
@@ -645,18 +644,17 @@ def rx_config_get_values(show_hex, logging_enabled):
 def draw_rx_config(stdscr, region, values, selected=0, focused=False):
     """Draw the RX config panel in a side region."""
     y, x, h, w = region
-    dim = curses.color_pair(CP_DIM) | curses.A_DIM
     inner_w = w - 3
 
     # Vertical separator on the left edge
-    draw_vline(stdscr, x, y, h, dim)
+    draw_vline(stdscr, x, y, h, S_DIM)
 
     # Title
     title_attr = curses.color_pair(CP_WARNING) | curses.A_BOLD
     if not focused:
-        title_attr = dim
+        title_attr = S_DIM
     safe_addstr(stdscr, y, x + 2, " CONFIGURATION ", title_attr)
-    draw_hline(stdscr, y + 1, x + 1, w - 1, dim)
+    draw_hline(stdscr, y + 1, x + 1, w - 1, S_DIM)
 
     # Editable fields
     label_w = 14
@@ -669,24 +667,24 @@ def draw_rx_config(stdscr, region, values, selected=0, focused=False):
         is_selected = (i == selected and focused)
 
         marker = "\u25b6" if is_selected else " "
-        marker_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD if is_selected else dim
+        marker_attr = S_SUCCESS if is_selected else S_DIM
         safe_addstr(stdscr, row, x + 1, marker, marker_attr)
 
-        lbl_attr = curses.color_pair(CP_LABEL) if editable else dim
+        lbl_attr = curses.color_pair(CP_LABEL) if editable else S_DIM
         safe_addstr(stdscr, row, x + 3, label[:label_w], lbl_attr)
 
         val = values.get(key, "")
         if val == "ON":
-            val_attr = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
+            val_attr = S_SUCCESS
         elif val == "OFF":
-            val_attr = curses.color_pair(CP_DIM) | curses.A_DIM
+            val_attr = S_DIM
         else:
-            val_attr = curses.color_pair(CP_VALUE) | curses.A_BOLD
+            val_attr = S_VALUE
         safe_addstr(stdscr, row, val_x, val, val_attr)
 
     # Hints at bottom
     hints = "Tab:focus Up/Dn:select Enter:toggle"
-    safe_addstr(stdscr, y + h - 1, x + 2, hints[:inner_w], dim)
+    safe_addstr(stdscr, y + h - 1, x + 2, hints[:inner_w], S_DIM)
 
 
 def draw_rx_help(stdscr, region, schema_count=0, schema_path="",

@@ -10,6 +10,8 @@ Author:  Irfan Annuar - USC ISI SERC
 
 import json
 import os
+import queue
+import threading
 import time
 from datetime import datetime
 
@@ -26,7 +28,13 @@ HEADER_CHAR = "\u2550"   # ═
 # =============================================================================
 
 class _BaseLog:
-    """Shared JSONL + text log infrastructure."""
+    """Shared JSONL + text log infrastructure.
+
+    All file I/O runs on a dedicated background thread so that callers
+    (typically the curses main loop) never block on disk flushes.
+    """
+
+    _SENTINEL = None  # poison pill to stop the writer thread
 
     def __init__(self, log_dir, prefix, version, mode, zmq_addr):
         text_dir = os.path.join(log_dir, "text")
@@ -40,9 +48,9 @@ class _BaseLog:
         self._text_f  = open(self.text_path, "w")
         self._jsonl_f = open(self.jsonl_path, "a")
 
-        # Session header
+        # Session header (written directly — thread not started yet)
         session_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-        self._write_text(
+        self._text_f.write(
             f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
             f"  MAVERIC Ground Station Log  v{version}\n"
             f"  Mode:      {mode}\n"
@@ -52,14 +60,34 @@ class _BaseLog:
         )
         self._text_f.flush()
 
+        # Background writer thread
+        self._q = queue.Queue()
+        self._writer = threading.Thread(target=self._writer_loop,
+                                        name="log-writer", daemon=True)
+        self._writer.start()
+
+    def _writer_loop(self):
+        """Drain the write queue until sentinel received."""
+        while True:
+            item = self._q.get()
+            if item is self._SENTINEL:
+                break
+            kind, data = item
+            if kind == "jsonl":
+                self._jsonl_f.write(data)
+                self._jsonl_f.flush()
+                self._text_f.flush()
+            elif kind == "text":
+                self._text_f.write(data)
+            elif kind == "text_flush":
+                self._text_f.write(data)
+                self._jsonl_f.flush()
+                self._text_f.flush()
+
     # -- Shared helpers -------------------------------------------------------
 
-    def _flush(self):
-        self._jsonl_f.flush()
-        self._text_f.flush()
-
     def _write_text(self, text):
-        self._text_f.write(text)
+        self._q.put(("text", text))
 
     def _separator(self, label, extras=""):
         """Build thin separator: ──── #1  timestamp  extras ────────"""
@@ -107,24 +135,24 @@ class _BaseLog:
                 f"DPort:{dport}  SPort:{sport}  Flags:0x{flags:02X}")
 
     def write_jsonl(self, record):
-        self._jsonl_f.write(json.dumps(record) + "\n")
-        self._flush()
+        self._q.put(("jsonl", json.dumps(record) + "\n"))
 
     def _write_entry(self, lines):
         """Write a complete log entry (list of lines + trailing blank)."""
-        self._write_text("\n".join(lines) + "\n\n")
-        self._flush()
+        self._q.put(("text_flush", "\n".join(lines) + "\n\n"))
 
     def _write_summary_block(self, summary_lines):
         """Write a summary block with ═ borders."""
         block = [
             "", HEADER_CHAR * LOG_LINE_WIDTH, "  Session Summary", HEADER_CHAR * LOG_LINE_WIDTH,
         ] + summary_lines + [HEADER_CHAR * LOG_LINE_WIDTH, ""]
-        self._write_text("\n".join(block) + "\n")
-        self._text_f.flush()
+        self._q.put(("text_flush", "\n".join(block) + "\n"))
 
     def close(self):
-        self._flush()
+        self._q.put(self._SENTINEL)
+        self._writer.join(timeout=5.0)
+        self._jsonl_f.flush()
+        self._text_f.flush()
         self._jsonl_f.close()
         self._text_f.close()
 

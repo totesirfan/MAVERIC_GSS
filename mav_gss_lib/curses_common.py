@@ -98,6 +98,11 @@ CP_HEADER  = 7   # cyan   — header bar (use with A_REVERSE)
 CP_USC_CARDINAL = 8   # red    — USC cardinal (splash)
 CP_USC_GOLD     = 9   # yellow — USC gold (splash)
 
+# Pre-computed style constants (set by init_colors)
+S_DIM     = 0
+S_VALUE   = 0
+S_SUCCESS = 0
+
 MIN_COLS = 80
 
 
@@ -114,6 +119,10 @@ def init_colors():
     curses.init_pair(CP_HEADER,  curses.COLOR_CYAN,   -1)
     curses.init_pair(CP_USC_CARDINAL, curses.COLOR_RED,    -1)
     curses.init_pair(CP_USC_GOLD,     curses.COLOR_YELLOW, -1)
+    global S_DIM, S_VALUE, S_SUCCESS
+    S_DIM     = curses.color_pair(CP_DIM)     | curses.A_DIM
+    S_VALUE   = curses.color_pair(CP_VALUE)   | curses.A_BOLD
+    S_SUCCESS = curses.color_pair(CP_SUCCESS) | curses.A_BOLD
 
 
 def init_dashboard(stdscr):
@@ -266,8 +275,7 @@ def render_input_line(stdscr, row_y, x, w, buf, cursor_pos):
         visible_start = cursor_pos - max_input_w + 1
     visible_buf = buf[visible_start:visible_start + max_input_w]
 
-    safe_addstr(stdscr, row_y, x + 3, visible_buf,
-                curses.color_pair(CP_VALUE) | curses.A_BOLD)
+    safe_addstr(stdscr, row_y, x + 3, visible_buf, S_VALUE)
 
     cursor_screen_x = x + 3 + (cursor_pos - visible_start)
     if cursor_screen_x < w - 1:
@@ -289,14 +297,13 @@ def draw_help_panel(stdscr, region, help_lines, hint="Esc: close",
     data, hint text, and info fields differ between them.
     """
     y, x, h, w = region
-    dim = curses.color_pair(CP_DIM) | curses.A_DIM
     inner_w = w - 3
 
-    draw_vline(stdscr, x, y, h, dim)
+    draw_vline(stdscr, x, y, h, S_DIM)
 
     safe_addstr(stdscr, y, x + 2, " HELP ",
                 curses.color_pair(CP_WARNING) | curses.A_BOLD)
-    draw_hline(stdscr, y + 1, x + 1, w - 1, dim)
+    draw_hline(stdscr, y + 1, x + 1, w - 1, S_DIM)
 
     left_col_w = inner_w * 5 // 10
     right_col_x = x + 2 + left_col_w + 1
@@ -313,25 +320,24 @@ def draw_help_panel(stdscr, region, help_lines, hint="Esc: close",
             row += 1
             continue
         else:
-            safe_addstr(stdscr, row, x + 3, left[:left_col_w],
-                        curses.color_pair(CP_VALUE) | curses.A_BOLD)
+            safe_addstr(stdscr, row, x + 3, left[:left_col_w], S_VALUE)
             if right and max_right_w > 0:
-                safe_addstr(stdscr, row, right_col_x, right[:max_right_w], dim)
+                safe_addstr(stdscr, row, right_col_x, right[:max_right_w], S_DIM)
         row += 1
 
     info_start = y + h - 5
     if info_start > row:
-        draw_hline(stdscr, info_start, x + 1, w - 1, dim)
+        draw_hline(stdscr, info_start, x + 1, w - 1, S_DIM)
         if version:
-            safe_addstr(stdscr, info_start + 1, x + 2, f"Version: {version}", dim)
+            safe_addstr(stdscr, info_start + 1, x + 2, f"Version: {version}", S_DIM)
         if schema_count > 0:
             safe_addstr(stdscr, info_start + 2, x + 2,
-                        f"Schema: {schema_count} cmds ({schema_path})", dim)
+                        f"Schema: {schema_count} cmds ({schema_path})", S_DIM)
         if log_path:
             safe_addstr(stdscr, info_start + 3, x + 2,
-                        f"Log: {log_path}"[:inner_w], dim)
+                        f"Log: {log_path}"[:inner_w], S_DIM)
 
-    safe_addstr(stdscr, y + h - 1, x + 2, hint[:inner_w], dim)
+    safe_addstr(stdscr, y + h - 1, x + 2, hint[:inner_w], S_DIM)
 
 
 # -- Terminal size check -----------------------------------------------------
