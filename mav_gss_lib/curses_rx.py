@@ -438,7 +438,7 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
         csp_str = (f"Prio:{csp['prio']}  Src:{csp['src']}  "
                    f"Dest:{csp['dest']}  DPort:{csp['dport']}  "
                    f"SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
-        safe_addstr(stdscr, row, x + 2 + len(tag) + 2, csp_str, val)
+        safe_addstr(stdscr, row, x + 14, csp_str, val)
         row += 1
 
     # SAT TIME
@@ -499,6 +499,26 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
                 safe_addstr(stdscr, row, x + 14, str(arg)[:w - 16], val)
                 row += 1
 
+    # CRC status (before hex — matches log order)
+    if cmd and row < max_row:
+        if cmd.get("crc") is not None:
+            valid = cmd.get("crc_valid")
+            tag = "OK" if valid else "FAIL"
+            crc_attr = curses.color_pair(CP_SUCCESS) if valid else curses.color_pair(CP_ERROR)
+            safe_addstr(stdscr, row, x + 2, "CRC-16", lbl)
+            safe_addstr(stdscr, row, x + 14, f"0x{cmd['crc']:04x}  [{tag}]", crc_attr)
+            row += 1
+
+    crc_status = packet.get("crc_status", {})
+    if crc_status.get("csp_crc32_valid") is not None and row < max_row:
+        valid = crc_status["csp_crc32_valid"]
+        tag = "OK" if valid else "FAIL"
+        crc_attr = curses.color_pair(CP_SUCCESS) if valid else curses.color_pair(CP_ERROR)
+        safe_addstr(stdscr, row, x + 2, "CRC-32C", lbl)
+        safe_addstr(stdscr, row, x + 14,
+              f"0x{crc_status['csp_crc32_rx']:08x}  [{tag}]", crc_attr)
+        row += 1
+
     # HEX dump (toggleable)
     if show_hex and row < max_row:
         raw = packet.get("raw", b"")
@@ -520,26 +540,6 @@ def draw_packet_detail(stdscr, region, packet, show_hex=True):
             safe_addstr(stdscr, row, x + 2, "ASCII", lbl)
             safe_addstr(stdscr, row, x + 14, text[:w - 16], dim)
             row += 1
-
-    # CRC status
-    if cmd and row < max_row:
-        if cmd.get("crc") is not None:
-            valid = cmd.get("crc_valid")
-            tag = "OK" if valid else "FAIL"
-            crc_attr = curses.color_pair(CP_SUCCESS) if valid else curses.color_pair(CP_ERROR)
-            safe_addstr(stdscr, row, x + 2, "CRC-16", lbl)
-            safe_addstr(stdscr, row, x + 14, f"0x{cmd['crc']:04x}  [{tag}]", crc_attr)
-            row += 1
-
-    crc_status = packet.get("crc_status", {})
-    if crc_status.get("csp_crc32_valid") is not None and row < max_row:
-        valid = crc_status["csp_crc32_valid"]
-        tag = "OK" if valid else "FAIL"
-        crc_attr = curses.color_pair(CP_SUCCESS) if valid else curses.color_pair(CP_ERROR)
-        safe_addstr(stdscr, row, x + 2, "CRC-32C", lbl)
-        safe_addstr(stdscr, row, x + 14,
-              f"0x{crc_status['csp_crc32_rx']:08x}  [{tag}]", crc_attr)
-        row += 1
 
 
 # -- Input Panel --------------------------------------------------------------
