@@ -18,7 +18,9 @@ mav_gss_lib/              Shared library
     curses_rx.py          RX monitor panels and layout
 
 MAV_RX2.py                Downlink packet monitor (curses)
+                          Decomposed: RxState dataclass, handle_key_rx(), _render_rx(), _drain_rx_queue()
 MAV_TX2.py                Uplink command dashboard (curses)
+                          Decomposed: TxState dataclass, handle_key_tx(), _render_tx(), _send_worker()
 
 maveric_gss.yml           Shared configuration (nodes, ptypes, AX.25, CSP, ZMQ, paths)
 maveric_commands.yml      Command schema (arg names, types, validation)

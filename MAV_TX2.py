@@ -20,6 +20,7 @@ import os
 import tempfile
 import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 
 import mav_gss_lib.protocol as protocol
@@ -133,9 +134,467 @@ def _load_queue():
     return queue, skipped
 
 
-# -- Dashboard ----------------------------------------------------------------
+# =============================================================================
+#  STATE
+# =============================================================================
 
-def dashboard(stdscr, *, show_splash=True):
+@dataclass
+class TxState:
+    # Protocol config (mutable via config panel)
+    csp: CSPConfig
+    ax25: AX25Config
+    cmd_defs: dict
+    # Data
+    tx_queue: list
+    history: list
+    tx_log: TXLog
+    tx_count: int = 0
+    session_start: float = 0.0
+    # Mutable config
+    freq: str = ""
+    zmq_addr_disp: str = ""
+    tx_delay_ms: int = 0
+    # Input
+    input_buf: str = ""
+    cursor_pos: int = 0
+    cmd_history: list = field(default_factory=list)
+    cmd_hist_idx: int = -1
+    cmd_hist_save: str = ""
+    # Scroll
+    queue_scroll: int = 0
+    hist_scroll: int = 0
+    # Side panels
+    help_open: bool = False
+    config_open: bool = False
+    config_focused: bool = False
+    config_selected: int = 0
+    config_editing: bool = False
+    config_buf: str = ""
+    config_cursor: int = 0
+    config_values: dict = field(default_factory=dict)
+    # Send thread
+    send_abort: threading.Event = field(default_factory=threading.Event)
+    send_lock: threading.Lock = field(default_factory=threading.Lock)
+    sending: dict = field(default_factory=lambda: {
+        "active": False, "idx": -1, "total": 0})
+    # Status
+    status: StatusMessage = field(default_factory=StatusMessage)
+
+
+# =============================================================================
+#  SEND THREAD
+# =============================================================================
+
+def _send_worker(state, snapshot, delay_ms, sock):
+    """Background thread: sends queued commands, updates shared state.
+    All mutations to `sending`, `history` are guarded by `send_lock`."""
+    sent = 0
+    for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(snapshot):
+        if state.send_abort.is_set():
+            break
+        with state.send_lock:
+            state.sending["idx"] = i
+        if i > 0 and delay_ms > 0:
+            remaining = delay_ms / 1000.0
+            while remaining > 0 and not state.send_abort.is_set():
+                time.sleep(min(0.05, remaining))
+                remaining -= 0.05
+            if state.send_abort.is_set():
+                break
+        payload = state.ax25.wrap(state.csp.wrap(raw_cmd))
+        ok = send_pdu(sock, payload)
+        if not ok:
+            state.status.set("ZMQ send error — aborting send", 5)
+            break
+        state.tx_count += 1
+        sent += 1
+        state.tx_log.write_command(state.tx_count, src, dest, echo, ptype,
+                                   cmd, args, raw_cmd, payload,
+                                   state.ax25, state.csp)
+        with state.send_lock:
+            state.history.append({
+                "n": state.tx_count,
+                "ts": datetime.now().strftime("%H:%M:%S"),
+                "src": src, "dest": dest,
+                "cmd": cmd, "args": args,
+                "echo": echo, "ptype": ptype,
+                "payload_len": len(payload),
+                "csp_enabled": state.csp.enabled,
+            })
+            state.hist_scroll = len(state.history) - 1
+    # Remove sent commands from front of queue
+    with state.send_lock:
+        del state.tx_queue[:sent]
+        _save_queue(state.tx_queue)
+        if len(state.history) > MAX_HISTORY:
+            del state.history[:len(state.history) - MAX_HISTORY]
+        state.hist_scroll = max(0, len(state.history) - 1)
+        total = state.sending["total"]
+    if state.send_abort.is_set():
+        state.status.set(
+            f"Aborted: sent {sent}/{total}, {total - sent} remain in queue", 5)
+    else:
+        state.status.set(f"Sent {sent} command{'s' if sent != 1 else ''}")
+    with state.send_lock:
+        state.sending["active"] = False
+        state.sending["idx"] = -1
+
+
+def _start_send(state, sock):
+    """Initiate async send of the current queue."""
+    with state.send_lock:
+        if state.sending["active"]:
+            state.status.set("Send already in progress", 2)
+            return
+        if not state.tx_queue:
+            state.status.set("Nothing queued", 2)
+            return
+        state.send_abort.clear()
+        snapshot = list(state.tx_queue)
+        state.sending["active"] = True
+        state.sending["total"] = len(snapshot)
+        state.sending["idx"] = 0
+    state.queue_scroll = 0
+    t = threading.Thread(target=_send_worker,
+                         args=(state, snapshot, state.tx_delay_ms, sock),
+                         daemon=True)
+    t.start()
+
+
+# =============================================================================
+#  KEYBOARD DISPATCH
+# =============================================================================
+
+def _refresh_config_values(state):
+    """Rebuild config_values from current protocol/config state."""
+    state.config_values = config_get_values(
+        state.csp, state.ax25, state.freq, state.zmq_addr_disp,
+        state.tx_delay_ms, state.tx_log.text_path)
+
+
+def _dispatch_tx_command(state, line, sock):
+    """Handle a typed command. Returns 'break' to exit, True otherwise."""
+    cmd_lower = line.lower()
+
+    if cmd_lower in ('q', 'quit', 'exit'):
+        return "break"
+
+    if cmd_lower == 'send':
+        _start_send(state, sock)
+        return True
+
+    if cmd_lower == 'clear':
+        if state.tx_queue:
+            state.status.set(
+                f"Cleared {len(state.tx_queue)} commands", 2)
+            state.tx_queue.clear()
+            _save_queue(state.tx_queue)
+            state.queue_scroll = 0
+        else:
+            state.status.set("Nothing to clear", 2)
+        return True
+
+    if cmd_lower in ('undo', 'pop'):
+        if state.tx_queue:
+            removed = state.tx_queue.pop()
+            _save_queue(state.tx_queue)
+            state.status.set(
+                f"Removed: {removed[4]} ({len(state.tx_queue)} left)", 2)
+        else:
+            state.status.set("Queue is empty", 2)
+        return True
+
+    if cmd_lower == 'hclear':
+        if state.history:
+            state.status.set(
+                f"Cleared {len(state.history)} history entries", 2)
+            state.history.clear()
+            state.hist_scroll = 0
+        else:
+            state.status.set("History already empty", 2)
+        return True
+
+    if cmd_lower == 'help':
+        state.help_open = True
+        return True
+
+    if cmd_lower in ('config', 'cfg'):
+        state.config_open = True
+        state.config_focused = True
+        state.config_selected = 0
+        state.config_editing = False
+        _refresh_config_values(state)
+        return True
+
+    if cmd_lower == 'nodes':
+        names = ", ".join(f"{nid}={protocol.NODE_NAMES[nid]}"
+                          for nid in sorted(protocol.NODE_NAMES))
+        state.status.set(f"Nodes: {names}", 5)
+        return True
+
+    if cmd_lower == 'csp' or cmd_lower.startswith('csp '):
+        msg = csp_handle_msg(state.csp,
+                             line[3:].strip() if len(line) > 3 else "")
+        state.status.set(msg, 4)
+        return True
+
+    if cmd_lower == 'ax25' or cmd_lower.startswith('ax25 '):
+        msg = ax25_handle_msg(state.ax25,
+                              line[4:].strip() if len(line) > 4 else "")
+        state.status.set(msg, 4)
+        return True
+
+    # -- Parse as protocol command and queue --
+    try:
+        parsed = parse_cmd_line(line)
+    except ValueError as e:
+        state.status.set(f"Bad command: {e}", 3)
+        return True
+
+    src, dest, echo, ptype, cmd, args = parsed
+
+    valid, issues = validate_args(cmd, args, state.cmd_defs)
+    if not valid and issues:
+        state.status.set(f"Rejected: {issues[0]}", 3)
+        return True
+    if state.cmd_defs and cmd not in state.cmd_defs:
+        state.status.set(f"Rejected: '{cmd}' not in command schema", 3)
+        return True
+
+    raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype,
+                            origin=src)
+    if (len(raw_cmd) + state.csp.overhead() + state.ax25.overhead()
+            > MAX_RS_PAYLOAD):
+        state.status.set("Command too large for RS payload", 3)
+        return True
+
+    entry = (src, dest, echo, ptype, cmd, args, raw_cmd)
+    state.tx_queue.append(entry)
+    _append_queue(entry)
+    src_tag = (f"{node_label(src)}\u2192"
+               if src != protocol.GS_NODE else "")
+    state.status.set(
+        f"Queued: {src_tag}{node_label(dest)} E:{echo} "
+        f"{protocol.PTYPE_NAMES.get(ptype, '?')} {cmd} {args} "
+        f"({len(raw_cmd)}B)", 2)
+    return True
+
+
+def handle_key_tx(ch, state, stdscr, sock):
+    """Dispatch a keypress through layered TX handlers.
+
+    Returns 'break' to exit the main loop, True otherwise.
+    """
+    # -- Layer 0: Ctrl+C --
+    if ch == 3:
+        if state.sending["active"]:
+            state.send_abort.set()
+            state.status.set("Aborting send...", 2)
+            return True
+        if state.help_open:
+            state.help_open = False
+            return True
+        if state.config_open:
+            state.config_open = False
+            state.config_editing = False
+            state.config_values = {}
+            return True
+        return "break"
+
+    # -- Layer 0: Esc --
+    if ch == 27:
+        if state.sending["active"]:
+            state.send_abort.set()
+            state.status.set("Aborting send...", 2)
+            return True
+        if state.config_editing:
+            state.config_editing = False
+            return True
+        if state.config_open:
+            state.config_open = False
+            state.config_focused = False
+            state.config_values = {}
+            return True
+        if state.help_open:
+            state.help_open = False
+            return True
+        return True
+
+    # -- Layer 1: Config editing (captures all keys) --
+    if state.config_open and state.config_editing:
+        if ch in (10, 13):  # Enter — save field
+            key = CONFIG_FIELDS[state.config_selected][1]
+            state.config_values[key] = state.config_buf
+            state.config_editing = False
+            try:
+                state.freq, state.zmq_addr_disp, state.tx_delay_ms = \
+                    config_apply(state.config_values, state.csp, state.ax25)
+                _refresh_config_values(state)
+            except (ValueError, KeyError):
+                state.status.set("Invalid value", 2)
+                _refresh_config_values(state)
+        else:
+            state.config_buf, state.config_cursor, _ = edit_buffer(
+                ch, state.config_buf, state.config_cursor)
+        return True
+
+    # -- Layer 2: Config navigation --
+    if state.config_open and not state.config_editing:
+        if ch == 9:  # Tab
+            state.config_focused = not state.config_focused
+            return True
+        if state.config_focused:
+            nav = navigate_config(ch, state.config_selected,
+                                  len(CONFIG_FIELDS))
+            if nav is not None:
+                state.config_selected = nav
+                return True
+            if ch in (10, 13):  # Enter — edit field
+                _label, key, editable = CONFIG_FIELDS[state.config_selected]
+                if editable:
+                    state.config_editing = True
+                    state.config_buf = state.config_values.get(key, "")
+                    state.config_cursor = len(state.config_buf)
+                return True
+
+    # -- Layer 3: Queue control --
+    if ch == 19:  # Ctrl+S — send
+        _start_send(state, sock)
+        return True
+
+    if ch == 26:  # Ctrl+Z — undo
+        if state.tx_queue:
+            removed = state.tx_queue.pop()
+            _save_queue(state.tx_queue)
+            state.status.set(
+                f"Removed: {removed[4]} ({len(state.tx_queue)} left)", 2)
+        else:
+            state.status.set("Queue is empty", 2)
+        return True
+
+    if ch == 24:  # Ctrl+X — clear queue
+        if state.tx_queue:
+            state.status.set(
+                f"Cleared {len(state.tx_queue)} "
+                f"command{'s' if len(state.tx_queue) != 1 else ''}", 2)
+            state.tx_queue.clear()
+            _save_queue(state.tx_queue)
+            state.queue_scroll = 0
+        return True
+
+    # -- Layer 4: History scroll --
+    if ch == curses.KEY_PPAGE:  # Page Up
+        layout_h = stdscr.getmaxyx()[0]  # approximate
+        min_scroll = min(layout_h - 3, len(state.history) - 1)
+        state.hist_scroll = max(min_scroll, state.hist_scroll - 5)
+        return True
+
+    if ch == curses.KEY_NPAGE:  # Page Down
+        state.hist_scroll = min(len(state.history) - 1,
+                                state.hist_scroll + 5)
+        return True
+
+    # -- Layer 5: Command history recall --
+    if ch == curses.KEY_UP:
+        if state.cmd_history:
+            if state.cmd_hist_idx == -1:
+                state.cmd_hist_save = state.input_buf
+                state.cmd_hist_idx = 0
+            elif state.cmd_hist_idx < len(state.cmd_history) - 1:
+                state.cmd_hist_idx += 1
+            state.input_buf = state.cmd_history[state.cmd_hist_idx]
+            state.cursor_pos = len(state.input_buf)
+        return True
+
+    if ch == curses.KEY_DOWN:
+        if state.cmd_hist_idx >= 0:
+            state.cmd_hist_idx -= 1
+            if state.cmd_hist_idx == -1:
+                state.input_buf = state.cmd_hist_save
+            else:
+                state.input_buf = state.cmd_history[state.cmd_hist_idx]
+            state.cursor_pos = len(state.input_buf)
+        return True
+
+    # -- Layer 6: Enter (command input) --
+    if ch in (10, 13):
+        line = state.input_buf.strip()
+        state.input_buf = ""
+        state.cursor_pos = 0
+        state.cmd_hist_idx = -1
+        if not line:
+            return True
+        # Save to command history (newest first)
+        state.cmd_history.insert(0, line)
+        if len(state.cmd_history) > MAX_CMD_HISTORY:
+            del state.cmd_history[MAX_CMD_HISTORY:]
+        return _dispatch_tx_command(state, line, sock)
+
+    # -- Layer 7: Text editing fallback --
+    state.input_buf, state.cursor_pos, _ = edit_buffer(
+        ch, state.input_buf, state.cursor_pos)
+    return True
+
+
+# =============================================================================
+#  RENDER
+# =============================================================================
+
+def _render_tx(stdscr, state, zmq_status):
+    """Compute layout and draw all panels. Returns False if terminal too small."""
+    max_y, max_x = stdscr.getmaxyx()
+    stdscr.erase()
+
+    side_open = state.config_open or state.help_open
+    layout = calculate_layout(max_y, max_x, side_panel=side_open)
+    if layout is None:
+        check_terminal_size(stdscr, 80, 24)
+        return False
+
+    # Snapshot thread-shared state
+    with state.send_lock:
+        sending_snap = dict(state.sending)
+        history_snap = list(state.history)
+
+    draw_header(stdscr, layout["header"], state.csp, state.ax25,
+                state.zmq_addr_disp, freq=state.freq,
+                log_path=state.tx_log.text_path,
+                zmq_status=zmq_status)
+
+    draw_queue(stdscr, layout["queue"], state.tx_queue,
+               scroll_offset=state.queue_scroll,
+               sending_idx=(sending_snap["idx"]
+                            if sending_snap["active"] else -1),
+               tx_delay_ms=state.tx_delay_ms)
+
+    draw_history(stdscr, layout["history"], history_snap,
+                 scroll_offset=state.hist_scroll)
+
+    draw_input(stdscr, layout["input"], state.input_buf, state.cursor_pos,
+               len(state.tx_queue), state.status.text)
+
+    if state.config_open and "side_panel" in layout:
+        if not state.config_values:
+            _refresh_config_values(state)
+        draw_config(stdscr, layout["side_panel"], state.config_values,
+                    state.config_selected, state.config_editing,
+                    state.config_buf, state.config_cursor,
+                    state.config_focused)
+    elif state.help_open and "side_panel" in layout:
+        draw_help(stdscr, layout["side_panel"],
+                  version=VERSION, schema_count=len(state.cmd_defs),
+                  schema_path=CMD_DEFS_PATH,
+                  log_path=state.tx_log.text_path)
+
+    stdscr.refresh()
+    return True
+
+
+# =============================================================================
+#  DASHBOARD
+# =============================================================================
+
+def tx_dashboard(stdscr, *, show_splash=True):
     init_dashboard(stdscr)
     curses.raw()          # disable Ctrl+S/Ctrl+Q flow control so Ctrl+S works
     if show_splash:
@@ -168,456 +627,58 @@ def dashboard(stdscr, *, show_splash=True):
 
     ctx, sock, zmq_monitor = init_zmq_pub(ZMQ_ADDR)
     zmq_status = "BOUND"
-    tx_log = TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
-    session_start = time.time()
 
-    tx_queue, _q_skipped = _load_queue()  # restore pending commands from previous session
-    history = []       # list of dicts
-    input_buf  = ""
-    cursor_pos = 0
-    tx_count = 0       # TX counter
+    # -- State --
+    tx_queue, _q_skipped = _load_queue()
+    state = TxState(
+        csp=csp, ax25=ax25, cmd_defs=cmd_defs,
+        tx_queue=tx_queue, history=[],
+        tx_log=TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION),
+        session_start=time.time(),
+        freq=FREQUENCY, zmq_addr_disp=ZMQ_ADDR, tx_delay_ms=TX_DELAY_MS,
+    )
     if tx_queue or _q_skipped:
-        parts = [f"Restored {len(tx_queue)} queued command{'s' if len(tx_queue) != 1 else ''}"]
+        parts = [f"Restored {len(tx_queue)} queued "
+                 f"command{'s' if len(tx_queue) != 1 else ''}"]
         if _q_skipped:
             parts.append(f" ({_q_skipped} skipped — corrupt)")
-        status = StatusMessage("".join(parts), 5)
-    else:
-        status = StatusMessage()
-    queue_scroll  = 0
-    hist_scroll   = 0
-    cmd_history   = []   # input history for up/down recall
-    cmd_hist_idx  = -1   # -1 = not browsing history
-    cmd_hist_save = ""   # saved current input when browsing
-    freq          = FREQUENCY  # mutable so config panel can change it
-    zmq_addr_disp = ZMQ_ADDR   # display value (port change needs restart)
-    tx_delay_ms   = TX_DELAY_MS  # delay between queued commands (ms)
-
-    # Side panel state
-    help_open       = False
-    config_open     = False
-    config_focused  = False   # Tab toggles focus between config and input
-    config_selected = 0
-    config_editing  = False
-    config_buf      = ""
-    config_cursor   = 0
-    config_values   = {}
-
-    # -- Send thread state -------------------------------------------------------
-    send_abort = threading.Event()
-    send_lock  = threading.Lock()    # guards tx_queue mutations during send
-    sending    = {"active": False, "idx": -1, "total": 0}  # read by main loop
-
+        state.status.set("".join(parts), 5)
     if schema_warning:
-        status.set(f"SCHEMA: {schema_warning}", 10)
-
-    def _send_worker(snapshot, delay_ms):
-        """Background thread: sends queued commands, updates shared state.
-        All mutations to `sending`, `history` are guarded by `send_lock`."""
-        nonlocal tx_count, hist_scroll
-        sent = 0
-        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(snapshot):
-            if send_abort.is_set():
-                break
-            with send_lock:
-                sending["idx"] = i
-            if i > 0 and delay_ms > 0:
-                # Sleep in small increments so abort is responsive
-                remaining = delay_ms / 1000.0
-                while remaining > 0 and not send_abort.is_set():
-                    time.sleep(min(0.05, remaining))
-                    remaining -= 0.05
-                if send_abort.is_set():
-                    break
-            payload = ax25.wrap(csp.wrap(raw_cmd))
-            ok = send_pdu(sock, payload)
-            if not ok:
-                status.set("ZMQ send error — aborting send", 5)
-                break
-            tx_count += 1
-            sent += 1
-            tx_log.write_command(tx_count, src, dest, echo, ptype, cmd, args,
-                                 raw_cmd, payload, ax25, csp)
-            with send_lock:
-                history.append({
-                    "n": tx_count,
-                    "ts": datetime.now().strftime("%H:%M:%S"),
-                    "src": src,
-                    "dest": dest,
-                    "cmd": cmd,
-                    "args": args,
-                    "echo": echo,
-                    "ptype": ptype,
-                    "payload_len": len(payload),
-                    "csp_enabled": csp.enabled,
-                })
-                hist_scroll = len(history) - 1
-        # Remove sent commands from front of queue
-        with send_lock:
-            del tx_queue[:sent]
-            _save_queue(tx_queue)
-            # Cap history
-            if len(history) > MAX_HISTORY:
-                del history[:len(history) - MAX_HISTORY]
-            hist_scroll = max(0, len(history) - 1)
-            total = sending["total"]
-        if send_abort.is_set():
-            status.set(f"Aborted: sent {sent}/{total}, {total - sent} remain in queue", 5)
-        else:
-            status.set(f"Sent {sent} command{'s' if sent != 1 else ''}")
-        with send_lock:
-            sending["active"] = False
-            sending["idx"] = -1
-
-    def start_send():
-        nonlocal queue_scroll
-        with send_lock:
-            if sending["active"]:
-                status.set("Send already in progress", 2)
-                return
-            if not tx_queue:
-                status.set("Nothing queued", 2)
-                return
-            send_abort.clear()
-            snapshot = list(tx_queue)
-            sending["active"] = True
-            sending["total"] = len(snapshot)
-            sending["idx"] = 0
-        queue_scroll = 0
-        t = threading.Thread(target=_send_worker,
-                             args=(snapshot, tx_delay_ms), daemon=True)
-        t.start()
+        state.status.set(f"SCHEMA: {schema_warning}", 10)
 
     try:
         while True:
-            # -- Layout --
-            max_y, max_x = stdscr.getmaxyx()
-            stdscr.erase()
+            state.status.check_expiry()
+            zmq_status = poll_monitor(zmq_monitor, _PUB_STATUS, zmq_status)
 
-            side_open = config_open or help_open
-            layout = calculate_layout(max_y, max_x, side_panel=side_open)
-            if layout is None:
-                check_terminal_size(stdscr, 80, 24)
+            if not _render_tx(stdscr, state, zmq_status):
+                # Terminal too small — wait for resize or Ctrl+C
                 try:
                     ch = stdscr.getch()
                 except KeyboardInterrupt:
                     break
-                if ch == 3:  # Ctrl+C
+                if ch == 3:
                     break
                 continue
 
-            # -- Clear status if expired --
-            status.check_expiry()
-
-            # -- Poll ZMQ monitor & snapshot thread-shared state --
-            zmq_status = poll_monitor(zmq_monitor, _PUB_STATUS, zmq_status)
-            with send_lock:
-                _sending_snap = dict(sending)
-                _history_snap = list(history)
-            draw_header(stdscr, layout["header"], csp, ax25, zmq_addr_disp,
-                        freq=freq, log_path=tx_log.text_path,
-                        zmq_status=zmq_status)
-            draw_queue(stdscr, layout["queue"], tx_queue,
-                       scroll_offset=queue_scroll,
-                       sending_idx=_sending_snap["idx"] if _sending_snap["active"] else -1,
-                       tx_delay_ms=tx_delay_ms)
-            draw_history(stdscr, layout["history"], _history_snap,
-                         scroll_offset=hist_scroll)
-            draw_input(stdscr, layout["input"], input_buf, cursor_pos,
-                       len(tx_queue), status.text)
-
-            # Side panels
-            if config_open and "side_panel" in layout:
-                if not config_values:
-                    config_values = config_get_values(
-                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
-                draw_config(stdscr, layout["side_panel"], config_values,
-                            config_selected, config_editing,
-                            config_buf, config_cursor, config_focused)
-            elif help_open and "side_panel" in layout:
-                draw_help(stdscr, layout["side_panel"],
-                          version=VERSION, schema_count=len(cmd_defs),
-                          schema_path=CMD_DEFS_PATH, log_path=tx_log.text_path)
-
-            stdscr.refresh()
-
-            # -- Input --
             try:
                 ch = stdscr.getch()
             except KeyboardInterrupt:
                 break
-
-            if ch == curses.ERR:
-                continue  # timeout — redraw for clock
-
-            if ch == curses.KEY_RESIZE:
+            if ch == curses.ERR or ch == curses.KEY_RESIZE:
                 continue
-
-            if ch == 3:  # Ctrl+C
-                if _sending_snap["active"]:
-                    send_abort.set()
-                    status.set("Aborting send...", 2)
-                    continue
-                if help_open:
-                    help_open = False
-                    continue
-                if config_open:
-                    config_open = False
-                    config_editing = False
-                    config_values = {}
-                    continue
+            if handle_key_tx(ch, state, stdscr, sock) == "break":
                 break
-
-            # -- Esc: abort send / close side panels --
-            if ch == 27:
-                if _sending_snap["active"]:
-                    send_abort.set()
-                    status.set("Aborting send...", 2)
-                    continue
-                if config_editing:
-                    config_editing = False
-                    continue
-                if config_open:
-                    config_open = False
-                    config_focused = False
-                    config_values = {}
-                    continue
-                if help_open:
-                    help_open = False
-                    continue
-
-            # -- Config panel editing (only captures keys when actively editing a field) --
-            if config_open and config_editing:
-                if ch in (10, 13):  # Enter — save field
-                    key = CONFIG_FIELDS[config_selected][1]
-                    config_values[key] = config_buf
-                    config_editing = False
-                    try:
-                        freq, zmq_addr_disp, tx_delay_ms = config_apply(
-                            config_values, csp, ax25)
-                        config_values = config_get_values(
-                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
-                    except (ValueError, KeyError):
-                        status.set("Invalid value", 2)
-                        config_values = config_get_values(
-                            csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
-                else:
-                    config_buf, config_cursor, _ = edit_buffer(
-                        ch, config_buf, config_cursor)
-                continue
-
-            # -- Config navigation (Tab toggles focus, Up/Down/Enter when focused) --
-            if config_open and not config_editing:
-                # Tab toggles focus between config panel and command input
-                if ch == 9:  # Tab
-                    config_focused = not config_focused
-                    continue
-                if config_focused:
-                    nav = navigate_config(ch, config_selected, len(CONFIG_FIELDS))
-                    if nav is not None:
-                        config_selected = nav
-                        continue
-                    if ch in (10, 13):  # Enter — edit field
-                        _label, key, editable = CONFIG_FIELDS[config_selected]
-                        if editable:
-                            config_editing = True
-                            config_buf = config_values.get(key, "")
-                            config_cursor = len(config_buf)
-                        continue
-
-            # Ctrl+S — send queue
-            if ch == 19:
-                start_send()
-                continue
-
-            # Ctrl+Z — remove last queued command
-            if ch == 26:
-                if tx_queue:
-                    removed = tx_queue.pop()
-                    _save_queue(tx_queue)
-                    status.set(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
-                else:
-                    status.set("Queue is empty", 2)
-                continue
-
-            # Ctrl+X — clear queue
-            if ch == 24:
-                if tx_queue:
-                    status.set(f"Cleared {len(tx_queue)} command{'s' if len(tx_queue) != 1 else ''}", 2)
-                    tx_queue.clear()
-                    _save_queue(tx_queue)
-                    queue_scroll = 0
-                continue
-
-            # Page Up — scroll history up (show older)
-            if ch == curses.KEY_PPAGE:
-                # Minimum is data_rows-1 so a full page is visible
-                layout_h = layout["history"][2]
-                min_scroll = min(layout_h - 3, len(history) - 1)
-                hist_scroll = max(min_scroll, hist_scroll - 5)
-                continue
-
-            # Page Down — scroll history down (show newer)
-            if ch == curses.KEY_NPAGE:
-                hist_scroll = min(len(history) - 1, hist_scroll + 5)
-                continue
-
-            # Up arrow — recall previous command
-            if ch == curses.KEY_UP:
-                if cmd_history:
-                    if cmd_hist_idx == -1:
-                        cmd_hist_save = input_buf
-                        cmd_hist_idx = 0
-                    elif cmd_hist_idx < len(cmd_history) - 1:
-                        cmd_hist_idx += 1
-                    input_buf = cmd_history[cmd_hist_idx]
-                    cursor_pos = len(input_buf)
-                continue
-
-            # Down arrow — recall next command (or restore current input)
-            if ch == curses.KEY_DOWN:
-                if cmd_hist_idx >= 0:
-                    cmd_hist_idx -= 1
-                    if cmd_hist_idx == -1:
-                        input_buf = cmd_hist_save
-                    else:
-                        input_buf = cmd_history[cmd_hist_idx]
-                    cursor_pos = len(input_buf)
-                continue
-
-            # Enter
-            if ch in (10, 13):
-                line = input_buf.strip()
-                input_buf = ""
-                cursor_pos = 0
-                cmd_hist_idx = -1
-
-                if not line:
-                    continue
-
-                # Save to command history (newest first)
-                cmd_history.insert(0, line)
-                if len(cmd_history) > MAX_CMD_HISTORY:
-                    del cmd_history[MAX_CMD_HISTORY:]
-
-                cmd_lower = line.lower()
-
-                # Quit
-                if cmd_lower in ('q', 'quit', 'exit'):
-                    break
-
-                # Send
-                if cmd_lower == 'send':
-                    start_send()
-                    continue
-
-                # Clear queue
-                if cmd_lower == 'clear':
-                    if tx_queue:
-                        status.set(f"Cleared {len(tx_queue)} commands", 2)
-                        tx_queue.clear()
-                        _save_queue(tx_queue)
-                        queue_scroll = 0
-                    else:
-                        status.set("Nothing to clear", 2)
-                    continue
-
-                # Remove last queued command
-                if cmd_lower in ('undo', 'pop'):
-                    if tx_queue:
-                        removed = tx_queue.pop()
-                        _save_queue(tx_queue)
-                        status.set(f"Removed: {removed[4]} ({len(tx_queue)} left)", 2)
-                    else:
-                        status.set("Queue is empty", 2)
-                    continue
-
-                # Clear sent history
-                if cmd_lower == 'hclear':
-                    if history:
-                        status.set(f"Cleared {len(history)} history entries", 2)
-                        history.clear()
-                        hist_scroll = 0
-                    else:
-                        status.set("History already empty", 2)
-                    continue
-
-                # Help
-                if cmd_lower == 'help':
-                    help_open = True
-                    continue
-
-                # Config panel
-                if cmd_lower in ('config', 'cfg'):
-                    config_open = True
-                    config_focused = True
-                    config_selected = 0
-                    config_editing = False
-                    config_values = config_get_values(
-                        csp, ax25, freq, zmq_addr_disp, tx_delay_ms, tx_log.text_path)
-                    continue
-
-                # Nodes
-                if cmd_lower == 'nodes':
-                    names = ", ".join(f"{nid}={protocol.NODE_NAMES[nid]}"
-                                     for nid in sorted(protocol.NODE_NAMES))
-                    status.set(f"Nodes: {names}", 5)
-                    continue
-
-                # CSP config (quick inline)
-                if cmd_lower == 'csp' or cmd_lower.startswith('csp '):
-                    msg = csp_handle_msg(csp, line[3:].strip() if len(line) > 3 else "")
-                    status.set(msg, 4)
-                    continue
-
-                # AX.25 config (quick inline)
-                if cmd_lower == 'ax25' or cmd_lower.startswith('ax25 '):
-                    msg = ax25_handle_msg(ax25, line[4:].strip() if len(line) > 4 else "")
-                    status.set(msg, 4)
-                    continue
-
-                # Parse as command — queue it
-                try:
-                    parsed = parse_cmd_line(line)
-                except ValueError as e:
-                    status.set(f"Bad command: {e}", 3)
-                    continue
-
-                src, dest, echo, ptype, cmd, args = parsed
-
-                # Schema validation — reject invalid commands
-                valid, issues = validate_args(cmd, args, cmd_defs)
-                if not valid and issues:
-                    status.set(f"Rejected: {issues[0]}", 3)
-                    continue
-                if cmd_defs and cmd not in cmd_defs:
-                    status.set(f"Rejected: '{cmd}' not in command schema", 3)
-                    continue
-
-                raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype,
-                                        origin=src)
-                if len(raw_cmd) + csp.overhead() + ax25.overhead() > MAX_RS_PAYLOAD:
-                    status.set("Command too large for RS payload", 3)
-                    continue
-
-                entry = (src, dest, echo, ptype, cmd, args, raw_cmd)
-                tx_queue.append(entry)
-                _append_queue(entry)
-                src_tag = f"{node_label(src)}\u2192" if src != protocol.GS_NODE else ""
-                status.set(f"Queued: {src_tag}{node_label(dest)} E:{echo} {protocol.PTYPE_NAMES.get(ptype, '?')} {cmd} {args} ({len(raw_cmd)}B)", 2)
-                continue
-
-            # Text editing (backspace, arrows, Ctrl+W, printable chars, etc.)
-            input_buf, cursor_pos, _ = edit_buffer(ch, input_buf, cursor_pos)
 
     finally:
         try:
-            tx_log.write_summary(tx_count, session_start)
-            tx_log.close()
+            state.tx_log.write_summary(state.tx_count, state.session_start)
+            state.tx_log.close()
         except Exception:
             pass
         zmq_cleanup(zmq_monitor, _PUB_STATUS, zmq_status, sock, ctx)
 
-    return tx_count, tx_log.text_path
+    return state.tx_count, state.tx_log.text_path
 
 
 def main():
@@ -626,7 +687,7 @@ def main():
                         help="skip the startup splash screen")
     args = parser.parse_args()
 
-    tx_count, logpath = curses.wrapper(lambda stdscr: dashboard(
+    tx_count, logpath = curses.wrapper(lambda stdscr: tx_dashboard(
         stdscr, show_splash=not args.nosplash))
     # Print session summary after curses restores the terminal
     print()
