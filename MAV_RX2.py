@@ -23,6 +23,7 @@ import argparse
 import curses
 import gc
 import queue
+import sys
 import threading
 import time
 from datetime import datetime
@@ -115,7 +116,7 @@ def rx_dashboard(stdscr, show_splash=True):
 
     # -- Init ZMQ, logging, schema --
     context, sock, zmq_monitor = init_zmq_sub(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
-    cmd_defs = load_command_defs(CMD_DEFS_PATH)
+    cmd_defs, _schema_warning = load_command_defs(CMD_DEFS_PATH)
 
     # -- State --
     pipeline = RxPipeline(cmd_defs, tx_freq_map, MAX_SEEN_FPS)
@@ -138,8 +139,8 @@ def rx_dashboard(stdscr, show_splash=True):
     logging_enabled = True
     frequency = "--"
     log = SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
-    error_msg = ""
-    error_expire = 0
+    error_msg = f"SCHEMA: {_schema_warning}" if _schema_warning else ""
+    error_expire = time.time() + 10 if _schema_warning else 0
     status_msg = ""
     status_expire = 0
     input_buf = ""
@@ -156,18 +157,30 @@ def rx_dashboard(stdscr, show_splash=True):
         if logging_enabled:
             logging_enabled = False
             if log:
-                log.write_summary(pipeline.packet_count, session_start,
-                                  first_pkt_ts, last_pkt_ts,
-                                  unique=len(pipeline.seen_fps),
-                                  duplicates=pipeline.packet_count - len(pipeline.seen_fps),
-                                  unknown=pipeline.unknown_count,
-                                  uplink_echoes=pipeline.uplink_echo_count)
-                log.close()
-                log = None
+                try:
+                    log.write_summary(pipeline.packet_count, session_start,
+                                      first_pkt_ts, last_pkt_ts,
+                                      unique=len(pipeline.seen_fps),
+                                      duplicates=pipeline.packet_count - len(pipeline.seen_fps),
+                                      unknown=pipeline.unknown_count,
+                                      uplink_echoes=pipeline.uplink_echo_count)
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        log.close()
+                    except Exception:
+                        pass
+                    log = None
             return "Logging OFF", 2
         else:
+            try:
+                log = SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
+            except Exception as e:
+                logging_enabled = False
+                log = None
+                return f"Log error: {e}", 5
             logging_enabled = True
-            log = SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
             return f"Logging ON: {log.text_path}", 3
 
     # -- Start receiver thread --
@@ -451,6 +464,8 @@ def rx_dashboard(stdscr, show_splash=True):
     finally:
         stop_event.set()
         rx_thread.join(timeout=1)
+        if rx_thread.is_alive():
+            print("WARNING: RX thread did not terminate cleanly", file=sys.stderr)
         try:
             if log:
                 log.write_summary(pipeline.packet_count, session_start,
@@ -463,6 +478,7 @@ def rx_dashboard(stdscr, show_splash=True):
         except Exception:
             pass
         try:
+            poll_monitor(zmq_monitor, _SUB_STATUS, zmq_status[0])
             zmq_monitor.close()
             sock.close()
             context.term()

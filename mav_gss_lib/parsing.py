@@ -10,7 +10,7 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from datetime import datetime
 
 import mav_gss_lib.protocol as protocol
@@ -35,7 +35,7 @@ class RxPipeline:
 
         # Counters and state
         self.seen_fps = OrderedDict()
-        self.pkt_times = []
+        self.pkt_times = deque(maxlen=600)
         self.packet_count = 0
         self.unknown_count = 0
         self.uplink_echo_count = 0
@@ -98,9 +98,10 @@ class RxPipeline:
                 for _ in range(self.max_seen_fps // 5):
                     self.seen_fps.popitem(last=False)
 
-        # Rate tracking
+        # Rate tracking — deque caps memory, time filter keeps accuracy
         self.pkt_times.append(now)
-        self.pkt_times[:] = [t for t in self.pkt_times if t > now - 60.0]
+        while self.pkt_times and self.pkt_times[0] <= now - 60.0:
+            self.pkt_times.popleft()
 
         # Unknown packet detection
         is_unknown = cmd is None

@@ -8,7 +8,8 @@ Ground station tools for the MAVERIC CubeSat mission. Supports full-duplex opera
 mav_gss_lib/              Shared library
     protocol.py           Nodes, CSP v1, KISS, CRC-16/CRC-32C, command wire format,
                           frame normalization, TX command line parser
-    transport.py          ZMQ PUB/SUB, PMT PDU send/receive
+    transport.py          ZMQ PUB/SUB, PMT PDU send/receive, socket monitoring,
+                          live connection status, send error handling
     config.py             Shared config loader (maveric_gss.yml), AX.25/CSP handlers
     parsing.py            RX packet processing pipeline (RxPipeline class)
     logging.py            Session logging (JSONL + text) for RX and TX
@@ -39,7 +40,7 @@ Curses-based downlink packet monitor. Subscribes to a ZMQ PUB socket where GNU R
 
 Layout:
 
-- **Header** — ZMQ address, frequency (auto-detected from gr-satellites metadata), UTC/local clock, HEX/LOG toggle indicators
+- **Header** — ZMQ address, frequency (auto-detected from gr-satellites metadata), UTC/local clock, HEX/LOG toggle indicators, live ZMQ connection status (LIVE/DOWN/RETRY), queue depth
 - **Packet List** — scrollable list with command src/dest routing, echo, packet type, command ID, arguments, payload size, CRC status, duplicate detection, uplink echo (UL) tagging. A packet is tagged UL when src=GS (our command echoed back) or when neither dest nor echo is GS (spoofed/relayed). Unparseable signals are shown as `UNKNOWN` with separate `U-N` numbering (valid packet count is unaffected). Auto-follows newest packets in `[LIVE]` mode
 - **Packet Detail** — expanded view of selected packet (Enter to toggle): uplink echo flag, AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification. Unknown packets show only HEX, ASCII, and size
 - **Input** — command entry with live status (Receiving/Silence timer, packet count, rate)
@@ -71,8 +72,8 @@ Persistent curses-based dashboard for uplink operations (CSP v1 + CRC-32C + AX.2
 
 Layout:
 
-- **Header** — AX.25 source/destination callsigns, CSP config, UTC and local time, ZMQ status and port, frequency (437.25 MHz)
-- **TX Queue** — commands waiting to be sent, with src/dest routing, echo, type, command ID, and args
+- **Header** — AX.25 source/destination callsigns, CSP config, UTC and local time, live ZMQ connection status (LIVE/DOWN/BOUND), ZMQ port, frequency (437.25 MHz)
+- **TX Queue** — commands waiting to be sent, with src/dest routing, echo, type, command ID, and args. Queue is persisted to disk (`.pending_queue.jsonl`) and restored on startup
 - **Sent History** — transmitted commands with src→dest routing, echo, type metadata (scrollable)
 - **Input** — command entry with cursor editing, command history recall (Up/Down)
 
@@ -82,14 +83,14 @@ Keyboard shortcuts:
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+S` | Send all queued commands |
+| `Ctrl+S` | Send all queued commands (async — UI stays responsive) |
 | `Ctrl+Z` | Remove last queued command |
 | `Ctrl+X` | Clear the entire queue |
 | `Up / Down` | Recall command history |
 | `PgUp / PgDn` | Scroll sent history |
 | `Ctrl+A / Ctrl+E` | Jump to start / end of input |
 | `Ctrl+W / Ctrl+U` | Delete word / clear line |
-| `Esc` | Close side panel |
+| `Ctrl+C / Esc` | Abort send in progress (otherwise quit / close side panel) |
 
 Side panels (appear to the right of sent history):
 
@@ -155,7 +156,7 @@ All startup defaults live in `maveric_gss.yml`, shared by both TX and RX scripts
 
 ```yaml
 general:
-  version: "2.3.7"          # displayed on splash screen
+  version: "2.4.0"          # displayed on splash screen
   log_dir: "logs"
   command_defs: "maveric_commands.yml"
   decoder_yml: "maveric_decoder.yml"
@@ -198,4 +199,4 @@ rx:
 
 ## Status
 
-Early development (v2.3.7). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.
+Early development (v2.4.0). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.

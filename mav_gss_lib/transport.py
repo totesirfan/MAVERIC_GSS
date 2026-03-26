@@ -41,7 +41,13 @@ def init_zmq_pub(addr, settle_ms=300):
     context = zmq.Context()
     sock = context.socket(zmq.PUB)
     monitor = sock.get_monitor_socket()
-    sock.bind(addr)
+    try:
+        sock.bind(addr)
+    except zmq.ZMQError as e:
+        monitor.close()
+        sock.close()
+        context.term()
+        raise RuntimeError(f"Cannot bind {addr} — {e}. Port already in use?") from e
     time.sleep(settle_ms / 1000.0)
     return context, sock, monitor
 
@@ -114,9 +120,12 @@ def poll_monitor(monitor, status_map, current):
     while True:
         try:
             msg = monitor.recv_multipart(zmq.NOBLOCK)
+        except zmq.Again:
+            break
+        try:
             event = int.from_bytes(msg[0][:2], "little")
             if event in status_map:
                 current = status_map[event]
-        except zmq.Again:
+        except Exception:
             break
     return current

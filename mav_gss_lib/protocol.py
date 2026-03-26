@@ -486,13 +486,15 @@ _TYPE_PARSERS = {
 def load_command_defs(path="maveric_commands.yml"):
     """Load command definitions from YAML.
 
-    Returns dict: {cmd_id: {"args": [{"name", "type"}, ...], "variadic": bool}}
-    Returns empty dict on any failure (missing file, no PyYAML, bad YAML).
-    Prints a warning to stderr on failure so the operator knows."""
+    Returns (defs, warning) where:
+      defs: {cmd_id: {"args": [{"name", "type"}, ...], "variadic": bool}}
+      warning: str or None — set when schema could not be loaded.
+    Returns (empty dict, warning) on any failure."""
     if not _YAML_OK:
-        print("WARNING: PyYAML not installed -- command schema unavailable. "
-              "Install with: pip install pyyaml", file=sys.stderr)
-        return {}
+        msg = ("PyYAML not installed -- command schema unavailable. "
+               "Install with: pip install pyyaml")
+        print("WARNING: " + msg, file=sys.stderr)
+        return {}, msg
     try:
         with open(path) as f:
             raw = yaml.safe_load(f)
@@ -509,11 +511,11 @@ def load_command_defs(path="maveric_commands.yml"):
                 "args": args,
                 "variadic": spec.get("variadic", False),
             }
-        return defs
+        return defs, None
     except (OSError, yaml.YAMLError):
-        print(f"WARNING: Could not load {path} -- all commands will be unrecognized",
-              file=sys.stderr)
-        return {}
+        msg = f"Could not load {path} -- all commands will be unrecognized"
+        print("WARNING: " + msg, file=sys.stderr)
+        return {}, msg
 
 
 def apply_schema(cmd, cmd_defs):
