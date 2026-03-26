@@ -28,8 +28,7 @@ HEADER_CHAR = "\u2550"   # ═
 class _BaseLog:
     """Shared JSONL + text log infrastructure."""
 
-    def __init__(self, log_dir, prefix, version, mode, zmq_addr,
-                 flush_every=10):
+    def __init__(self, log_dir, prefix, version, mode, zmq_addr):
         text_dir = os.path.join(log_dir, "text")
         json_dir = os.path.join(log_dir, "json")
         os.makedirs(text_dir, exist_ok=True)
@@ -40,8 +39,6 @@ class _BaseLog:
         self.jsonl_path = os.path.join(json_dir, f"{prefix}_{ts}.jsonl")
         self._text_f  = open(self.text_path, "w")
         self._jsonl_f = open(self.jsonl_path, "a")
-        self._flush_every = flush_every
-        self._writes_since_flush = 0
 
         # Session header
         session_ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -57,12 +54,9 @@ class _BaseLog:
 
     # -- Shared helpers -------------------------------------------------------
 
-    def _maybe_flush(self):
-        self._writes_since_flush += 1
-        if self._writes_since_flush >= self._flush_every:
-            self._jsonl_f.flush()
-            self._text_f.flush()
-            self._writes_since_flush = 0
+    def _flush(self):
+        self._jsonl_f.flush()
+        self._text_f.flush()
 
     def _write_text(self, text):
         self._text_f.write(text)
@@ -114,12 +108,12 @@ class _BaseLog:
 
     def write_jsonl(self, record):
         self._jsonl_f.write(json.dumps(record) + "\n")
-        self._maybe_flush()
+        self._flush()
 
     def _write_entry(self, lines):
         """Write a complete log entry (list of lines + trailing blank)."""
         self._write_text("\n".join(lines) + "\n\n")
-        self._maybe_flush()
+        self._flush()
 
     def _write_summary_block(self, summary_lines):
         """Write a summary block with ═ borders."""
@@ -130,6 +124,7 @@ class _BaseLog:
         self._text_f.flush()
 
     def close(self):
+        self._flush()
         self._jsonl_f.close()
         self._text_f.close()
 
