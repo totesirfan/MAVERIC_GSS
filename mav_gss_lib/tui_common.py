@@ -9,7 +9,8 @@ import time
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
-from textual.app import ComposeResult
+from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Static
@@ -70,6 +71,80 @@ def scrollbar_styles(total, visible, offset, height):
     thumb_start = round(offset / max_offset * (height - thumb_size)) if max_offset > 0 else 0
     return [S_SCROLLBAR_THUMB if thumb_start <= i < thumb_start + thumb_size else S_SCROLLBAR_TRACK
             for i in range(height)]
+
+
+def append_wrapped_args(t, args, indent, style, row_w, sb=None, sb_idx=0):
+    """Append args as continuation lines aligned at indent. Returns new sb_idx."""
+    cont_w = max(1, row_w - indent)
+    for ci in range(0, len(args), cont_w):
+        t.append("\n")
+        cont = Text()
+        cont.append(" " * indent, style="")
+        cont.append(args[ci:ci + cont_w], style=style)
+        if sb and sb_idx < len(sb):
+            pad_needed = row_w - cont.cell_len
+            if pad_needed > 0:
+                cont.append(" " * pad_needed)
+            cont.append(" ", style=sb[sb_idx])
+        t.append_text(cont)
+        sb_idx += 1
+    return sb_idx
+
+
+class ScrollableWidget(Widget):
+    """Base for focusable, scrollable list widgets with mouse wheel + keyboard."""
+    can_focus = True
+
+    def _scroll_by(self, delta):
+        raise NotImplementedError
+
+    def on_mouse_scroll_up(self, event): self._scroll_by(-3)
+    def on_mouse_scroll_down(self, event): self._scroll_by(3)
+
+    def on_key(self, event: Key):
+        k = event.key
+        if k == "up": self._scroll_by(-1); event.prevent_default()
+        elif k == "down": self._scroll_by(1); event.prevent_default()
+        elif k == "pageup": self._scroll_by(-max(1, self.content_size.height - 3)); event.prevent_default()
+        elif k == "pagedown": self._scroll_by(max(1, self.content_size.height - 3)); event.prevent_default()
+
+
+class MavAppBase(App):
+    ENABLE_COMMAND_PALETTE = False
+    _WIDGET_QUERY = ""
+    _INPUT_ID = ""
+
+    def _act(self):
+        for w in self.query(self._WIDGET_QUERY): w.refresh()
+
+    def _dispatch(self, line): raise NotImplementedError
+    def _pre_dispatch(self, line): pass
+    def _handle_result(self, result): return False
+    def _open_config(self): raise NotImplementedError
+    def _cleanup(self): pass
+
+    def on_input_submitted(self, event):
+        if event.input.id != self._INPUT_ID: return
+        from textual.widgets import Input
+        line = event.value.strip()
+        self.query_one(f"#{self._INPUT_ID}", Input).value = ""
+        if not line: return
+        self._pre_dispatch(line)
+        result = self._dispatch(line)
+        if result == "break": self._cleanup(); self.exit(); return
+        if result == "open_config": self._open_config(); return
+        if self._handle_result(result): return
+        self._act()
+
+
+def dispatch_common(state, cmd):
+    """Handle commands shared between RX and TX.
+    Returns 'break', 'open_config', True (handled), or None (not recognized)."""
+    if cmd in ('q', 'quit', 'exit'): return "break"
+    if cmd == 'help': state.help_open = not getattr(state, 'help_open', False); return True
+    if cmd in ('cfg', 'config'): state.help_open = False; return "open_config"
+    if cmd == 'hclear': return None  # data differs per app, let subclass handle
+    return None
 
 
 class Hints(Widget):

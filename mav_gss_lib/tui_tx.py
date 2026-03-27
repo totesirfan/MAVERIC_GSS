@@ -6,16 +6,14 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from datetime import datetime, timezone
 from rich.text import Text
-from mav_gss_lib.tui_common import Widget
+from mav_gss_lib.tui_common import Widget, ScrollableWidget
 
 import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label
-from textual.events import Key
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles,
+    scrollbar_styles, append_wrapped_args,
 )
-
 
 
 class TxHeader(Widget):
@@ -48,15 +46,12 @@ class TxHeader(Widget):
         return t
 
 
-class TxQueue(Widget):
+class TxQueue(ScrollableWidget):
     DEFAULT_CSS = "TxQueue { height: 1fr; max-height: 33%; width: 100%; }"
-    can_focus = True
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
         self.s = state
-
-    # -- Mouse wheel / keyboard ------------------------------------------------
 
     def _scroll_by(self, delta):
         s = self.s
@@ -64,21 +59,6 @@ class TxQueue(Widget):
         data_rows = max(1, self.content_size.height - 1)
         s.queue_scroll = max(0, min(count - data_rows, s.queue_scroll + delta))
         self.refresh()
-
-    def on_mouse_scroll_up(self, event):
-        self._scroll_by(-3)
-
-    def on_mouse_scroll_down(self, event):
-        self._scroll_by(3)
-
-    def on_key(self, event: Key):
-        k = event.key
-        if k == "up": self._scroll_by(-1); event.prevent_default()
-        elif k == "down": self._scroll_by(1); event.prevent_default()
-        elif k == "pageup": self._scroll_by(-max(1, self.content_size.height - 3)); event.prevent_default()
-        elif k == "pagedown": self._scroll_by(max(1, self.content_size.height - 3)); event.prevent_default()
-
-    # -- Render ----------------------------------------------------------------
 
     def render(self):
         s, w, h = self.s, self.content_size.width, self.content_size.height
@@ -108,17 +88,16 @@ class TxQueue(Widget):
         sb = scrollbar_styles(count, data_rows, s.queue_scroll, data_rows) if count > data_rows else []
         row_w = w - 1 if sb else w
         srcs, dests, echos = set(), set(), set()
-        ptypes, cmds, nums = set(), set(), []
+        ptypes, nums = set(), []
         for idx, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(visible):
             srcs.add(src); dests.add(dest); echos.add(echo)
-            ptypes.add(ptype); cmds.add(cmd)
+            ptypes.add(ptype)
             nums.append(s.queue_scroll + idx + 1)
         nw = max((len(str(n)) for n in nums), default=1)
         sw = max((len(node_label(n)) for n in srcs), default=1)
         dw = max((len(node_label(n)) for n in dests), default=1)
         ew = max((len(node_label(n)) for n in echos), default=1)
         pw = max((len(protocol.PTYPE_NAMES.get(p, str(p))) for p in ptypes), default=1)
-        cw = max((len(c) for c in cmds), default=1)
         has_non_gs_src = any(src != protocol.GS_NODE for src, *_ in visible)
         # Blank padding line between title and data
         t.append("\n")
@@ -143,65 +122,37 @@ class TxQueue(Widget):
             args_indent = left.cell_len
             args_style = f"{base} #888888"
             pending_args = None
+            rs = f"{tag}  {len(raw_cmd)}B" if tag else f"{len(raw_cmd)}B"
+            right = Text(rs + " ", style=ts if tag else "#888888")
             if args:
-                rs = f"{len(raw_cmd)}B"
-                if tag: rs = f"{tag}  {rs}"
-                right = Text(rs + " ", style=ts if tag else "#888888")
                 avail = row_w - left.cell_len - right.cell_len
                 if avail >= len(args):
                     left.append(args, style=args_style)
                 else:
                     pending_args = args
-            rs = f"{len(raw_cmd)}B"
-            if tag: rs = f"{tag}  {rs}"
             t.append("\n")
-            line = lr_line(left, Text(rs + " ", style=ts if tag else "#888888"), row_w)
+            line = lr_line(left, right, row_w)
             if sb:
                 line.append(" ", style=sb[i])
             t.append_text(line)
             if pending_args:
-                cont_w = max(1, row_w - args_indent)
-                for ci in range(0, len(pending_args), cont_w):
-                    t.append("\n")
-                    cont = Text()
-                    cont.append(" " * args_indent, style="")
-                    cont.append(pending_args[ci:ci + cont_w], style=args_style)
-                    t.append_text(cont)
+                append_wrapped_args(t, pending_args, args_indent, args_style, row_w)
         return t
 
 
-class SentHistory(Widget):
+class SentHistory(ScrollableWidget):
     DEFAULT_CSS = "SentHistory { height: 1fr; width: 100%; }"
-    can_focus = True
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
         self.s = state
 
-    # -- Mouse wheel / keyboard ------------------------------------------------
-
     def _scroll_by(self, delta):
         s = self.s
         count = len(s.history)
         data_rows = max(1, self.content_size.height - 1)
-        # hist_scroll is the index of the last visible entry (end-anchored)
         s.hist_scroll = max(min(data_rows - 1, count - 1), min(count - 1, s.hist_scroll + delta))
         self.refresh()
-
-    def on_mouse_scroll_up(self, event):
-        self._scroll_by(-3)
-
-    def on_mouse_scroll_down(self, event):
-        self._scroll_by(3)
-
-    def on_key(self, event: Key):
-        k = event.key
-        if k == "up": self._scroll_by(-1); event.prevent_default()
-        elif k == "down": self._scroll_by(1); event.prevent_default()
-        elif k == "pageup": self._scroll_by(-max(1, self.content_size.height - 4)); event.prevent_default()
-        elif k == "pagedown": self._scroll_by(max(1, self.content_size.height - 4)); event.prevent_default()
-
-    # -- Render ----------------------------------------------------------------
 
     def render(self):
         s, w, h = self.s, self.content_size.width, self.content_size.height
@@ -224,18 +175,17 @@ class SentHistory(Widget):
         sb = scrollbar_styles(count, data_rows, start, data_rows) if count > data_rows else []
         row_w = w - 1 if sb else w
         srcs, dests, echos = set(), set(), set()
-        ptypes, cmds, nums = set(), set(), []
+        ptypes, nums = set(), []
         for rec in visible:
             srcs.add(rec.get('src', protocol.GS_NODE))
             dests.add(rec['dest']); echos.add(rec['echo'])
-            ptypes.add(rec['ptype']); cmds.add(rec['cmd'])
+            ptypes.add(rec['ptype'])
             nums.append(rec['n'])
         nw = max((len(str(n)) for n in nums), default=1)
         sw = max((len(node_label(n)) for n in srcs), default=1)
         dw = max((len(node_label(n)) for n in dests), default=1)
         ew = max((len(node_label(n)) for n in echos), default=1)
         pw = max((len(protocol.PTYPE_NAMES.get(p, '?')) for p in ptypes), default=1)
-        cw = max((len(c) for c in cmds), default=1)
         has_non_gs_src = any(rec.get('src', protocol.GS_NODE) != protocol.GS_NODE for rec in visible)
         for i, rec in enumerate(visible):
             src = rec.get('src', protocol.GS_NODE)
@@ -265,13 +215,8 @@ class SentHistory(Widget):
             t.append_text(line)
             t.append("\n")
             if pending_args:
-                cont_w = max(1, row_w - args_indent)
-                for ci in range(0, len(pending_args), cont_w):
-                    cont = Text()
-                    cont.append(" " * args_indent, style="")
-                    cont.append(pending_args[ci:ci + cont_w], style=S_DIM)
-                    t.append_text(cont)
-                    t.append("\n")
+                append_wrapped_args(t, pending_args, args_indent, S_DIM, row_w)
+                t.append("\n")
         return t
 
 

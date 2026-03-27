@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input
@@ -27,7 +27,8 @@ from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
                                    poll_monitor, PUB_STATUS, zmq_cleanup)
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
-                                    Hints, HelpPanel, ConfigScreen, ImportScreen)
+                                    Hints, HelpPanel, ConfigScreen, ImportScreen, MavAppBase,
+                                    dispatch_common)
 from mav_gss_lib.config import (
     load_gss_config, apply_ax25, apply_csp, ax25_handle_msg, csp_handle_msg,
     save_gss_config, update_cfg_from_state,
@@ -217,7 +218,8 @@ def _start_send(state, sock):
 
 def _dispatch_tx_command(state, line, sock):
     cl = line.lower()
-    if cl in ('q', 'quit', 'exit'): return "break"
+    common = dispatch_common(state, cl)
+    if common is not None: return common
     if cl == 'send': _start_send(state, sock); return True
     if cl == 'clear':
         if state.tx_queue:
@@ -235,9 +237,6 @@ def _dispatch_tx_command(state, line, sock):
         if state.history: state.status.set(f"Cleared {len(state.history)} entries", 2); state.history.clear(); state.hist_scroll = 0
         else: state.status.set("History already empty", 2)
         return True
-    if cl == 'help': state.help_open = True; return True
-    if cl in ('config', 'cfg'):
-        return "open_config"
     if cl == 'imp':
         return "open_import"
     if cl == 'nodes':
@@ -266,7 +265,7 @@ def _dispatch_tx_command(state, line, sock):
 #  APP
 # =============================================================================
 
-class MavTxApp(App):
+class MavTxApp(MavAppBase):
     CSS = """
     Screen { background: black; padding-right: 1; }
     SplashScreen { background: rgba(0, 0, 0, 0.5); }
@@ -280,7 +279,8 @@ class MavTxApp(App):
     SentHistory { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
     SentHistory:focus { border: solid #00bfff; }
     """
-    ENABLE_COMMAND_PALETTE = False
+    _WIDGET_QUERY = "TxHeader, TxQueue, SentHistory, TxStatusBar, HelpPanel"
+    _INPUT_ID = "tx-input"
     BINDINGS = [
         Binding("ctrl+c", "quit_or_close", "Quit", priority=True),
         Binding("escape", "close_or_cancel", "Close", show=False),
@@ -347,10 +347,6 @@ class MavTxApp(App):
         for w in self.query("TxHeader, TxQueue, SentHistory, TxStatusBar, HelpPanel"):
             w.refresh()
 
-    def _act(self):
-        for w in self.query("TxHeader, TxQueue, SentHistory, TxStatusBar, HelpPanel"):
-            w.refresh()
-
     def action_quit_or_close(self):
         s = self.state
         if s.sending["active"]: s.send_abort.set(); s.status.set("Aborting send...", 2); self._act(); return
@@ -380,25 +376,17 @@ class MavTxApp(App):
             s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0
         self._act()
 
-    def action_focus_next_widget(self):
+    def _cycle_focus(self, direction):
         cycle = self._FOCUS_CYCLE
-        current = self.focused
-        idx = 0
+        default = 0 if direction == 1 else len(cycle) - 1
+        idx = default
         for i, sel in enumerate(cycle):
-            if current is self.query_one(sel):
-                idx = (i + 1) % len(cycle); break
-        target = self.query_one(cycle[idx])
-        target.focus()
+            if self.focused is self.query_one(sel):
+                idx = (i + direction) % len(cycle); break
+        self.query_one(cycle[idx]).focus()
 
-    def action_focus_prev_widget(self):
-        cycle = self._FOCUS_CYCLE
-        current = self.focused
-        idx = len(cycle) - 1
-        for i, sel in enumerate(cycle):
-            if current is self.query_one(sel):
-                idx = (i - 1) % len(cycle); break
-        target = self.query_one(cycle[idx])
-        target.focus()
+    def action_focus_next_widget(self): self._cycle_focus(1)
+    def action_focus_prev_widget(self): self._cycle_focus(-1)
 
     def action_history_prev(self):
         # Only recall command history when input is focused
@@ -419,28 +407,29 @@ class MavTxApp(App):
             inp.value = s.cmd_hist_save if s.cmd_hist_idx == -1 else s.cmd_history[s.cmd_hist_idx]
             inp.cursor_position = len(inp.value)
 
-    def on_input_submitted(self, event: Input.Submitted):
-        if event.input.id != "tx-input": return
+    def _pre_dispatch(self, line):
         s = self.state
-        line = event.value.strip()
-        self.query_one("#tx-input", Input).value = ""; s.cmd_hist_idx = -1
-        if not line: return
+        s.cmd_hist_idx = -1
         s.cmd_history.insert(0, line)
         if len(s.cmd_history) > MAX_CMD_HISTORY: del s.cmd_history[MAX_CMD_HISTORY:]
-        result = _dispatch_tx_command(s, line, self._sock)
-        if result == "break": self._cleanup(); self.exit(); return
-        if result == "open_config":
-            vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms)
-            self.push_screen(ConfigScreen(CONFIG_FIELDS, vals), self._on_config_done)
-            return
+
+    def _dispatch(self, line):
+        return _dispatch_tx_command(self.state, line, self._sock)
+
+    def _open_config(self):
+        s = self.state
+        vals = config_get_values(s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms)
+        self.push_screen(ConfigScreen(CONFIG_FIELDS, vals), self._on_config_done)
+
+    def _handle_result(self, result):
         if result == "open_import":
             files = _list_import_files()
             if not files:
-                s.status.set("No .jsonl files in generated_commands/", 3)
+                self.state.status.set("No .jsonl files in generated_commands/", 3)
             else:
                 self.push_screen(ImportScreen(files), self._on_import_done)
-            self._act(); return
-        self._act()
+            self._act(); return True
+        return False
 
     def _on_config_done(self, values):
         s = self.state

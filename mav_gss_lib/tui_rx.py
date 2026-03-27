@@ -5,8 +5,6 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 from datetime import datetime, timezone
-from rich.style import Style
-from rich.table import Table
 from rich.text import Text
 from mav_gss_lib.tui_common import Widget
 
@@ -14,7 +12,7 @@ import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label, ptype_label, format_arg_value
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles,
+    scrollbar_styles, append_wrapped_args,
 )
 
 class RxHeader(Widget):
@@ -62,25 +60,55 @@ class PacketList(Widget):
 
     # -- Mouse wheel -----------------------------------------------------------
 
+    def _find_prev_visible(self, from_idx):
+        s = self.s
+        for i in range(from_idx - 1, -1, -1):
+            if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
+                return i
+        return from_idx
+
+    def _find_next_visible(self, from_idx):
+        s = self.s
+        for i in range(from_idx + 1, len(s.packets)):
+            if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
+                return i
+        return -1
+
+    def _find_last_visible(self):
+        s = self.s
+        for i in range(len(s.packets) - 1, -1, -1):
+            if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
+                return i
+        return 0
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.s.detail_open = not self.s.detail_open
+            self.refresh()
+            event.prevent_default()
+
     def on_mouse_scroll_up(self, event):
         s = self.s
         if not s.packets: return
         if s.selected_idx == -1:
-            s.selected_idx = len(s.packets) - 1
-            # Match auto-scroll view position
-            lh = self.content_size.height - 3
+            s.selected_idx = self._find_last_visible()
+            lh = self.content_size.height - 4
             if lh > 0:
                 s.scroll_offset = max(0, len(s.packets) - lh)
-        s.selected_idx = max(0, s.selected_idx - 3)
+        for _ in range(3):
+            prev = self._find_prev_visible(s.selected_idx)
+            if prev == s.selected_idx: break
+            s.selected_idx = prev
         self.refresh()
 
     def on_mouse_scroll_down(self, event):
         s = self.s
         if not s.packets: return
         if s.selected_idx != -1:
-            s.selected_idx = min(len(s.packets) - 1, s.selected_idx + 3)
-            if s.selected_idx >= len(s.packets) - 1:
-                s.selected_idx = -1
+            for _ in range(3):
+                nxt = self._find_next_visible(s.selected_idx)
+                if nxt == -1: s.selected_idx = -1; break
+                s.selected_idx = nxt
         self.refresh()
 
     # -- Render ----------------------------------------------------------------
@@ -128,8 +156,7 @@ class PacketList(Widget):
         ind = Text(f"[{start+1}-{end}/{count}] ", style=S_DIM) if count > data_rows else Text()
         t.append_text(lr_line(title, ind, w))
         t.append("\n")
-        actual = s.packets.__len__() - 1 if auto else s.selected_idx
-        rendered = end - start
+        actual = len(s.packets) - 1 if auto else s.selected_idx
         # Scrollbar
         sb = scrollbar_styles(count, data_rows, start, data_rows) if count > data_rows else []
         # Dynamic column alignment over visible packets
@@ -148,21 +175,7 @@ class PacketList(Widget):
             if self._pending_args:
                 args_text, indent, args_style = self._pending_args
                 self._pending_args = None
-                cont_w = row_w - indent
-                if cont_w > 0:
-                    for ci in range(0, len(args_text), cont_w):
-                        t.append("\n")
-                        cont = Text()
-                        cont.append(" " * indent, style="")
-                        cont.append(args_text[ci:ci + cont_w], style=args_style)
-                        if sb and sb_idx < len(sb):
-                            # pad to row_w then scrollbar
-                            pad_needed = row_w - cont.cell_len
-                            if pad_needed > 0:
-                                cont.append(" " * pad_needed)
-                            cont.append(" ", style=sb[sb_idx])
-                        t.append_text(cont)
-                        sb_idx += 1
+                sb_idx = append_wrapped_args(t, args_text, indent, args_style, row_w, sb, sb_idx)
         # Pad to pin spinner at bottom
         remaining = data_rows - sb_idx
         for j in range(max(0, remaining)):
@@ -270,6 +283,50 @@ class PacketList(Widget):
         return lr_line(left, right, w, fill_style=b)
 
 
+def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
+    """Build detail field lines as [(label, value, style), ...] from packet data."""
+    lines = []
+    def f(lbl, val, st=S_VALUE): lines.append((lbl, str(val), st))
+    if is_unk:
+        if show_hex:
+            raw = pkt.get("raw", b"")
+            if raw: f("HEX", raw.hex(" "), S_DIM)
+            if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
+            inner = pkt.get("inner_payload", b"")
+            if inner: f("SIZE", f"{len(inner)}B (raw {len(raw)}B)", S_DIM)
+        return lines
+    for wm in pkt.get("warnings", []): lines.append(("⚠", wm, S_ERROR))
+    if pkt.get("is_uplink_echo"): f("UL ECHO", "Uplink echo — dest/echo not addressed to GS", S_WARNING)
+    if show_wrapper and pkt.get("stripped_hdr"): f("AX.25 HDR", pkt["stripped_hdr"], S_DIM)
+    csp = pkt.get("csp")
+    if show_wrapper and csp:
+        tag = "CSP V1" if pkt.get("csp_plausible") else "CSP V1 [?]"
+        f(tag, f"Prio:{csp['prio']}  Src:{csp['src']}  Dest:{csp['dest']}  DPort:{csp['dport']}  SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
+    cmd = pkt.get("cmd")
+    if cmd:
+        f("CMD ROUTE", f"Src:{node_label(cmd['src'])}  Dest:{node_label(cmd['dest'])}  Echo:{node_label(cmd['echo'])}  Type:{ptype_label(cmd['pkt_type'])}")
+        f("CMD ID", cmd["cmd_id"])
+        if cmd.get("schema_match"):
+            for ta in cmd.get("typed_args", []): f(ta["name"].upper()[:12], format_arg_value(ta))
+            for i, ex in enumerate(cmd.get("extra_args", [])): f(f"ARG +{i}", str(ex))
+        else:
+            if cmd.get("schema_warning"): lines.append(("⚠", cmd["schema_warning"], S_WARNING))
+            for i, a in enumerate(cmd.get("args", [])): f(f"ARG {i}", str(a))
+    # CRC: always show if FAIL, otherwise only with wrapper
+    if cmd and cmd.get("crc") is not None:
+        v = cmd.get("crc_valid")
+        if show_wrapper or not v: f("CRC-16", f"0x{cmd['crc']:04x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
+    crc_st = pkt.get("crc_status", {})
+    if crc_st.get("csp_crc32_valid") is not None:
+        v = crc_st["csp_crc32_valid"]
+        if show_wrapper or not v: f("CRC-32C", f"0x{crc_st['csp_crc32_rx']:08x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
+    if show_hex:
+        raw = pkt.get("raw", b"")
+        if raw: f("HEX", raw.hex(" "), S_DIM)
+        if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
+    return lines
+
+
 class PacketDetail(Widget):
     DEFAULT_CSS = "PacketDetail { max-height: 50%; width: 100%; border-left: solid black; border-right: solid black; }"
 
@@ -281,8 +338,19 @@ class PacketDetail(Widget):
         s = self.s
         w = self.content_size.width or 80
         auto = (s.selected_idx == -1)
-        actual = len(s.packets) - 1 if auto and s.packets else s.selected_idx
+        if auto and s.packets:
+            # Find last visible packet for auto-scroll
+            actual = len(s.packets) - 1
+            if s.hide_uplink:
+                for i in range(len(s.packets) - 1, -1, -1):
+                    if not s.packets[i].get("is_uplink_echo"):
+                        actual = i; break
+        else:
+            actual = s.selected_idx
         pkt = s.packets[actual] if 0 <= actual < len(s.packets) else None
+        # Skip uplink echoes in detail
+        if pkt and s.hide_uplink and pkt.get("is_uplink_echo"):
+            pkt = None
         sep = Text("─" * w, style=S_SEP)
         if not pkt:
             self.styles.height = 1
@@ -295,52 +363,7 @@ class PacketDetail(Widget):
             title = Text(f" PACKET #{pkt.get('pkt_num',0)} DETAIL", style=S_WARNING)
         if ts_r:
             title.append(f"  {ts_r[0].strftime('%H:%M:%S UTC')}  {ts_r[1].strftime('%H:%M:%S %Z')}", style=S_DIM)
-        lines = []  # list of (label, value, style)
-        def f(lbl, val, st=S_VALUE):
-            lines.append((lbl, str(val), st))
-        if is_unk:
-            if s.show_hex:
-                raw = pkt.get("raw", b"")
-                if raw: f("HEX", raw.hex(" "), S_DIM)
-                if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
-                inner = pkt.get("inner_payload", b"")
-                if inner: f("SIZE", f"{len(inner)}B (raw {len(raw)}B)", S_DIM)
-        else:
-            for wm in pkt.get("warnings", []):
-                lines.append(("⚠", wm, S_ERROR))
-            if pkt.get("is_uplink_echo"):
-                f("UL ECHO", "Uplink echo — dest/echo not addressed to GS", S_WARNING)
-            if s.show_wrapper and pkt.get("stripped_hdr"):
-                f("AX.25 HDR", pkt["stripped_hdr"], S_DIM)
-            csp = pkt.get("csp")
-            if s.show_wrapper and csp:
-                tag = "CSP V1" if pkt.get("csp_plausible") else "CSP V1 [?]"
-                f(tag, f"Prio:{csp['prio']}  Src:{csp['src']}  Dest:{csp['dest']}  DPort:{csp['dport']}  SPort:{csp['sport']}  Flags:0x{csp['flags']:02x}")
-            cmd = pkt.get("cmd")
-            if cmd:
-                f("CMD ROUTE", f"Src:{node_label(cmd['src'])}  Dest:{node_label(cmd['dest'])}  Echo:{node_label(cmd['echo'])}  Type:{ptype_label(cmd['pkt_type'])}")
-                f("CMD ID", cmd["cmd_id"])
-                if cmd.get("schema_match"):
-                    for ta in cmd.get("typed_args", []): f(ta["name"].upper()[:12], format_arg_value(ta))
-                    for i, ex in enumerate(cmd.get("extra_args", [])): f(f"ARG +{i}", str(ex))
-                else:
-                    if cmd.get("schema_warning"):
-                        lines.append(("⚠", cmd["schema_warning"], S_WARNING))
-                    for i, a in enumerate(cmd.get("args", [])): f(f"ARG {i}", str(a))
-            # CRC: always show if FAIL, otherwise only with wrapper
-            if cmd and cmd.get("crc") is not None:
-                v = cmd.get("crc_valid")
-                if s.show_wrapper or not v:
-                    f("CRC-16", f"0x{cmd['crc']:04x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
-            crc_st = pkt.get("crc_status", {})
-            if crc_st.get("csp_crc32_valid") is not None:
-                v = crc_st["csp_crc32_valid"]
-                if s.show_wrapper or not v:
-                    f("CRC-32C", f"0x{crc_st['csp_crc32_rx']:08x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
-            if s.show_hex:
-                raw = pkt.get("raw", b"")
-                if raw: f("HEX", raw.hex(" "), S_DIM)
-                if pkt.get("text"): f("ASCII", pkt["text"], S_DIM)
+        lines = _build_detail_lines(pkt, is_unk, s.show_hex, s.show_wrapper)
 
         # Render lines, wrapping long values with aligned continuation
         label_w = 13  # " " + 12-char label
@@ -377,7 +400,7 @@ class PacketDetail(Widget):
 RX_HELP_LINES = [
     ("KEYS", None), ("Up / Down", "Select packet"), ("PgUp / PgDn", "Scroll page"),
     ("Mouse wheel", "Scroll packet list"),
-    ("Enter", "Toggle detail"), ("Ctrl+A / Ctrl+E", "Cursor start / end"),
+    ("Enter (on list)", "Toggle detail"), ("Ctrl+A / Ctrl+E", "Cursor start / end"),
     ("Ctrl+W / Ctrl+U", "Del word / clear input"), ("Ctrl+C", "Quit"),
     ("COMMANDS", None), ("cfg / help", "Toggle panels"), ("hclear", "Clear history"),
     ("hex / ul / wrapper", "Toggle hex / uplink / wrapper"),

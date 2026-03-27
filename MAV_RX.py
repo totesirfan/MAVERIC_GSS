@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input
@@ -24,7 +24,8 @@ from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
-                                    Hints, HelpPanel, ConfigScreen)
+                                    Hints, HelpPanel, ConfigScreen, MavAppBase,
+                                    dispatch_common)
 from mav_gss_lib.config import load_gss_config
 from mav_gss_lib.tui_rx import (
     RxHeader, PacketList, PacketDetail,
@@ -142,41 +143,11 @@ def _drain_rx_queue(state, pkt_queue):
     state.receiving = (time.time() - state.last_watchdog) < RECEIVING_TIMEOUT
 
 
-def _toggle_logging(state):
-    if state.logging_enabled:
-        state.logging_enabled = False
-        if state.log:
-            try:
-                state.log.write_summary(
-                    state.pipeline.packet_count, state.session_start,
-                    state.first_pkt_ts, state.last_pkt_ts,
-                    unique=len(state.pipeline.seen_fps),
-                    duplicates=state.pipeline.packet_count - len(state.pipeline.seen_fps),
-                    unknown=state.pipeline.unknown_count,
-                    uplink_echoes=state.pipeline.uplink_echo_count)
-            except Exception: pass
-            finally:
-                try: state.log.close()
-                except Exception: pass
-                state.log = None
-        return "Logging OFF", 2
-    try:
-        state.log = SessionLog(LOG_DIR, ZMQ_ADDR, version=VERSION)
-    except Exception as e:
-        state.log = None
-        return f"Log error: {e}", 5
-    state.logging_enabled = True
-    return f"Logging ON: {state.log.text_path}", 3
-
-
 def _dispatch_rx_command(state, line):
     cmd = line.lower()
-    if cmd in ('q', 'quit', 'exit'): return "break"
-    if cmd == 'help':
-        state.help_open = not state.help_open
-    elif cmd in ('cfg', 'config'):
-        state.help_open = False; return "open_config"
-    elif cmd == 'hex':
+    common = dispatch_common(state, cmd)
+    if common is not None: return common
+    if cmd == 'hex':
         state.show_hex = not state.show_hex
         state.status.set(f"HEX {'ON' if state.show_hex else 'OFF'}", 2)
     elif cmd == 'ul':
@@ -201,7 +172,7 @@ def _dispatch_rx_command(state, line):
 #  APP
 # =============================================================================
 
-class MavRxApp(App):
+class MavRxApp(MavAppBase):
     CSS = """
     Screen { background: black; padding-right: 1; }
     SplashScreen { background: rgba(0, 0, 0, 0.5); }
@@ -210,8 +181,10 @@ class MavRxApp(App):
     #content-area { width: 1fr; }
     #bottom-bar { dock: bottom; height: 2; }
     #rx-input { height: 1; border: none; padding: 0; }
+    PacketList:focus { border: solid #00bfff; }
     """
-    ENABLE_COMMAND_PALETTE = False
+    _WIDGET_QUERY = "RxHeader, PacketList, PacketDetail, HelpPanel"
+    _INPUT_ID = "rx-input"
     BINDINGS = [
         Binding("ctrl+c", "quit_or_close", "Quit", priority=True),
         Binding("escape", "close_panel", "Close", show=False),
@@ -253,7 +226,7 @@ class MavRxApp(App):
             yield HelpPanel(s, RX_HELP_LINES, "Esc: close", rx_help_info, id="help-panel")
         with Vertical(id="bottom-bar"):
             yield Input(id="rx-input", placeholder="> ")
-            yield Hints(" Enter: detail | cfg | help | Ctrl+C: quit")
+            yield Hints(" cfg | help | Ctrl+C: quit | Enter on list: detail")
 
     def on_mount(self):
         if self._show_splash:
@@ -291,8 +264,7 @@ class MavRxApp(App):
         auto = (s.selected_idx == -1)
         if not auto and s.packets:
             actual = s.selected_idx
-            plist = self.query_one("#packet-list", PacketList)
-            lh = plist.content_size.height - 4
+            lh = self._plist.content_size.height - 4
             if lh > 0:
                 if actual < s.scroll_offset: s.scroll_offset = actual
                 elif actual >= s.scroll_offset + lh: s.scroll_offset = actual - lh + 1
@@ -301,10 +273,6 @@ class MavRxApp(App):
             s.scroll_offset = 0
         self.query_one("#packet-detail").display = s.detail_open
         self.query_one("#help-panel").display = s.help_open
-        for w in self.query("RxHeader, PacketList, PacketDetail, HelpPanel"):
-            w.refresh()
-
-    def _act(self):
         for w in self.query("RxHeader, PacketList, PacketDetail, HelpPanel"):
             w.refresh()
 
@@ -319,52 +287,60 @@ class MavRxApp(App):
         elif s.detail_open: s.detail_open = False
         self._act()
 
+    @property
+    def _plist(self):
+        return self.query_one("#packet-list", PacketList)
+
     def action_select_prev(self):
         s = self.state
+        pl = self._plist
         if s.selected_idx == -1:
             if s.packets:
-                s.selected_idx = len(s.packets) - 1
-                # Set scroll_offset to match auto-scroll view position
-                plist = self.query_one("#packet-list", PacketList)
-                lh = plist.content_size.height - 4
+                s.selected_idx = pl._find_last_visible()
+                lh = pl.content_size.height - 4
                 if lh > 0:
                     s.scroll_offset = max(0, len(s.packets) - lh)
             else:
                 s.selected_idx = 0
-        elif s.selected_idx > 0: s.selected_idx -= 1
+        elif s.selected_idx > 0:
+            s.selected_idx = pl._find_prev_visible(s.selected_idx)
         self._act()
 
     def action_select_next(self):
         s = self.state
         if s.selected_idx != -1:
-            if s.selected_idx < len(s.packets) - 1: s.selected_idx += 1
-            else: s.selected_idx = -1
+            s.selected_idx = self._plist._find_next_visible(s.selected_idx)
         self._act()
 
     def action_page_up(self):
         s = self.state
-        if s.selected_idx == -1: s.selected_idx = len(s.packets) - 1 if s.packets else 0
-        s.selected_idx = max(0, s.selected_idx - max(1, self.size.height - 10))
+        pl = self._plist
+        if s.selected_idx == -1:
+            s.selected_idx = pl._find_last_visible() if s.packets else 0
+        steps = max(1, self.size.height - 10)
+        for _ in range(steps):
+            prev = pl._find_prev_visible(s.selected_idx)
+            if prev == s.selected_idx: break
+            s.selected_idx = prev
         self._act()
 
     def action_page_down(self):
         s = self.state
         if s.selected_idx != -1:
-            s.selected_idx = min(len(s.packets) - 1, s.selected_idx + max(1, self.size.height - 10))
+            pl = self._plist
+            steps = max(1, self.size.height - 10)
+            for _ in range(steps):
+                nxt = pl._find_next_visible(s.selected_idx)
+                if nxt == -1: s.selected_idx = -1; break
+                s.selected_idx = nxt
         self._act()
 
-    def on_input_submitted(self, event: Input.Submitted):
-        if event.input.id != "rx-input": return
+    def _dispatch(self, line):
+        return _dispatch_rx_command(self.state, line)
+
+    def _open_config(self):
         s = self.state
-        line = event.value.strip()
-        self.query_one("#rx-input", Input).value = ""
-        if not line: s.detail_open = not s.detail_open; self._act(); return
-        result = _dispatch_rx_command(s, line)
-        if result == "break": self._cleanup(); self.exit(); return
-        if result == "open_config":
-            self.push_screen(ConfigScreen(RX_CONFIG_FIELDS, rx_config_get_values(s)), self._on_config_done)
-            return
-        self._act()
+        self.push_screen(ConfigScreen(RX_CONFIG_FIELDS, rx_config_get_values(s)), self._on_config_done)
 
     def _on_config_done(self, values):
         s = self.state
