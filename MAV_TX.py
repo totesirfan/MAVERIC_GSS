@@ -289,7 +289,7 @@ class MavTxApp(App):
         Binding("escape", "close_or_cancel", "Close", show=False),
         Binding("ctrl+s", "send_queue", "Send", show=False),
         Binding("ctrl+z", "undo_queue", "Undo", show=False),
-        Binding("ctrl+x", "clear_queue", "Clear", show=False),
+        Binding("ctrl+x", "clear_queue", "Clear", show=False, priority=True),
         Binding("up", "history_prev", "Up", show=False),
         Binding("down", "history_next", "Down", show=False),
         Binding("pageup", "page_up", "PgUp", show=False),

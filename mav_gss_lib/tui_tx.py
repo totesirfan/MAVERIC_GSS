@@ -68,7 +68,18 @@ class TxQueue(Widget):
             t.append("\n  (empty — type a command below)", style=S_DIM)
             return t
         sending_idx = s.sending["idx"] if s.sending["active"] else -1
-        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(q[s.queue_scroll:s.queue_scroll + data_rows]):
+        visible = q[s.queue_scroll:s.queue_scroll + data_rows]
+        nodes = set()
+        ptypes = set()
+        cmds = set()
+        for src, dest, echo, ptype, cmd, args, raw_cmd in visible:
+            nodes.update((src, dest, echo))
+            ptypes.add(ptype)
+            cmds.add(cmd)
+        nw = max((len(node_label(n)) for n in nodes), default=1)
+        pw = max((len(protocol.PTYPE_NAMES.get(p, str(p))) for p in ptypes), default=1)
+        cw = max((len(c) for c in cmds), default=1)
+        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(visible):
             ai = s.queue_scroll + i
             if sending_idx >= 0 and ai < sending_idx:
                 base, tag, ts = "#888888", " SENT", "#44bb66"
@@ -79,12 +90,13 @@ class TxQueue(Widget):
             left = Text(style=base)
             left.append(f" #{ai+1:<4}", style=f"{base} #ffd700" if not base else base)
             if src != protocol.GS_NODE:
-                left.append(f"{node_label(src)} → ", style=f"{base} #00bfff" if not base else base)
-            left.append(f"{node_label(dest)} ", style=f"{base} #00bfff" if not base else base)
-            left.append(f"E:{node_label(echo)} ", style=f"{base} #888888")
+                left.append(f"{node_label(src):>{nw}} → ", style=f"{base} #00bfff" if not base else base)
+            left.append(f"{node_label(dest):<{nw}} ", style=f"{base} #00bfff" if not base else base)
+            left.append(f"E:{node_label(echo):<{nw}} ", style=f"{base} #888888")
+            pt = protocol.PTYPE_NAMES.get(ptype, str(ptype))
             ptype_color = "#00ff87" if ptype == protocol.PTYPE_IDS.get("RES") else "#00bfff"
-            left.append(f"{protocol.PTYPE_NAMES.get(ptype, str(ptype))} ", style=f"{base} {ptype_color}" if not base else base)
-            left.append(f"{cmd} ", style=f"{base} bold #ffffff" if not base else base)
+            left.append(f"{pt:<{pw}} ", style=f"{base} {ptype_color}" if not base else base)
+            left.append(f"{cmd:<{cw}} ", style=f"{base} bold #ffffff" if not base else base)
             if args: left.append(args, style=f"{base} #888888")
             rs = f"{len(raw_cmd)}B"
             if tag: rs = f"{tag}  {rs}"
@@ -115,18 +127,30 @@ class SentHistory(Widget):
             return t
         end = min(s.hist_scroll + 1, count)
         start = max(0, end - data_rows)
-        for rec in hist[start:end]:
+        visible = hist[start:end]
+        nodes = set()
+        ptypes = set()
+        cmds = set()
+        for rec in visible:
+            nodes.update((rec.get('src', protocol.GS_NODE), rec['dest'], rec['echo']))
+            ptypes.add(rec['ptype'])
+            cmds.add(rec['cmd'])
+        nw = max((len(node_label(n)) for n in nodes), default=1)
+        pw = max((len(protocol.PTYPE_NAMES.get(p, '?')) for p in ptypes), default=1)
+        cw = max((len(c) for c in cmds), default=1)
+        for rec in visible:
             src = rec.get('src', protocol.GS_NODE)
             left = Text()
             left.append(f" #{rec['n']:<4}", style=S_SUCCESS)
             left.append(f"{rec['ts']} ", style=S_VALUE)
             if src != protocol.GS_NODE:
-                left.append(f"{node_label(src)} → ", style=S_LABEL)
-            left.append(f"{node_label(rec['dest'])} ", style=S_LABEL)
-            left.append(f"E:{node_label(rec['echo'])} ", style=S_DIM)
-            left.append(f"{protocol.PTYPE_NAMES.get(rec['ptype'], '?')} ",
+                left.append(f"{node_label(src):>{nw}} → ", style=S_LABEL)
+            left.append(f"{node_label(rec['dest']):<{nw}} ", style=S_LABEL)
+            left.append(f"E:{node_label(rec['echo']):<{nw}} ", style=S_DIM)
+            pt = protocol.PTYPE_NAMES.get(rec['ptype'], '?')
+            left.append(f"{pt:<{pw}} ",
                         style=S_SUCCESS if rec['ptype'] == protocol.PTYPE_IDS.get("RES") else S_LABEL)
-            left.append(f"{rec['cmd']} ", style=S_VALUE)
+            left.append(f"{rec['cmd']:<{cw}} ", style=S_VALUE)
             if rec["args"]: left.append(rec["args"], style=S_DIM)
             t.append_text(lr_line(left, Text(f"{rec['payload_len']}B ", style=S_DIM), w))
             t.append("\n")
