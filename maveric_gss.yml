@@ -1,50 +1,39 @@
-# MAVERIC Ground Station Configuration
-# Shared by MAV_TX2 (uplink) and MAV_RX2 (downlink)
-# Values here set the startup defaults; the TUI config panel
-# can override them at runtime.
-
 nodes:
-  0: "NONE"
-  1: "LPPM"
-  2: "EPS"
-  3: "UPPM"
-  4: "HOLONAV"
-  5: "ASTROBOARD"
-  6: "GS"
-  7: "FTDI"
-
+  0: NONE
+  1: LPPM
+  2: EPS
+  3: UPPM
+  4: HOLONAV
+  5: ASTROBOARD
+  6: GS
+  7: FTDI
 ptypes:
-  0: "NONE"
-  1: "REQ"
-  2: "RES"
-  3: "ACK"
-
+  0: NONE
+  1: REQ
+  2: RES
+  3: ACK
 ax25:
-  src_call: "WM2XBB"
-  src_ssid: 0
-  dest_call: "WS9XSW"
-  dest_ssid: 0
-
+  src_call: WM2XBB
+  src_ssid: 97
+  dest_call: WS9XSW
+  dest_ssid: 96
 csp:
   priority: 2
   source: 0
   destination: 8
-  dest_port: 0
-  src_port: 24
-  flags: 0x00
-
+  dest_port: 24
+  src_port: 0
+  flags: 0
 tx:
-  zmq_addr: "tcp://127.0.0.1:52002"
-  frequency: "437.25 MHz"
-  delay_ms: 500
-
+  zmq_addr: tcp://127.0.0.1:52002
+  frequency: 437.25 MHz
+  delay_ms: 2000
 rx:
   zmq_port: 52001
-  zmq_addr: "tcp://127.0.0.1:52001"
-
+  zmq_addr: tcp://127.0.0.1:52001
 general:
-  version: "2.6.1"
-  log_dir: "logs"
-  command_defs: "maveric_commands.yml"
-  decoder_yml: "maveric_decoder.yml"
-  gs_node: "GS"
+  version: 2.6.1
+  log_dir: logs
+  command_defs: maveric_commands.yml
+  decoder_yml: maveric_decoder.yml
+  gs_node: GS

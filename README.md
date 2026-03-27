@@ -1,193 +1,226 @@
 # MAVERIC Ground Station Software
 
-Ground station tools for the MAVERIC CubeSat mission. Supports full-duplex operation with a single USRP B210 — simultaneous uplink and downlink using MAV_TX2 and MAV_RX2 with the shared GNU Radio MAV_DUPLEX flowgraph. Uplink echoes received on the downlink are automatically tagged (UL) for easy identification.
+Ground station suite for the MAVERIC CubeSat mission (USC ISI SERC). Provides simultaneous full-duplex uplink/downlink using a single USRP B210 with the GNU Radio MAV_DUPLEX flowgraph.
 
-## Structure
-
-```
-mav_gss_lib/              Shared library
-    protocol.py           Nodes, CSP v1, KISS, CRC-16/CRC-32C, command wire format,
-                          frame normalization, TX command line parser
-    transport.py          ZMQ PUB/SUB, PMT PDU send/receive, socket monitoring,
-                          live connection status, send error handling
-    config.py             Shared config loader (maveric_gss.yml), AX.25/CSP handlers
-    parsing.py            RX packet processing pipeline (RxPipeline class)
-    logging.py            Session logging (JSONL + text) for RX and TX
-    curses_common.py      Shared curses utilities (colors, drawing, splash screen)
-    curses_tx.py          TX dashboard panels and layout
-    curses_rx.py          RX monitor panels and layout
-
-MAV_RX2.py                Downlink packet monitor (curses)
-                          Decomposed: RxState dataclass, handle_key_rx(), _render_rx(), _drain_rx_queue()
-MAV_TX2.py                Uplink command dashboard (curses)
-                          Decomposed: TxState dataclass, handle_key_tx(), _render_tx(), _send_worker()
-
-maveric_gss.yml           Shared configuration (nodes, ptypes, AX.25, CSP, ZMQ, paths)
-maveric_commands.yml      Command schema (arg names, types, validation)
-maveric_decoder.yml       gr-satellites satellite definition file
-
-logs/
-    text/                 Human-readable text logs (downlink_*.txt, uplink_*.txt)
-    json/                 Machine-readable JSONL logs (downlink_*.jsonl, uplink_*.jsonl)
-
-legacy/                   Archived tools (not tracked in git)
-    MAV_RX.py             Original terminal-based packet monitor
-    MAV_TX_old.py         Original CLI command terminal
-    display.py            ANSI terminal theme/box drawing (used by legacy scripts)
+```mermaid
+graph LR
+    TX["MAV_TX\nUplink Dashboard"] -- "ZMQ PUB\ncommand PDUs" --> GR["GNU Radio\nMAV_DUPLEX"]
+    GR -- "ZMQ PUB\ndecoded frames" --> RX["MAV_RX\nDownlink Monitor"]
+    GR -- "437.25 MHz\nGFSK" --> SAT["MAVERIC\nCubeSat"]
+    SAT -- "437.25 MHz\nGFSK" --> GR
 ```
 
-## MAV_RX2 — Packet Monitor (Curses)
+## Quick Start
 
-Curses-based downlink packet monitor. Subscribes to a ZMQ PUB socket where GNU Radio publishes decoded PDUs and displays packets in a scrollable, interactive dashboard. A dedicated receiver thread ensures no packets are lost during UI redraws.
-
-Layout:
-
-- **Header** — ZMQ address, frequency (auto-detected from gr-satellites metadata), UTC/local clock, HEX/LOG toggle indicators, live ZMQ connection status (LIVE/DOWN/RETRY), queue depth
-- **Packet List** — scrollable list with command src/dest routing, echo, packet type, command ID, arguments, payload size, CRC status, duplicate detection, uplink echo (UL) tagging. A packet is tagged UL when src=GS (our command echoed back) or when neither dest nor echo is GS (spoofed/relayed). Unparseable signals are shown as `UNKNOWN` with separate `U-N` numbering (valid packet count is unaffected). Auto-follows newest packets in `[LIVE]` mode
-- **Packet Detail** — expanded view of selected packet (Enter to toggle): uplink echo flag, AX.25 header, CSP fields, satellite timestamp, command fields, hex dump, CRC verification. Unknown packets show only HEX, ASCII, and size
-- **Input** — command entry with live status (Receiving/Silence timer, packet count, rate)
-
-Typed commands:
-
-| Command | Action |
-|---------|--------|
-| `help` | Toggle help panel |
-| `cfg` / `config` | Toggle config panel (hex/log toggles) |
-| `hex` | Toggle hex/ASCII display |
-| `log` | Toggle logging on/off |
-| `hclear` | Clear packet history |
-| `q` / `quit` | Exit |
-
-Keyboard:
-
-| Key | Action |
-|-----|--------|
-| `Up / Down` | Select packet (Down on last → LIVE) |
-| `PgUp / PgDn` | Scroll by page |
-| `Home / End` | First / last packet |
-| `Enter` | Toggle detail panel (or execute typed command) |
-| `Ctrl+C` | Quit |
-
-## MAV_TX2 — Command Dashboard (Curses)
-
-Persistent curses-based dashboard for uplink operations (CSP v1 + CRC-32C + AX.25 + ZMQ) with a live multi-panel interface.
-
-Layout:
-
-- **Header** — AX.25 source/destination callsigns, CSP config, UTC and local time, live ZMQ connection status (LIVE/DOWN/BOUND), ZMQ port, frequency (437.25 MHz)
-- **TX Queue** — commands waiting to be sent, with src/dest routing, echo, type, command ID, and args. Queue is persisted to disk (`.pending_queue.jsonl`) and restored on startup
-- **Sent History** — transmitted commands with src→dest routing, echo, type metadata (scrollable)
-- **Input** — command entry with cursor editing, command history recall (Up/Down)
-
-Command format: `[SRC] DEST ECHO TYPE CMD [ARGS]` — SRC is optional (defaults to GS). Input is case-insensitive; command IDs are normalized to lowercase. Commands are validated against `maveric_commands.yml` and rejected with specific error messages (e.g. `unknown destination node 'CAM'`, `unknown packet type 'FOO'`). All commands go to the queue on Enter, then `Ctrl+S` sends the queue. Use `undo`/`pop` (or `Ctrl+Z`) to remove the last queued command, or `clear` (or `Ctrl+X`) to clear the entire queue.
-
-Keyboard shortcuts:
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+S` | Send all queued commands (async — UI stays responsive) |
-| `Ctrl+Z` | Remove last queued command |
-| `Ctrl+X` | Clear the entire queue |
-| `Up / Down` | Recall command history |
-| `PgUp / PgDn` | Scroll sent history |
-| `Ctrl+A / Ctrl+E` | Jump to start / end of input |
-| `Ctrl+W / Ctrl+U` | Delete word / clear line |
-| `Ctrl+C / Esc` | Abort send in progress (otherwise quit / close side panel) |
-
-Side panels (appear to the right of sent history):
-
-- **`config` / `cfg`** — editable configuration for AX.25 callsigns, CSP parameters, frequency, ZMQ address. Tab to focus, Up/Down to select, Enter to edit. Also shows the log file path.
-- **`help`** — command format reference, keyboard shortcuts, schema info
-
-## Usage
-
-All scripts require the radioconda GNU Radio environment. **Start the GNU Radio MAV_DUPLEX flowgraph first** — the splash screen will remind you to confirm it is running before continuing.
+Requires the **radioconda** conda environment with GNU Radio 3.10+, gr-satellites, PyZMQ, pmt, crc, pyyaml, and textual.
 
 ```bash
 conda activate gnuradio
 
-# Downlink monitor (curses)
-python3 MAV_RX2.py
-python3 MAV_RX2.py --nosplash   # skip startup splash screen
+# Start GNU Radio MAV_DUPLEX flowgraph first
 
-# Uplink command dashboard (curses)
-python3 MAV_TX2.py
-python3 MAV_TX2.py --nosplash
+python3 MAV_RX.py              # Downlink monitor
+python3 MAV_TX.py              # Uplink dashboard
+python3 MAV_RX.py --nosplash   # Skip splash screen
 ```
 
-The splash screen displays the current configuration (ZMQ address, frequency, AX.25/CSP settings, version) and waits for a keypress before entering the dashboard.
+## Structure
 
-Press `Ctrl+C` to stop.
+```
+MAV_RX.py                 Downlink packet monitor (Textual app)
+MAV_TX.py                 Uplink command dashboard (Textual app)
 
-## Logging
+mav_gss_lib/
+    protocol.py           Nodes, CSP v1, AX.25, KISS, CRC-16/CRC-32C, command wire format
+    transport.py          ZMQ PUB/SUB, PMT PDU send/receive, socket monitoring
+    config.py             YAML config loader/saver, AX.25/CSP command handlers
+    parsing.py            RX packet processing pipeline (RxPipeline)
+    logging.py            Session logging — JSONL + formatted text, background writer thread
+    tui_common.py         Shared Textual UI: ConfigScreen modal, HelpPanel, SplashScreen, styles
+    tui_rx.py             RX widgets: header, packet list, packet detail
+    tui_tx.py             TX widgets: header, queue, sent history, config fields
 
-Both RX and TX sessions produce paired log files in `logs/text/` (human-readable) and `logs/json/` (machine-readable JSONL):
+maveric_gss.yml           Shared config (nodes, AX.25, CSP, ZMQ, frequency)
+maveric_commands.yml      Command schema (arg names, types, validation)
+maveric_decoder.yml       gr-satellites satellite definition
 
-- `downlink_YYYYMMDD_HHMMSS.txt` / `.jsonl` — RX packet log
-- `uplink_YYYYMMDD_HHMMSS.txt` / `.jsonl` — TX command log
+logs/
+    text/                 Human-readable logs (downlink_*.txt, uplink_*.txt)
+    json/                 Machine-readable JSONL (downlink_*.jsonl, uplink_*.jsonl)
+```
 
-Both text logs share the same visual format:
+## Protocol Stack
 
-- Thin `────` separator with packet/command number, timestamp, and flags inline
-- Fixed 12-char label column for all fields
-- Hex dumps wrapped at 16 bytes per line
-- Session header with version, mode, and ZMQ address
-- Session summary with counts and duration
+```mermaid
+graph TD
+    A["Operator Command\n[SRC] DEST ECHO TYPE CMD [ARGS]"] --> B
+    B["Command Wire Format\n[src][dest][echo][ptype][id_len][args_len]\n[cmd_id][0x00][args][0x00][CRC-16 LE]"] --> C
+    C["CSP v1 Wrap\n[4B header][command][4B CRC-32C BE]"] --> D
+    D["AX.25 Wrap\n[16B header][CSP packet]"] --> E
+    E["HDLC Framing\n(GNU Radio: flags + bit stuffing + FCS)"]
+```
 
-**RX text log** includes: CSP header, satellite timestamp, command routing (short node names), schema-matched args, CRC-16/CRC-32C verification, hex+ASCII dump, and flags (DUP, UL, UNKNOWN).
+### CSP v1 Header (32-bit big-endian)
 
-**TX text log** includes: command routing and args, AX.25 callsigns + header hex, CSP config + header hex (captured at time of send — reflects runtime changes), CRC-16/CRC-32C computed values, size breakdown, raw command hex, full wrapped payload hex, and ASCII.
+```
+Bit:  31  30  29    25  24    20  19      14  13     8  7        0
+     ├────┤├───────┤├───────┤├─────────┤├────────┤├──────────────┤
+     │Pri │  Src   │  Dest  │  DPort   │  SPort  │    Flags     │
+     │ 2b │  5b    │  5b    │   6b     │   6b    │     8b       │
+     └────┘└───────┘└───────┘└─────────┘└────────┘└──────────────┘
+```
 
-**TX JSONL** includes all routing fields (src/dest/echo/ptype with labels), AX.25 and CSP state, raw and wrapped hex, and CRC values.
+### AX.25 SSID Encoding
 
-RX logging can be toggled at runtime via the `log` command or config panel.
+The GomSpace AX100 radio provides SSID values as raw hex bytes. The encoder accepts both formats:
+- **0–15**: Standard SSID value, encoded as `0x60 | (ssid << 1) | ext_bit`
+- **>15**: Raw SSID byte from AX100 config, placed directly with managed extension bit
 
-## Command Schema
+## MAV_RX — Downlink Monitor
 
-`maveric_commands.yml` defines the argument schema for each known command. When present:
+Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread receives packets into a queue; the Textual UI drains and displays them at 10Hz.
 
-- **RX** parses known commands deterministically by position and type (skips regex/heuristic scanning)
-- **TX** validates arguments and rejects invalid commands — they are not added to the queue
-- Unknown commands fall back to heuristic parsing automatically
+```
+┌──────────────────────────────────────────────┐
+│ MAVERIC RX MONITOR              UTC   LOCAL  │
+│ ──────────────────────────────────────────── │
+│ ZMQ: tcp://...  [LIVE]  Freq: 437.25 MHz    │
+│ ZMQ Thread Queue: 0                          │
+├──────────────────────────────────────────────┤
+│ PACKETS (5)  Auto Scroll: ON                 │
+│ #1  12:00:00 AX.25 GS→EPS REQ ping     42B │
+│ #2  12:00:01 AX.25 GS→EPS REQ ping     42B │
+│ ...                                          │
+│ ░  Receiving  5 pkts  3 pkt/min              │
+├──────────────────────────────────────────────┤
+│ PACKET #2 DETAIL                             │
+│ ──────────────────────────────────────────── │
+│ CSP V1      Prio:2  Src:0  Dest:8  ...      │
+│ CMD         Src:GS  Dest:EPS  Echo:UPPM     │
+│ CMD ID      ping                             │
+│ CRC-16      0xc315 [OK]                      │
+│ ASCII       .ping.ping..                     │
+├──────────────────────────────────────────────┤
+│ > _                                          │
+│ Enter: detail | cfg | help | Ctrl+C: quit    │
+└──────────────────────────────────────────────┘
+```
 
-Supported arg types: `str`, `int`, `float`, `epoch_ms`, `bool`. See the file header for full documentation.
+**Commands**: `help`, `cfg`, `hex`, `log`, `detail`, `live`, `hclear`, `q`
+
+**Keys**: Up/Down (select packet), PgUp/PgDn (scroll), Enter (toggle detail), Ctrl+C (quit)
+
+**Features**:
+- Auto Scroll follows newest packets; selecting a packet exits auto mode
+- Uplink echoes tagged `UL` (src=GS or dest/echo not addressed to GS)
+- Duplicate detection via CRC-16 + CRC-32C fingerprint (tagged `DUP`)
+- Unparseable signals shown as `UNKNOWN` with separate numbering
+- Uplink echoes excluded from pkt/min rate
+- Hex/ASCII display toggleable; ASCII always shown in detail
+
+## MAV_TX — Uplink Dashboard
+
+Publishes command PDUs via ZMQ to the GNU Radio flowgraph. Commands are queued, then sent asynchronously in a background thread with configurable inter-packet delay.
+
+```
+┌──────────────────────────────────────────────┐
+│ MAVERIC TX DASHBOARD            UTC   LOCAL  │
+│ ──────────────────────────────────────────── │
+│ ZMQ: tcp://...  [LIVE]  Freq: 437.25 MHz    │
+│ LOG: ON                                      │
+├──────────────────────────────────────────────┤
+│ TX QUEUE (2)  buf: 2000ms                    │
+│  1. GS → EPS  E:UPPM  REQ  ping        12B │
+│  2. GS → UPPM E:UPPM  REQ  set_mode    15B │
+├──────────────────────────────────────────────┤
+│ SENT HISTORY (3)                             │
+│ #1  12:00:00  GS → EPS  REQ  ping      20B │
+│ ...                                          │
+├──────────────────────────────────────────────┤
+│ > _                                          │
+│ Enter: queue | cfg | help | Ctrl+C: quit     │
+└──────────────────────────────────────────────┘
+```
+
+**Command format**: `[SRC] DEST ECHO TYPE CMD [ARGS]`
+
+SRC defaults to GS. Examples:
+```
+EPS UPPM REQ ping
+EPS 2 3 1 set_voltage 3.3
+```
+
+**Keys**: Ctrl+S (send queue), Ctrl+Z (undo last), Ctrl+X (clear queue), Up/Down (history recall), Ctrl+C/Esc (abort send or quit)
+
+**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `raw <hex>`, `q`
+
+**Features**:
+- Queue persisted to `.pending_queue.jsonl`, restored on startup
+- Async send with abort support (Ctrl+C/Esc during send)
+- Config changes saved to `maveric_gss.yml` on exit
+- Commands validated against `maveric_commands.yml` schema
 
 ## Configuration
 
-All startup defaults live in `maveric_gss.yml`, shared by both TX and RX scripts. Values can be changed at runtime via each TUI's config panel. Any changes that affect GNU Radio (e.g. ZMQ addresses, baud rate, modulation) require a restart of the MAV_DUPLEX flowgraph. Note that the frequency field is for display only — it does not control the radio. If the config file is missing, hardcoded defaults in `mav_gss_lib/config.py` are used.
+### Config Modal
+
+Both apps open a config editor via the `cfg` command. The config screen is a modal overlay with keyboard navigation:
+
+- **↑↓** select field, **Enter** edit (text) or toggle (on/off), **Esc** close and save
+- TX config: AX.25 callsigns/SSIDs, CSP parameters, frequency, ZMQ address, TX delay
+- RX config: hex display toggle, logging toggle
+
+### maveric_gss.yml
+
+Shared by both apps. TX persists runtime changes on exit.
 
 ```yaml
-general:
-  version: "2.4.0"          # displayed on splash screen
-  log_dir: "logs"
-  command_defs: "maveric_commands.yml"
-  decoder_yml: "maveric_decoder.yml"
+ax25:
+  src_call: WM2XBB         # Ground station callsign
+  src_ssid: 0x61            # Raw SSID byte (GomSpace AX100)
+  dest_call: WS9XSW        # Satellite callsign
+  dest_ssid: 0x60
 
-ax25:                        # TX only
-  src_call: "WM2XBB"        # ground station callsign
-  dest_call: "WS9XSW"       # satellite callsign
-  src_ssid / dest_ssid: 0
-
-csp:                         # TX only
+csp:
   priority: 2
-  source: 0                  # ground station address
-  destination: 8             # satellite address
-  dest_port: 0 / src_port: 24
-  flags: 0x00
+  source: 0                 # Ground station CSP address
+  destination: 8            # Satellite CSP address
+  dest_port: 24
+  src_port: 0
+  flags: 0
 
 tx:
-  zmq_addr: "tcp://127.0.0.1:52002"
-  frequency: "437.25 MHz"
-  delay_ms: 500
+  zmq_addr: tcp://127.0.0.1:52002
+  frequency: 437.25 MHz
+  delay_ms: 2000            # Inter-packet delay for queue sends
 
 rx:
-  zmq_port: 52001
-  zmq_addr: "tcp://127.0.0.1:52001"
+  zmq_addr: tcp://127.0.0.1:52001
 ```
+
+### maveric_commands.yml
+
+Defines argument schemas for known commands. Supported types: `str`, `int`, `float`, `epoch_ms`, `bool`.
+
+- **RX**: parses known commands by position and type (falls back to heuristic for unknown)
+- **TX**: validates arguments before queuing; rejects invalid commands with specific errors
+
+## Logging
+
+Both sessions produce paired logs in `logs/text/` and `logs/json/`:
+
+| File | Content |
+|------|---------|
+| `downlink_YYYYMMDD_HHMMSS.txt` | RX packets — CSP, command routing, CRC, hex dump, flags |
+| `downlink_YYYYMMDD_HHMMSS.jsonl` | RX packets — machine-readable |
+| `uplink_YYYYMMDD_HHMMSS.txt` | TX commands — routing, AX.25/CSP state, CRC, hex |
+| `uplink_YYYYMMDD_HHMMSS.jsonl` | TX commands — machine-readable |
+
+All file I/O runs on a background thread so the UI never blocks on disk writes. RX logging can be toggled at runtime.
 
 ## Decoder
 
-`maveric_decoder.yml` is the gr-satellites satellite definition file. It configures three transmitter modes on 437.250 MHz:
+`maveric_decoder.yml` configures gr-satellites with three transmitter modes on 437.250 MHz:
 
 - 19k2 FSK AX.25 G3RUH
 - 4k8 FSK AX.25 G3RUH
@@ -196,9 +229,6 @@ rx:
 ## Dependencies
 
 - [radioconda](https://github.com/ryanvolz/radioconda) (GNU Radio 3.10+, gr-satellites, PyZMQ, pmt)
-- `crc` Python package (`pip install crc` in the gnuradio env)
-- `pyyaml` Python package (`pip install pyyaml` — needed for config and command schema)
-
-## Status
-
-Early development (v2.4.0). Packet structure is finalized but telemetry arguments are not yet defined. Command definitions are maintained separately.
+- [Textual](https://textual.textualize.io/) (`pip install textual`)
+- `crc` (`pip install crc`)
+- `pyyaml` (`pip install pyyaml`)

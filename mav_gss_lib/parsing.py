@@ -98,11 +98,6 @@ class RxPipeline:
                 for _ in range(self.max_seen_fps // 5):
                     self.seen_fps.popitem(last=False)
 
-        # Rate tracking — deque caps memory, time filter keeps accuracy
-        self.pkt_times.append(now)
-        while self.pkt_times and self.pkt_times[0] <= now - 60.0:
-            self.pkt_times.popleft()
-
         # Unknown packet detection
         is_unknown = cmd is None
         unknown_num = None
@@ -119,6 +114,12 @@ class RxPipeline:
         ))
         if is_uplink_echo:
             self.uplink_echo_count += 1
+
+        # Rate tracking — exclude uplink echoes from pkt/min
+        if not is_uplink_echo:
+            self.pkt_times.append(now)
+        while self.pkt_times and self.pkt_times[0] <= now - 60.0:
+            self.pkt_times.popleft()
 
         self.last_arrival = now
 

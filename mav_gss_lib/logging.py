@@ -31,7 +31,7 @@ class _BaseLog:
     """Shared JSONL + text log infrastructure.
 
     All file I/O runs on a dedicated background thread so that callers
-    (typically the curses main loop) never block on disk flushes.
+    (typically the Textual event loop) never block on disk flushes.
     """
 
     _SENTINEL = None  # poison pill to stop the writer thread

@@ -2,7 +2,7 @@
 mav_gss_lib -- MAVERIC Ground Station Shared Library
 
 Shared protocol and transport code for the MAVERIC CubeSat
-ground station software suite (MAV_RX2, MAV_TX2).
+ground station software suite (MAV_RX, MAV_TX).
 
 Modules:
     protocol   -- Mission protocol: nodes, CSP, KISS, CRC-16, CRC-32C, command format, schema

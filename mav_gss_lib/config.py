@@ -30,8 +30,8 @@ _DEFAULTS = {
         "priority":    2,
         "source":      0,
         "destination": 8,
-        "dest_port":   0,
-        "src_port":    24,
+        "dest_port":   24,
+        "src_port":    0,
         "flags":       0x00,
     },
     "tx": {
@@ -93,6 +93,32 @@ def apply_csp(cfg, csp):
     csp.dport = int(c["dest_port"])
     csp.sport = int(c["src_port"])
     csp.flags = int(c["flags"])
+
+
+def save_gss_config(cfg, path="maveric_gss.yml"):
+    """Write current config back to YAML, preserving runtime changes."""
+    with open(path, "w") as f:
+        yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+
+
+def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=None):
+    """Sync runtime state back into the config dict for saving."""
+    cfg["ax25"]["src_call"]  = ax25.src_call
+    cfg["ax25"]["src_ssid"]  = ax25.src_ssid
+    cfg["ax25"]["dest_call"] = ax25.dest_call
+    cfg["ax25"]["dest_ssid"] = ax25.dest_ssid
+    cfg["csp"]["priority"]    = csp.prio
+    cfg["csp"]["source"]      = csp.src
+    cfg["csp"]["destination"] = csp.dest
+    cfg["csp"]["dest_port"]   = csp.dport
+    cfg["csp"]["src_port"]    = csp.sport
+    cfg["csp"]["flags"]       = csp.flags
+    if freq is not None:
+        cfg["tx"]["frequency"] = freq
+    if zmq_addr is not None:
+        cfg["tx"]["zmq_addr"] = zmq_addr
+    if tx_delay_ms is not None:
+        cfg["tx"]["delay_ms"] = tx_delay_ms
 
 
 def ax25_handle_msg(ax25, args):

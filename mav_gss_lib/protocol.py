@@ -367,12 +367,23 @@ class AX25Config:
         """Encode callsign + SSID into 7 AX.25 address bytes.
 
         Each character is shifted left 1 bit. Callsign is space-padded
-        to 6 characters. SSID byte: 0b0SSSS0E1 (E=1 if last address)."""
+        to 6 characters. SSID byte: 0b0RR_SSSS_E (E=1 if last address).
+
+        *ssid* accepts either a 0-15 SSID value (standard) or a raw
+        SSID byte (> 0x0F, e.g. 0x60 from GomSpace AX100 config).
+        The extension bit is always managed automatically."""
         call = call.upper().ljust(6)[:6]
         addr = bytearray(ord(c) << 1 for c in call)
-        ssid_byte = 0x60 | ((ssid & 0x0F) << 1)
-        if last:
-            ssid_byte |= 0x01  # end-of-address bit
+        if ssid > 0x0F:
+            # Raw SSID byte — use directly, manage extension bit
+            ssid_byte = ssid & 0xFE
+            if last:
+                ssid_byte |= 0x01
+        else:
+            # Standard 0-15 SSID value
+            ssid_byte = 0x60 | ((ssid & 0x0F) << 1)
+            if last:
+                ssid_byte |= 0x01
         addr.append(ssid_byte)
         return bytes(addr)
 

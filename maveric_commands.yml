@@ -37,7 +37,9 @@ commands:
   # -- General ----------------------------------------------------------------
 
   ping:
-    args: []
+    args:
+    - name: type
+      type: str
 
   # -- Telemetry Beacon -------------------------------------------------------
   # From captured packet: args = "1 1767230528021 0 0"
@@ -48,7 +50,7 @@ commands:
 
   tlm_beacon:
     args:
-      - name: seq
+      - name: Beacon Type
         type: int
       - name: unix time
         type: epoch_ms
