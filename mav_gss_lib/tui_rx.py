@@ -17,6 +17,7 @@ from mav_gss_lib.tui_common import (
 )
 
 class RxHeader(Widget):
+    """Header bar showing ZMQ status, frequency, toggle states, queue depth, and clocks."""
     DEFAULT_CSS = "RxHeader { height: 4; width: 100%; dock: top; }"
 
     def __init__(self, state, zmq_status_ref, queue_ref, **kw):
@@ -52,6 +53,8 @@ class RxHeader(Widget):
 
 
 class PacketList(Widget):
+    """Scrollable list of received packets with selection, auto-scroll,
+    inline spinner, scrollbar, uplink echo hiding, and duplicate tagging."""
     DEFAULT_CSS = "PacketList { height: 1fr; width: 100%; border-top: solid #555555; border-left: solid black; border-right: solid black; } PacketList:focus { border: solid #00bfff; }"
     can_focus = True
 
@@ -62,6 +65,7 @@ class PacketList(Widget):
     # -- Mouse wheel -----------------------------------------------------------
 
     def _find_prev_visible(self, from_idx):
+        """Find the previous visible packet index, skipping hidden uplink echoes."""
         s = self.s
         for i in range(from_idx - 1, -1, -1):
             if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
@@ -69,6 +73,7 @@ class PacketList(Widget):
         return from_idx
 
     def _find_next_visible(self, from_idx):
+        """Find the next visible packet index, or -1 for auto-scroll."""
         s = self.s
         for i in range(from_idx + 1, len(s.packets)):
             if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
@@ -76,6 +81,7 @@ class PacketList(Widget):
         return -1
 
     def _find_last_visible(self):
+        """Find the last visible packet index (for entering selection mode)."""
         s = self.s
         for i in range(len(s.packets) - 1, -1, -1):
             if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
@@ -214,6 +220,7 @@ class PacketList(Widget):
         }, defaults={"num": 2})
 
     def _spinner_line(self, s, w):
+        """Build the bottom spinner/status line showing receive state and packet rate."""
         t = Text(no_wrap=True, overflow="crop")
         if s.error_status.text:
             t.append(f" {s.error_status.text}", style=S_ERROR)
@@ -234,6 +241,7 @@ class PacketList(Widget):
         return t
 
     def _pkt_line(self, pkt, is_sel, w, col_w):
+        """Render one packet as a single-line Text with dynamic column alignment."""
         b = "reverse" if is_sel else ""
         cmd = pkt.get("cmd")
         nw, sw, dw, ew, pw = (col_w["num"], col_w["src"], col_w["dest"],
@@ -334,6 +342,8 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
 
 
 class PacketDetail(Widget):
+    """Expanded detail view for the selected packet — CSP header fields,
+    command routing, CRC verification, hex/ASCII dump, and parsed args."""
     DEFAULT_CSS = "PacketDetail { max-height: 50%; width: 100%; border-left: solid black; border-right: solid black; }"
 
     def __init__(self, state, **kw):
@@ -423,7 +433,9 @@ RX_HELP_LINES = [
 RX_CONFIG_FIELDS = [("Hex Display", "show_hex", "toggle"), ("Wrapper", "show_wrapper", "toggle"), ("Hide Uplink", "hide_uplink", "toggle")]
 
 def rx_config_get_values(s):
+    """Extract current RX config toggle values for the config modal."""
     return {"show_hex": "ON" if s.show_hex else "OFF", "show_wrapper": "ON" if s.show_wrapper else "OFF", "hide_uplink": "ON" if s.hide_uplink else "OFF"}
 
 def rx_help_info(s):
+    """Return (version, schema_count, schema_path, log_path) for the help panel."""
     return (s.version, s.schema_count, s.schema_path, s.log.text_path if s.log else "(disabled)")

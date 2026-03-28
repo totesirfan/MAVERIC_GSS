@@ -163,6 +163,12 @@ class ScrollableWidget(Widget):
 
 
 class MavAppBase(App):
+    """Shared base class for MavRxApp and MavTxApp.
+
+    Provides config screen toggling, help panel, common key bindings,
+    tick-driven widget refresh, input submission dispatch, and cleanup hooks.
+    Subclasses implement _dispatch(), _open_config(), and _cleanup().
+    """
     ENABLE_COMMAND_PALETTE = False
     _WIDGET_QUERY = ""
     _INPUT_ID = ""
@@ -349,6 +355,7 @@ class ImportScreen(ModalScreen):
 # -- Status message -----------------------------------------------------------
 
 class StatusMessage:
+    """Transient status message with auto-expiry for the TUI status bar."""
     __slots__ = ("_text", "_expire")
     def __init__(self, text="", duration=0):
         self._text = text
@@ -377,6 +384,7 @@ _LOGO = [
 ]
 
 class SplashScreen(ModalScreen):
+    """Full-screen splash showing USC logo, config summary, and GNU Radio reminder."""
     DEFAULT_CSS = """
     SplashScreen { align: center middle; }
     #splash-content { width: 100%; height: auto; padding: 1 2; text-align: center; }
@@ -447,6 +455,7 @@ class SplashScreen(ModalScreen):
 
 def render_help_panel(help_lines, hint, version="", schema_count=0,
                       schema_path="", log_path=""):
+    """Render the help panel Rich Text from help_lines data and session info."""
     import os
     t = Text()
     t.append(" HELP\n", style=S_WARNING)

@@ -39,6 +39,7 @@ try:
     _GOLAY_OK = _GR_RS_OK
 except ImportError:
     _GOLAY_OK = False
+from mav_gss_lib.ax25 import build_ax25_gfsk_frame
 from mav_gss_lib.tui_tx import (
     TxHeader, TxQueue, SentHistory, TxStatusBar,
     HELP_LINES, CONFIG_FIELDS, config_get_values, config_apply,
@@ -63,11 +64,13 @@ IMPORT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated
 # -- Queue persistence --------------------------------------------------------
 
 def _queue_entry_to_dict(entry):
+    """Serialize a queue tuple to a JSON-safe dict for JSONL persistence."""
     src, dest, echo, ptype, cmd, args, raw_cmd = entry
     return {"src": src, "dest": dest, "echo": echo, "ptype": ptype,
             "cmd": cmd, "args": args, "raw_cmd": raw_cmd.hex()}
 
 def _dict_to_queue_entry(d):
+    """Deserialize a JSON dict back into a queue tuple."""
     return (d["src"], d["dest"], d["echo"], d["ptype"],
             d["cmd"], d["args"], bytes.fromhex(d["raw_cmd"]))
 
@@ -86,6 +89,7 @@ def _array_to_queue_entry(arr):
     return (src, dest, echo, ptype, cmd, args, raw_cmd)
 
 def _save_queue(tx_queue):
+    """Atomically write the full TX queue to .pending_queue.jsonl."""
     if not tx_queue:
         try: os.remove(QUEUE_FILE)
         except FileNotFoundError: pass
@@ -101,6 +105,7 @@ def _save_queue(tx_queue):
         raise
 
 def _append_queue(entry):
+    """Append a single queue entry to .pending_queue.jsonl."""
     with open(QUEUE_FILE, "a") as f:
         f.write(json.dumps(_queue_entry_to_dict(entry)) + "\n")
 
@@ -122,6 +127,7 @@ def _parse_jsonl_file(path):
     return entries, skipped
 
 def _load_queue():
+    """Load the persisted TX queue from .pending_queue.jsonl, if it exists."""
     try:
         return _parse_jsonl_file(QUEUE_FILE)
     except FileNotFoundError:
@@ -151,6 +157,13 @@ def _import_file(state, filename):
 
 @dataclass
 class TxState:
+    """All mutable state for the TX uplink command dashboard.
+
+    Tracks the command queue, send thread status, sent history, command
+    input history, and config modal state. The queue is persisted to
+    .pending_queue.jsonl across sessions. Widgets read this dataclass
+    directly via a shared reference.
+    """
     csp: CSPConfig
     ax25: AX25Config
     cmd_defs: dict
@@ -181,6 +194,7 @@ class TxState:
 # -- Send thread --------------------------------------------------------------
 
 def _send_worker(state, snapshot, delay_ms, sock):
+    """Background thread: send queued commands with inter-packet delay. Supports abort."""
     sent = 0
     for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(snapshot):
         if state.send_abort.is_set(): break
@@ -194,7 +208,8 @@ def _send_worker(state, snapshot, delay_ms, sock):
         if state.uplink_mode == "ASM+Golay":
             payload = build_asm_golay_frame(csp_packet)
         else:
-            payload = state.ax25.wrap(csp_packet)
+            ax25_frame = state.ax25.wrap(csp_packet)
+            payload = build_ax25_gfsk_frame(ax25_frame)
         if not send_pdu(sock, payload):
             state.status.set("ZMQ send error — aborting send", STATUS_LONG); break
         state.tx_count += 1; sent += 1
@@ -218,6 +233,7 @@ def _send_worker(state, snapshot, delay_ms, sock):
     with state.send_lock: state.sending["active"] = False; state.sending["idx"] = -1
 
 def _start_send(state, sock):
+    """Start the send worker thread if queue is non-empty and no send is active."""
     with state.send_lock:
         if state.sending["active"]: state.status.set("Send already in progress", STATUS_BRIEF); return
         if not state.tx_queue: state.status.set("Nothing queued", STATUS_BRIEF); return
@@ -230,9 +246,11 @@ def _start_send(state, sock):
 # -- Command dispatch ---------------------------------------------------------
 
 def _cmd_send(state, line, sock):
+    """Handler for 'send' command — start sending the queue."""
     _start_send(state, sock)
 
 def _cmd_clear(state, line, sock):
+    """Handler for 'clear' command — clear the TX queue."""
     if state.tx_queue:
         state.status.set(f"Cleared {len(state.tx_queue)} commands", STATUS_BRIEF)
         state.tx_queue.clear(); _save_queue(state.tx_queue); state.queue_scroll = 0
@@ -240,6 +258,7 @@ def _cmd_clear(state, line, sock):
         state.status.set("Nothing to clear", STATUS_BRIEF)
 
 def _cmd_undo(state, line, sock):
+    """Handler for 'undo'/'pop' command — remove last queued command."""
     if state.tx_queue:
         r = state.tx_queue.pop(); _save_queue(state.tx_queue)
         state.status.set(f"Removed: {r[4]} ({len(state.tx_queue)} left)", STATUS_BRIEF)
@@ -247,6 +266,7 @@ def _cmd_undo(state, line, sock):
         state.status.set("Queue is empty", STATUS_BRIEF)
 
 def _cmd_hclear(state, line, sock):
+    """Handler for 'hclear' command — clear sent history."""
     if state.history:
         state.status.set(f"Cleared {len(state.history)} entries", STATUS_BRIEF)
         state.history.clear(); state.hist_scroll = 0
@@ -254,19 +274,24 @@ def _cmd_hclear(state, line, sock):
         state.status.set("History already empty", STATUS_BRIEF)
 
 def _cmd_imp(state, line, sock):
+    """Handler for 'imp' command — open import file picker."""
     return "open_import"
 
 def _cmd_nodes(state, line, sock):
+    """Handler for 'nodes' command — display node ID table."""
     state.status.set("Nodes: " + ", ".join(
         f"{n}={protocol.NODE_NAMES[n]}" for n in sorted(protocol.NODE_NAMES)), STATUS_LONG)
 
 def _cmd_csp(state, line, sock):
+    """Handler for 'csp' command — show or set CSP header fields."""
     state.status.set(csp_handle_msg(state.csp, line[3:].strip() if len(line) > 3 else ""), STATUS_NORMAL)
 
 def _cmd_ax25(state, line, sock):
+    """Handler for 'ax25' command — show or set AX.25 callsign/SSID."""
     state.status.set(ax25_handle_msg(state.ax25, line[4:].strip() if len(line) > 4 else ""), STATUS_NORMAL)
 
 def _cmd_mode(state, line, sock):
+    """Handler for 'mode' command — show or switch uplink encoding mode."""
     arg = line[4:].strip() if len(line) > 4 else ""
     if not arg:
         state.status.set(f"Uplink mode: {state.uplink_mode}", STATUS_NORMAL)
@@ -320,6 +345,7 @@ def _queue_command(state, line):
     return True
 
 def _dispatch_tx_command(state, line, sock):
+    """Dispatch a TX command: try common → exact → prefix → queue as uplink command."""
     cl = line.lower()
     common = dispatch_common(state, cl)
     if common is not None:
@@ -342,6 +368,13 @@ def _dispatch_tx_command(state, line, sock):
 # =============================================================================
 
 class MavTxApp(MavAppBase):
+    """Textual app for uplink command queuing and transmission.
+
+    Queues operator commands, validates against maveric_commands.yml
+    schema, and publishes encoded frames via ZMQ to GNU Radio.
+    Supports AX.25 and ASM+Golay uplink modes, queue persistence,
+    command import from generated_commands/, and async send with abort.
+    """
     CSS = """
     Screen { background: black; padding-right: 1; }
     SplashScreen { background: rgba(0, 0, 0, 0.5); }

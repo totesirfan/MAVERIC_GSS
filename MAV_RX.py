@@ -50,6 +50,7 @@ SPINNER = ["▸", "▸▸", "▸▸▸", "▸▸▸▸", "▸▸▸▸▸"]
 
 
 def _load_tx_frequencies(path):
+    """Load transmitter frequency labels from the decoder YAML for display."""
     try:
         import yaml
         with open(path) as f:
@@ -67,6 +68,12 @@ def _load_tx_frequencies(path):
 
 @dataclass
 class RxState:
+    """All mutable state for the RX downlink monitor.
+
+    Driven by a 60fps tick interval. The ZMQ receiver thread pushes
+    raw PDUs into a queue; the UI drains and processes them via RxPipeline.
+    Widgets read this dataclass directly via a shared reference.
+    """
     packets: list
     pipeline: RxPipeline
     log: SessionLog | None
@@ -107,6 +114,7 @@ class RxState:
 
 def _receiver_thread(sock, pkt_queue, stop_event, monitor, status_holder,
                      on_error=None):
+    """Background thread: polls ZMQ SUB socket and enqueues received PDUs."""
     while not stop_event.is_set():
         result = receive_pdu(sock, on_error=on_error)
         if result is not None:
@@ -115,6 +123,7 @@ def _receiver_thread(sock, pkt_queue, stop_event, monitor, status_holder,
 
 
 def _drain_rx_queue(state, pkt_queue):
+    """Drain all pending packets from the queue into state, processing each via RxPipeline."""
     while True:
         try:
             meta, raw = pkt_queue.get_nowait()
@@ -146,6 +155,7 @@ def _drain_rx_queue(state, pkt_queue):
 
 
 def _dispatch_rx_command(state, line):
+    """Dispatch an RX-specific command (hex, ul, wrapper, detail, hclear, live)."""
     cmd = line.lower()
     common = dispatch_common(state, cmd)
     if common is not None: return common
@@ -175,6 +185,13 @@ def _dispatch_rx_command(state, line):
 # =============================================================================
 
 class MavRxApp(MavAppBase):
+    """Textual app for real-time downlink packet monitoring.
+
+    Subscribes to GNU Radio's ZMQ PUB socket, decodes CSP/command
+    frames via RxPipeline, and renders a scrollable packet list with
+    toggleable detail panel. Supports hex view, uplink echo filtering,
+    duplicate detection, and session logging.
+    """
     CSS = """
     Screen { background: black; padding-right: 1; }
     SplashScreen { background: rgba(0, 0, 0, 0.5); }

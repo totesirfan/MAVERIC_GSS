@@ -40,6 +40,7 @@ def _hist_col_widths(visible):
 
 
 class TxHeader(Widget):
+    """Header bar showing ZMQ status, frequency, uplink mode, log state, and clocks."""
     DEFAULT_CSS = "TxHeader { height: 4; width: 100%; dock: top; }"
 
     def __init__(self, state, **kw):
@@ -73,6 +74,7 @@ class TxHeader(Widget):
 
 
 class TxQueue(ScrollableWidget):
+    """Scrollable pending command queue with send progress indicators and scrollbar."""
     DEFAULT_CSS = "TxQueue { height: 1fr; max-height: 33%; width: 100%; } TxQueue:focus { border: solid #00bfff; }"
 
     def __init__(self, state, **kw):
@@ -157,6 +159,7 @@ class TxQueue(ScrollableWidget):
 
 
 class SentHistory(ScrollableWidget):
+    """Scrollable log of previously sent commands with timestamps and byte sizes."""
     DEFAULT_CSS = "SentHistory { height: 1fr; width: 100%; } SentHistory:focus { border: solid #00bfff; }"
 
     def __init__(self, state, **kw):
@@ -226,6 +229,7 @@ class SentHistory(ScrollableWidget):
 
 
 class TxStatusBar(Widget):
+    """Single-line status bar displaying transient status messages."""
     DEFAULT_CSS = "TxStatusBar { height: 1; width: 100%; }"
     def __init__(self, state, **kw):
         super().__init__(**kw)
@@ -269,6 +273,7 @@ CONFIG_FIELDS = [
 ]
 
 def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, uplink_mode="AX.25"):
+    """Extract current TX config values for the config modal."""
     return {
         "uplink_mode": uplink_mode,
         "ax25_src_call": ax25.src_call, "ax25_src_ssid": str(ax25.src_ssid),
@@ -279,6 +284,7 @@ def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, uplink_mode="AX.25
     }
 
 def config_apply(values, csp, ax25):
+    """Apply edited config values back to CSP/AX25 objects. Returns (freq, zmq, delay, mode)."""
     ax25.src_call = values["ax25_src_call"].upper()[:6]
     ax25.src_ssid = int(values["ax25_src_ssid"])
     ax25.dest_call = values["ax25_dest_call"].upper()[:6]
@@ -289,4 +295,5 @@ def config_apply(values, csp, ax25):
     return values["freq"], values["zmq_addr"], max(0, int(values["tx_delay_ms"])), values["uplink_mode"]
 
 def tx_help_info(s):
+    """Return (version, schema_count, schema_path, log_path) for the help panel."""
     return (s.version, s.schema_count, s.schema_path, s.tx_log.text_path)

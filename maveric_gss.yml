@@ -1,40 +1,64 @@
+# =============================================================================
+#  MAVERIC Ground Station Configuration
+# =============================================================================
+#
+#  Shared config for MAV_RX (downlink monitor) and MAV_TX (uplink dashboard).
+#  User values are deep-merged over hardcoded defaults in config.py.
+#  MAV_TX persists runtime changes back to this file on exit.
+#
+#  See maveric_commands.yml for command schema definitions.
+#  See maveric_decoder.yml for gr-satellites satellite definition.
+
+# CSP node IDs — map to MAVERIC CubeSat subsystems
 nodes:
   0: NONE
-  1: LPPM
-  2: EPS
-  3: UPPM
-  4: HOLONAV
-  5: ASTROBOARD
-  6: GS
-  7: FTDI
+  1: LPPM          # Lower Processor Module
+  2: EPS           # Electrical Power System
+  3: UPPM          # Upper Processor Module
+  4: HOLONAV       # Holographic Navigation payload
+  5: ASTROBOARD    # Astroboard payload
+  6: GS            # Ground Station
+  7: FTDI          # USB debug interface
+
+# Packet types for the command wire format
 ptypes:
   0: NONE
-  1: REQ
-  2: RES
-  3: ACK
+  1: REQ           # Request
+  2: RES           # Response
+  3: ACK           # Acknowledgement
+
+# AX.25 link-layer addressing (GomSpace AX100 radio)
 ax25:
-  src_call: WM2XBB
-  src_ssid: 97
-  dest_call: WS9XSW
-  dest_ssid: 96
+  src_call: WM2XBB       # Ground station amateur radio callsign
+  src_ssid: 97           # Raw SSID byte from AX100 config (>15 = raw byte, not standard 0-15)
+  dest_call: WS9XSW      # Satellite amateur radio callsign
+  dest_ssid: 96           # Raw SSID byte from AX100 config
+
+# CSP v1 header fields for uplink packets
 csp:
-  priority: 2
-  source: 0
-  destination: 10
-  dest_port: 24
-  src_port: 0
-  flags: 0
+  priority: 2             # 0=critical, 1=high, 2=normal, 3=low
+  source: 0               # Ground station CSP address
+  destination: 10         # Satellite CSP address
+  dest_port: 24           # CSP service port on satellite
+  src_port: 0             # CSP source port
+  flags: 0                # CSP flags byte (HMAC, XTEA, RDP, CRC — all disabled)
+
+# TX (uplink) settings
 tx:
-  zmq_addr: tcp://127.0.0.1:52002
-  frequency: 437.25 MHz
-  delay_ms: 2000
-  uplink_mode: ASM+Golay
+  zmq_addr: tcp://127.0.0.1:52002    # ZMQ PUB socket → GNU Radio flowgraph
+  frequency: 437.25 MHz              # Uplink frequency (display only)
+  delay_ms: 2000                     # Inter-packet delay when sending queue (ms)
+  uplink_mode: ASM+Golay             # AX.25 (Mode 6) or ASM+Golay (Mode 5)
+
+# RX (downlink) settings
 rx:
-  zmq_port: 52001
-  zmq_addr: tcp://127.0.0.1:52001
+  zmq_port: 52001                            # Legacy port field (used by some scripts)
+  zmq_addr: tcp://127.0.0.1:52001           # ZMQ SUB socket ← GNU Radio flowgraph
+
+# General settings
 general:
-  version: 3.2.0
-  log_dir: logs
-  command_defs: maveric_commands.yml
-  decoder_yml: maveric_decoder.yml
-  gs_node: GS
+  version: 3.2.0                    # Semver — bump with each release
+  log_dir: logs                     # Base directory for text/ and json/ logs
+  command_defs: maveric_commands.yml # Command schema file
+  decoder_yml: maveric_decoder.yml  # gr-satellites satellite definition
+  gs_node: GS                       # Node name used as default source
