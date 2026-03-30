@@ -10,6 +10,7 @@ import os
 import tempfile
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -151,6 +152,7 @@ def _import_file(state, filename):
     for e in entries:
         state.tx_queue.append(e)
         _append_queue(e)
+    if entries: state._queue_dirty = True
     return len(entries), skipped
 
 # -- State (widgets read directly) --------------------------------------------
@@ -176,7 +178,7 @@ class TxState:
     zmq_addr_disp: str = ""
     zmq_status: str = "BOUND"
     tx_delay_ms: int = 0
-    cmd_history: list = field(default_factory=list)
+    cmd_history: deque = field(default_factory=lambda: deque(maxlen=MAX_CMD_HISTORY))
     cmd_hist_idx: int = -1
     cmd_hist_save: str = ""
     queue_scroll: int = 0
@@ -190,6 +192,8 @@ class TxState:
     version: str = ""
     schema_count: int = 0
     schema_path: str = ""
+    _queue_dirty: bool = False
+    _hist_dirty: bool = False
 
 # -- Send thread --------------------------------------------------------------
 
@@ -200,10 +204,7 @@ def _send_worker(state, snapshot, delay_ms, sock):
         if state.send_abort.is_set(): break
         with state.send_lock: state.sending["idx"] = i
         if i > 0 and delay_ms > 0:
-            remaining = delay_ms / 1000.0
-            while remaining > 0 and not state.send_abort.is_set():
-                time.sleep(min(1/60, remaining)); remaining -= 1/60
-            if state.send_abort.is_set(): break
+            if state.send_abort.wait(timeout=delay_ms / 1000.0): break
         csp_packet = state.csp.wrap(raw_cmd)
         if state.uplink_mode == "ASM+Golay":
             payload = build_asm_golay_frame(csp_packet)
@@ -253,14 +254,14 @@ def _cmd_clear(state, line, sock):
     """Handler for 'clear' command — clear the TX queue."""
     if state.tx_queue:
         state.status.set(f"Cleared {len(state.tx_queue)} commands", STATUS_BRIEF)
-        state.tx_queue.clear(); _save_queue(state.tx_queue); state.queue_scroll = 0
+        state.tx_queue.clear(); _save_queue(state.tx_queue); state.queue_scroll = 0; state._queue_dirty = True
     else:
         state.status.set("Nothing to clear", STATUS_BRIEF)
 
 def _cmd_undo(state, line, sock):
     """Handler for 'undo'/'pop' command — remove last queued command."""
     if state.tx_queue:
-        r = state.tx_queue.pop(); _save_queue(state.tx_queue)
+        r = state.tx_queue.pop(); _save_queue(state.tx_queue); state._queue_dirty = True
         state.status.set(f"Removed: {r[4]} ({len(state.tx_queue)} left)", STATUS_BRIEF)
     else:
         state.status.set("Queue is empty", STATUS_BRIEF)
@@ -269,7 +270,7 @@ def _cmd_hclear(state, line, sock):
     """Handler for 'hclear' command — clear sent history."""
     if state.history:
         state.status.set(f"Cleared {len(state.history)} entries", STATUS_BRIEF)
-        state.history.clear(); state.hist_scroll = 0
+        state.history.clear(); state.hist_scroll = 0; state._hist_dirty = True
     else:
         state.status.set("History already empty", STATUS_BRIEF)
 
@@ -300,7 +301,7 @@ def _cmd_mode(state, line, sock):
         state.status.set("Uplink mode: AX.25", STATUS_NORMAL)
     elif arg.upper() in ("ASM+GOLAY", "GOLAY", "ASM"):
         if not _GOLAY_OK:
-            state.status.set("reedsolo not installed — cannot use ASM+Golay", STATUS_NORMAL)
+            state.status.set("libfec not found — cannot use ASM+Golay", STATUS_NORMAL)
         else:
             state.uplink_mode = "ASM+Golay"
             state.status.set("Uplink mode: ASM+Golay", STATUS_NORMAL)
@@ -338,7 +339,7 @@ def _queue_command(state, line):
     if len(raw_cmd) + overhead > MAX_RS_PAYLOAD:
         state.status.set("Command too large for RS payload", STATUS_NORMAL); return True
     entry = (src, dest, echo, ptype, cmd, args, raw_cmd)
-    state.tx_queue.append(entry); _append_queue(entry)
+    state.tx_queue.append(entry); _append_queue(entry); state._queue_dirty = True
     src_tag = f"{node_label(src)}→" if src != protocol.GS_NODE else ""
     state.status.set(f"Queued: {src_tag}{node_label(dest)} E:{echo} "
                      f"{protocol.PTYPE_NAMES.get(ptype,'?')} {cmd} {args} ({len(raw_cmd)}B)", STATUS_BRIEF)
@@ -446,15 +447,37 @@ class MavTxApp(MavAppBase):
                     ("CSP", f"Prio:{cs['priority']} Src:{cs['source']} Dest:{cs['destination']}"),
                     ("Commands", CMD_DEFS_PATH), ("Log", f"{LOG_DIR}/text")]))
         self.set_interval(1/60, self._tick)
+        self._last_header_sec = -1
+        self._last_send_idx = -1
         self.query_one("#tx-input").focus()
 
     def _tick(self):
         s = self.state
+        old_zmq = s.zmq_status
         s.zmq_status = poll_monitor(self._zmq_monitor, PUB_STATUS, s.zmq_status)
-        s.status.check_expiry()
+        status_dirty = s.status.check_expiry() or (s.zmq_status != old_zmq)
+        # Detect send-thread progress (idx changes while sending)
+        with s.send_lock:
+            cur_idx = s.sending["idx"]
+            send_active = s.sending["active"]
+        send_dirty = (cur_idx != self._last_send_idx)
+        self._last_send_idx = cur_idx
+        # Selective refresh: only redraw widgets whose data actually changed
         self.query_one("#help-panel").display = s.help_open
-        for w in self.query("TxHeader, TxQueue, SentHistory, TxStatusBar, HelpPanel"):
-            w.refresh()
+        now_sec = int(time.time())
+        if now_sec != self._last_header_sec or status_dirty:
+            self._last_header_sec = now_sec
+            self.query_one("#tx-header").refresh()
+        if s._queue_dirty or send_dirty:
+            s._queue_dirty = False
+            self.query_one("#tx-queue").refresh()
+        if s._hist_dirty or send_dirty:
+            s._hist_dirty = False
+            self.query_one("#sent-history").refresh()
+        if status_dirty or send_dirty:
+            self.query_one("#status-bar").refresh()
+        if s.help_open and s._queue_dirty:
+            self.query_one("#help-panel").refresh()
 
     def action_quit_or_close(self):
         s = self.state
@@ -473,7 +496,7 @@ class MavTxApp(MavAppBase):
     def action_undo_queue(self):
         s = self.state
         if s.tx_queue:
-            r = s.tx_queue.pop(); _save_queue(s.tx_queue)
+            r = s.tx_queue.pop(); _save_queue(s.tx_queue); s._queue_dirty = True
             s.status.set(f"Removed: {r[4]} ({len(s.tx_queue)} left)", STATUS_BRIEF)
         else: s.status.set("Queue is empty", STATUS_BRIEF)
         self._act()
@@ -482,7 +505,7 @@ class MavTxApp(MavAppBase):
         s = self.state
         if s.tx_queue:
             s.status.set(f"Cleared {len(s.tx_queue)} command{'s' if len(s.tx_queue)!=1 else ''}", STATUS_BRIEF)
-            s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0
+            s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0; s._queue_dirty = True
         self._act()
 
     def _cycle_focus(self, direction):
@@ -518,8 +541,7 @@ class MavTxApp(MavAppBase):
     def _pre_dispatch(self, line):
         s = self.state
         s.cmd_hist_idx = -1
-        s.cmd_history.insert(0, line)
-        if len(s.cmd_history) > MAX_CMD_HISTORY: del s.cmd_history[MAX_CMD_HISTORY:]
+        s.cmd_history.appendleft(line)
 
     def _dispatch(self, line):
         return _dispatch_tx_command(self.state, line, self._sock)

@@ -2,81 +2,146 @@
 mav_gss_lib.golay -- ASM+Golay Uplink Encoder (AX100 Mode 5)
 
 Self-contained encoder for the ASM+Golay over-the-air frame format
-used by the GomSpace AX100 radio in Mode 5, matching gr-satellites
-u482c_decode exactly.
+used by the GomSpace AX100 radio in Mode 5 (AX100 Software Manual
+§10.1.5), validated against gr-satellites u482c_decode.
 
-Frame layout:
-    [preamble 50B] [ASM 4B] [golay 3B] [scrambled RS codeword]
+Frame layout (Manual §10.1.5, always 312 bytes):
+    [preamble 50B] [ASM 4B] [golay 3B] [data field 255B]
 
 The Golay 12-bit field encodes flags + frame length:
     bit 11:   unused
-    bit 10:   RS flag
-    bit 9:    scrambler flag
-    bit 8:    viterbi flag
+    bit 10:   RS flag (1 = Reed-Solomon enabled)
+    bit 9:    scrambler flag (1 = CCSDS randomization enabled)
+    bit 8:    viterbi flag (0 for Mode 5)
     bits 7-0: frame_len (= payload_len + 32 RS parity)
 
-The RS codeword is dynamically shortened: RS(frame_len, payload_len)
-using conventional (non-CCSDS-dual-basis) RS with pad = 255 - frame_len.
+The data field contains the CCSDS-scrambled RS codeword, zero-padded
+to 255 bytes.  The RS codeword is dynamically shortened:
+RS(frame_len, payload_len) using conventional (non-CCSDS-dual-basis)
+RS with pad = 255 - frame_len.
 
-Encoding: NRZ, MSB first.
-ASM sync word: 0x930B51DE (gr-satellites ax100_deframer convention).
+Encoding: NRZ, MSB first (Manual §10.1.5).
+Scrambler polynomial: h(x) = x^8+x^7+x^5+x^3+1 (Manual §10.2.3).
+ASM sync word: 0x930B51DE (bit-reversed form of Manual's 0xC9D08A7B,
+    matching gr-satellites ax100_deframer convention).
 
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-try:
-    from gnuradio import gr
-    from satellites import encode_rs as _encode_rs_block
-    import pmt as _pmt
-    import time as _time
+import atexit as _atexit
+import ctypes as _ctypes
+import ctypes.util as _ctypes_util
+import os as _os
+import sys as _sys
+
+
+def _find_libfec():
+    """Locate libfec shared library (libcorrect's compatibility shim)."""
+    # 1. ctypes.util.find_library — checks standard search paths
+    path = _ctypes_util.find_library("fec")
+    if path:
+        try:
+            return _ctypes.CDLL(path)
+        except OSError:
+            pass
+    # 2. Bare name — works when conda env sets DYLD_LIBRARY_PATH / LD_LIBRARY_PATH
+    for name in ("libfec.dylib", "libfec.so"):
+        try:
+            return _ctypes.CDLL(name)
+        except OSError:
+            pass
+    # 3. Conda prefix — handles cases where env vars aren't forwarded
+    #    Check both the current env and the base (parent) conda installation,
+    #    since libfec may only be installed in the base radioconda prefix.
+    prefixes = []
+    for p in (_os.environ.get("CONDA_PREFIX"), getattr(_sys, "prefix", "")):
+        if p:
+            prefixes.append(p)
+            # Also check parent (base) conda install — e.g. radioconda/envs/gnuradio -> radioconda
+            parent = _os.path.dirname(_os.path.dirname(p))
+            if parent and parent not in prefixes:
+                prefixes.append(parent)
+    for prefix in prefixes:
+        for name in ("libfec.dylib", "libfec.so"):
+            candidate = _os.path.join(prefix, "lib", name)
+            if _os.path.isfile(candidate):
+                try:
+                    return _ctypes.CDLL(candidate)
+                except OSError:
+                    pass
+    return None
+
+
+_libfec = _find_libfec()
+
+if _libfec is not None:
+    _libfec.init_rs_char.restype = _ctypes.c_void_p
+    _libfec.init_rs_char.argtypes = [
+        _ctypes.c_int, _ctypes.c_int, _ctypes.c_int,
+        _ctypes.c_int, _ctypes.c_int, _ctypes.c_uint,
+    ]
+    _libfec.encode_rs_char.restype = None
+    _libfec.encode_rs_char.argtypes = [
+        _ctypes.c_void_p,
+        _ctypes.POINTER(_ctypes.c_ubyte),
+        _ctypes.POINTER(_ctypes.c_ubyte),
+    ]
+    _libfec.free_rs_char.argtypes = [_ctypes.c_void_p]
     _GR_RS_OK = True
-except ImportError:
+else:
     _GR_RS_OK = False
 
 
 # -- Constants ----------------------------------------------------------------
 
-PREAMBLE   = b'\xAA' * 50
-ASM        = bytes([0x93, 0x0B, 0x51, 0xDE])
-RS_PARITY  = 32
-MAX_PAYLOAD = 223       # max RS data capacity (255 - 32)
+PREAMBLE   = b'\xAA' * 50                    # Manual Table 5.4: preamb=0xAA, preamblen=50
+ASM        = bytes([0x93, 0x0B, 0x51, 0xDE]) # Manual §10.1.2: 0xC9D08A7B bit-reversed per byte
+RS_PARITY  = 32                              # Manual §10.2.2: RS(223,255), 32-byte parity
+MAX_PAYLOAD = 223                            # max RS data capacity (255 - 32)
+
+
+_rs_cache = {}
+
+def _get_rs(pad):
+    """Get (or create and cache) an RS encoder handle for a given pad value."""
+    rs = _rs_cache.get(pad)
+    if rs is None:
+        rs = _libfec.init_rs_char(8, 0x187, 112, 11, 32, pad)
+        if not rs:
+            raise RuntimeError("init_rs_char failed")
+        _rs_cache[pad] = rs
+    return rs
+
+def _cleanup_rs_cache():
+    for rs in _rs_cache.values():
+        _libfec.free_rs_char(rs)
+    _rs_cache.clear()
+
+if _GR_RS_OK:
+    _atexit.register(_cleanup_rs_cache)
 
 
 def rs_encode(payload):
     """RS encode matching gr-satellites encode_rs_8 (Phil Karn FEC).
 
-    Uses gr-satellites' encode_rs block directly for exact compatibility.
+    Calls libfec's encode_rs_char directly via ctypes — same C function
+    that gr-satellites wraps in a GNU Radio block, without the flowgraph
+    overhead.  CCSDS conventional RS(255,223): GF(2^8) with primitive
+    polynomial 0x187, fcr=112, prim=11, 32 parity bytes.
+
     Returns: payload + 32 parity bytes."""
     if not _GR_RS_OK:
-        raise RuntimeError("gr-satellites not installed — cannot encode RS")
+        raise RuntimeError("libfec not found — cannot encode RS")
     plen = len(payload)
     if plen > MAX_PAYLOAD:
         raise ValueError(f"payload {plen}B exceeds RS capacity {MAX_PAYLOAD}B")
 
-    enc = _encode_rs_block(False)  # conventional (not dual-basis)
-    result = [None]
-
-    class _Sink(gr.basic_block):
-        def __init__(self):
-            gr.basic_block.__init__(self, '_rs_sink', [], [])
-            self.message_port_register_in(_pmt.intern('in'))
-            self.set_msg_handler(_pmt.intern('in'), self._h)
-        def _h(self, msg):
-            result[0] = bytes(_pmt.u8vector_elements(_pmt.cdr(msg)))
-
-    sink = _Sink()
-    tb = gr.top_block()
-    tb.msg_connect(enc, 'out', sink, 'in')
-    tb.start()
-    enc.to_basic_block()._post(
-        _pmt.intern('in'),
-        _pmt.cons(_pmt.PMT_NIL, _pmt.init_u8vector(plen, list(payload))))
-    _time.sleep(0.1)
-    tb.stop(); tb.wait()
-
-    if result[0] is None:
-        raise RuntimeError("encode_rs produced no output")
-    return result[0]
+    pad = MAX_PAYLOAD - plen  # shortened code: 255 - 32 - plen
+    rs = _get_rs(pad)
+    msg = (_ctypes.c_ubyte * plen)(*payload)
+    parity = (_ctypes.c_ubyte * 32)()
+    _libfec.encode_rs_char(rs, msg, parity)
+    return bytes(payload) + bytes(parity)
 
 
 # -- CCSDS Synchronous Scrambler (matching gr-satellites randomizer.c) ---------
@@ -118,7 +183,7 @@ def golay_encode(value_12bit):
     s = 0
     for i in range(12):
         s <<= 1
-        s |= bin(_GOLAY_H[i] & r).count('1') % 2
+        s |= (_GOLAY_H[i] & r).bit_count() % 2
     codeword = ((s & 0xFFF) << 12) | r
     return codeword.to_bytes(3, 'big')
 
@@ -128,16 +193,18 @@ def golay_encode(value_12bit):
 def build_asm_golay_frame(csp_packet):
     """Build complete ASM+Golay over-the-air frame from a CSP packet.
 
-    Matches gr-satellites u482c_decode exactly:
+    Follows AX100 Manual §10.1.5 frame layout and §10.2 FEC order,
+    validated against gr-satellites u482c_decode:
       - Golay 12-bit field: RS flag | scrambler flag | frame_len
       - RS: conventional (decode_rs_8), dynamically shortened
-      - CCSDS scrambler on the RS codeword
-      - No dual-basis conversion
+      - CCSDS scrambler on the RS codeword (§10.2.3)
+      - Data field zero-padded to 255 bytes
 
     Input:  CSP packet (max 223B).
-    Output: Frame bytes ready for GFSK modulation."""
+    Output: 312-byte frame ready for GFSK modulation.
+            [preamble 50B][ASM 4B][golay 3B][data field 255B]"""
     if not _GR_RS_OK:
-        raise RuntimeError("reedsolo not installed — cannot build ASM+Golay frame")
+        raise RuntimeError("libfec not found — cannot build ASM+Golay frame")
     plen = len(csp_packet)
     if plen > MAX_PAYLOAD:
         raise ValueError(f"CSP packet {plen}B exceeds RS capacity {MAX_PAYLOAD}B")
@@ -146,16 +213,15 @@ def build_asm_golay_frame(csp_packet):
     rs_codeword = rs_encode(csp_packet)     # plen + 32 bytes
     frame_len = len(rs_codeword)            # = plen + 32
 
-    # CCSDS scrambler (only frame_len bytes)
+    # CCSDS scrambler (only frame_len bytes) — bulk int XOR is ~13x faster than per-byte loop
     pn = _PN_MAX[:frame_len]
-    scrambled = bytes(a ^ b for a, b in zip(rs_codeword, pn))
+    scrambled = (int.from_bytes(rs_codeword, 'big') ^ int.from_bytes(pn, 'big')).to_bytes(frame_len, 'big')
 
     # Golay field: [unused 1][rs 1][scrambler 1][viterbi 1][frame_len 8]
     golay_value = (1 << 10) | (1 << 9) | (frame_len & 0xFF)
     golay_field = golay_encode(golay_value)
 
-    # Pad to 255 bytes after ASM (packlen=255 in gr-satellites deframer)
-    after_asm = golay_field + scrambled
-    after_asm = after_asm.ljust(255, b'\x00')
+    # Pad data field to 255 bytes (Manual §10.1.5: [Sync][Golay][Data Field])
+    data_field = scrambled.ljust(255, b'\x00')
 
-    return PREAMBLE + ASM + after_asm
+    return PREAMBLE + ASM + golay_field + data_field
