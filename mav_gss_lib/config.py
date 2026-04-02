@@ -36,7 +36,7 @@ _DEFAULTS = {
     },
     "tx": {
         "zmq_addr":  "tcp://127.0.0.1:52002",
-        "frequency": "437.25 MHz",
+        "frequency": "437.6 MHz",
         "delay_ms":  500,
         "uplink_mode": "AX.25",
     },
@@ -67,13 +67,13 @@ def _deep_merge(base, override):
 
 def load_gss_config(path="maveric_gss.yml"):
     """Load config from YAML, falling back to defaults for missing keys."""
+    user = {}
     if os.path.isfile(path):
         with open(path, "r") as f:
-            user = yaml.safe_load(f) or {}
-        if not isinstance(user, dict):
-            user = {}
-        return _deep_merge(_DEFAULTS, user)
-    return _deep_merge(_DEFAULTS, {})
+            raw = yaml.safe_load(f)
+        if isinstance(raw, dict):
+            user = raw
+    return _deep_merge(_DEFAULTS, user)
 
 
 def save_gss_config(cfg, path="maveric_gss.yml"):
@@ -106,11 +106,9 @@ _CSP_MAP = [
 
 def _apply_map(cfg_section, obj, mapping):
     """Apply config dict values to an object using a mapping list."""
-    for entry in mapping:
-        cfg_key, attr = entry[0], entry[1]
-        conv = entry[2] if len(entry) > 2 else None
+    for cfg_key, attr, *rest in mapping:
         val = cfg_section[cfg_key]
-        setattr(obj, attr, conv(val) if conv else val)
+        setattr(obj, attr, rest[0](val) if rest else val)
 
 
 def _sync_to_cfg(cfg_section, obj, mapping):
@@ -135,14 +133,11 @@ def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=
     """Sync runtime state back into the config dict for saving."""
     _sync_to_cfg(cfg["ax25"], ax25, _AX25_MAP)
     _sync_to_cfg(cfg["csp"], csp, _CSP_MAP)
-    if freq is not None:
-        cfg["tx"]["frequency"] = freq
-    if zmq_addr is not None:
-        cfg["tx"]["zmq_addr"] = zmq_addr
-    if tx_delay_ms is not None:
-        cfg["tx"]["delay_ms"] = tx_delay_ms
-    if uplink_mode is not None:
-        cfg["tx"]["uplink_mode"] = uplink_mode
+    tx_updates = {"frequency": freq, "zmq_addr": zmq_addr,
+                  "delay_ms": tx_delay_ms, "uplink_mode": uplink_mode}
+    for key, val in tx_updates.items():
+        if val is not None:
+            cfg["tx"][key] = val
 
 
 def ax25_handle_msg(ax25, args):

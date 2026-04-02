@@ -14,24 +14,23 @@ import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles, append_wrapped_args, build_header,
+    scrollbar_styles, append_wrapped_args, build_header, flash_phase,
     TS_SHORT, ptype_color, node_color, compute_col_widths, title_style,
     hide_echo_if_all_none,
 )
 
 
-def _tx_col_widths(visible, scroll_offset):
-    """Compute column widths for TX queue visible rows."""
-    # Pre-compute num labels since they need index
-    nums = {id(row): str(scroll_offset + i + 1) for i, row in enumerate(visible)}
-    result = compute_col_widths(visible, {
+def _tx_col_widths(cmd_items, scroll_offset):
+    """Compute column widths for TX queue visible command items (dicts)."""
+    nums = {id(row): str(i + 1) for i, row in enumerate(cmd_items)}
+    result = compute_col_widths(cmd_items, {
         "num": lambda row: [nums[id(row)]],
-        "src": lambda row: [node_label(row[0])],
-        "dest": lambda row: [node_label(row[1])],
-        "echo": lambda row: [node_label(row[2])],
-        "ptype": lambda row: [protocol.PTYPE_NAMES.get(row[3], str(row[3]))],
+        "src": lambda row: [node_label(row["src"])],
+        "dest": lambda row: [node_label(row["dest"])],
+        "echo": lambda row: [node_label(row["echo"])],
+        "ptype": lambda row: [protocol.PTYPE_NAMES.get(row["ptype"], str(row["ptype"]))],
     }, defaults={"num": 1, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
-    hide_echo_if_all_none(result, [row[2] for row in visible])
+    hide_echo_if_all_none(result, [row["echo"] for row in cmd_items])
     return result
 
 def _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src, has_time=False):
@@ -48,7 +47,8 @@ def _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src, has_time=False):
         hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
     hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
     hdr.append(" ID/ARGS", style=S_SEP)
-    return hdr, Text("SIZE ", style=S_SEP)
+    right = Text("SIZE ", style=S_SEP)
+    return hdr, right
 
 
 def _hist_col_widths(visible):
@@ -75,12 +75,16 @@ class TxHeader(Widget):
 
     def render(self):
         s, w = self.s, self.content_size.width
-        zmq_style = S_SUCCESS if s.zmq_status == "LIVE" else S_VALUE
+        if s.zmq_status == "ONLINE":
+            zmq_style = S_SUCCESS
+        else:
+            zmq_style = "reverse bold #ff4444" if flash_phase() else "on #330000 bold #ff4444"
         mode_style = Style(color="#55bbaa", bold=True) if s.uplink_mode == "ASM+Golay" else Style(color="#6699cc", bold=True)
         mode_label = "ASM+GOLAY" if s.uplink_mode == "ASM+Golay" else s.uplink_mode
         zmq_val = Text()
         zmq_val.append(s.zmq_addr_disp, style=S_VALUE)
-        zmq_val.append(f" [{s.zmq_status}]", style=zmq_style)
+        zmq_val.append(" ")
+        zmq_val.append(f"[{s.zmq_status}]", style=zmq_style)
         items = [
             ("ZMQ", zmq_val, None),
             ("Mode", mode_label, mode_style),
@@ -90,106 +94,240 @@ class TxHeader(Widget):
 
 
 class TxQueue(ScrollableWidget):
-    """Scrollable pending command queue with send progress indicators and scrollbar."""
+    """Scrollable TX queue with typed items (cmd and delay). Each item = one row."""
     DEFAULT_CSS = "TxQueue { height: 1fr; width: 100%; } TxQueue:focus { border: solid #00bfff; }"
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
         self.s = state
+        self._editing = False
+        self._edit_buf = ""
+
+    def _vis_rows(self):
+        return max(1, self.content_size.height - 4)  # title + hdr + blank + total
 
     def _scroll_by(self, delta):
         s = self.s
         count = len(s.tx_queue)
-        data_rows = max(1, self.content_size.height - 3)  # title + col header + blank
-        s.queue_scroll = max(0, min(count - data_rows, s.queue_scroll + delta))
+        vis = self._vis_rows()
+        delta = -delta  # reversed display: next-to-send at bottom
+        if self.has_focus and not s.sending["active"]:
+            s.queue_sel = max(0, min(count - 1, s.queue_sel + delta))
+            if s.queue_sel < s.queue_scroll:
+                s.queue_scroll = s.queue_sel
+            elif s.queue_sel >= s.queue_scroll + vis:
+                s.queue_scroll = s.queue_sel - vis + 1
+        else:
+            s.queue_scroll = max(0, min(count - vis, s.queue_scroll + delta))
         self.refresh()
+
+    def on_key(self, event):
+        k = event.key
+        s = self.s
+        count = len(s.tx_queue)
+        if self._editing:
+            event.prevent_default()
+            if k == "escape":
+                self._editing = False; self.refresh()
+            elif k == "enter":
+                try: val = max(0, int(self._edit_buf)) if self._edit_buf else 0
+                except ValueError: val = 0
+                if 0 <= s.queue_sel < count and s.tx_queue[s.queue_sel]["type"] == "delay":
+                    s.tx_queue[s.queue_sel]["delay_ms"] = val
+                    s._queue_dirty = True; s._queue_save = True
+                self._editing = False; self.refresh()
+            elif k == "backspace":
+                self._edit_buf = self._edit_buf[:-1]; self.refresh()
+            elif len(k) == 1 and k.isdigit():
+                self._edit_buf += k; self.refresh()
+            return
+        if not s.sending["active"] and 0 <= s.queue_sel < count:
+            item = s.tx_queue[s.queue_sel]
+            if k == "enter" and item["type"] == "delay":
+                self._editing = True
+                self._edit_buf = str(item["delay_ms"])
+                event.prevent_default(); self.refresh(); return
+            if k == "space" and item["type"] == "cmd":
+                item["guard"] = not item.get("guard", False)
+                s._queue_dirty = True; s._queue_save = True
+                event.prevent_default(); self.refresh(); return
+            if k in ("delete", "backspace"):
+                s.tx_queue.pop(s.queue_sel)
+                if s.queue_sel >= len(s.tx_queue):
+                    s.queue_sel = max(0, len(s.tx_queue) - 1)
+                s._queue_dirty = True; s._queue_save = True
+                event.prevent_default(); self.refresh(); return
+            if k == "w":
+                s.tx_queue.insert(s.queue_sel + 1, {"type": "delay", "delay_ms": s.tx_delay_ms})
+                s._queue_dirty = True; s._queue_save = True
+                s.queue_sel += 1  # move to the new delay
+                event.prevent_default(); self.refresh(); return
+        super().on_key(event)
+
+    def on_focus(self, event):
+        s = self.s
+        if s.queue_sel < 0 and s.tx_queue:
+            s.queue_sel = 0; s.queue_scroll = 0
+        self.refresh()
+
+    def on_blur(self, event):
+        self._editing = False; self.refresh()
 
     def render(self):
         s, w, h = self.s, self.content_size.width, self.content_size.height
         q, count = s.tx_queue, len(s.tx_queue)
-        title = Text()
-        title.append(f" TX QUEUE ({count}) ", style=title_style(self.has_focus))
-        title.append(f"  buf: {s.tx_delay_ms}ms", style=S_DIM)
-        if count > 1:
-            t_ms = (count - 1) * s.tx_delay_ms
-            title.append(f"  total: {t_ms/1000:.1f}s" if t_ms >= 1000 else f"  total: {t_ms}ms", style=S_DIM)
         t = Text(no_wrap=True, overflow="crop")
-        data_rows = h - 1
-        ind = Text(f"[{s.queue_scroll+1}-{min(s.queue_scroll+data_rows,count)}/{count}] ", style=S_DIM) if count > data_rows else Text()
+        vis = self._vis_rows()
+        # Title
+        cmd_count = sum(1 for item in q if item["type"] == "cmd")
+        title = Text()
+        title.append(f" TX QUEUE ({cmd_count}) ", style=title_style(self.has_focus))
+        ind = Text(f"[{s.queue_scroll+1}-{min(s.queue_scroll+vis,count)}/{count}] ", style=S_DIM) if count > vis else Text()
         hints = Text("Ctrl+S: send | Ctrl+X: clear ", style=S_DIM)
-        # Combine indicator and hints on title line
-        right = Text()
-        right.append_text(ind)
-        right.append_text(hints)
+        right = Text(); right.append_text(ind); right.append_text(hints)
         t.append_text(lr_line(title, right, w))
-        # Compute visible slice first so header and data share same col widths
-        data_rows -= 2  # account for col header + blank line after title
+        # Scroll (reversed display: next-to-send at bottom)
         if count > 0:
-            s.queue_scroll = max(0, min(s.queue_scroll, max(0, count - data_rows)))
-            visible = q[s.queue_scroll:s.queue_scroll + data_rows]
-            col_w = _tx_col_widths(visible, s.queue_scroll)
-            has_non_gs_src = any(src != protocol.GS_NODE for src, *_ in visible)
-            sb = scrollbar_styles(count, data_rows, s.queue_scroll, data_rows) if count > data_rows else []
+            sending_active = s.sending["active"]
+            if sending_active:
+                s.queue_scroll = 0  # next-to-send at bottom
+            elif not self.has_focus and s.queue_sel < 0:
+                s.queue_scroll = 0
+            s.queue_scroll = max(0, min(s.queue_scroll, max(0, count - vis)))
+            visible = q[s.queue_scroll:s.queue_scroll + vis]
+            cmd_items = [item for item in visible if item["type"] == "cmd"]
+            col_w = _tx_col_widths(cmd_items, s.queue_scroll)
+            has_non_gs_src = any(item.get("src", protocol.GS_NODE) != protocol.GS_NODE for item in cmd_items)
+            sb = scrollbar_styles(count, vis, s.queue_scroll, vis) if count > vis else []
+            visible = list(reversed(visible))
+            if sb: sb = list(reversed(sb))
         else:
-            visible = []
-            col_w = _tx_col_widths([], 0)
-            has_non_gs_src = False
-            sb = []
+            visible, col_w = [], _tx_col_widths([], 0)
+            has_non_gs_src, sb = False, []
         nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
         row_w = w - 1 if sb else w
         hdr, hdr_right = _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src)
-        t.append("\n")
-        t.append_text(lr_line(hdr, hdr_right, row_w))
+        t.append("\n"); t.append_text(lr_line(hdr, hdr_right, row_w))
         if count == 0:
             t.append("\n  (empty — type a command below)", style=S_DIM)
             return t
         sending_idx = s.sending["idx"] if s.sending["active"] else -1
-        for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(visible):
-            ai = s.queue_scroll + i
-            if sending_idx >= 0 and ai < sending_idx:
-                base, tag, ts = "#888888", " SENT", "#888888"
-            elif sending_idx >= 0 and ai == sending_idx:
-                flash = int(time.time() * 1000 / 500) % 2 == 0
-                if flash:
-                    base, tag, ts = "reverse bold #00ff87", " SENT", "reverse bold #00ff87"
-                else:
-                    base, tag, ts = "on #003300 bold #00ff87", " SENT", "on #003300 bold #00ff87"
-            elif sending_idx >= 0 and ai == sending_idx + 1:
-                base, tag, ts = "", " NEXT", "bold #888888"
-            else:
-                base, tag, ts = "", "", ""
-            uniform = "reverse" in base  # just-sent row: all fields use base only
-            left = Text(style=base)
-            left.append(f" #{ai+1:<{nw}} ", style=base if uniform else (f"{base} #ffffff" if not base else base))
-            if has_non_gs_src:
-                left.append(f" {node_label(src):>{sw}} → {node_label(dest):<{dw}} ", style=base if uniform else (f"{base} #00bfff" if not base else base))
-            else:
-                left.append(f" {node_label(dest):<{dw}} ", style=base if uniform else (f"{base} #00bfff" if not base else base))
-            if ew:
-                left.append(f" E:{node_label(echo):<{ew}} ", style=base if uniform else f"{base} {node_color(echo)}")
-            pt = protocol.PTYPE_NAMES.get(ptype, str(ptype))
-            left.append(f" {pt:<{pw}} ", style=base if uniform else (f"{base} {ptype_color(ptype)}" if not base else base))
-            left.append(f"{cmd} ", style=base if uniform else (f"{base} bold #ffffff" if not base else base))
-            args_indent = left.cell_len
-            args_style = base if (uniform or base == "#888888") else f"{base} #ffffff"
-            pending_args = None
-            rs = f"{tag}  {len(raw_cmd)}B" if tag else f"{len(raw_cmd)}B"
-            size_style = ts if tag else f"{base} #999999" if base else "#999999"
-            right = Text(rs + " ", style=size_style)
-            if args:
-                avail = row_w - left.cell_len - right.cell_len
-                if avail >= len(args):
-                    left.append(args, style=args_style)
-                else:
-                    pending_args = args
+        guarding = s.sending.get("guarding", False) if s.sending["active"] else False
+        focused = self.has_focus and not s.sending["active"]
+        n_vis = len(visible)
+        t_ms = sum(item["delay_ms"] for item in q if item["type"] == "delay")
+        # Bottom-align: pad above items so they anchor to the bottom
+        content_rows = n_vis + (1 if t_ms > 0 else 0)
+        pad = max(0, h - 2 - content_rows)
+        for _ in range(pad):
             t.append("\n")
-            line = lr_line(left, right, row_w, fill_style=base)
-            if sb:
-                line.append(" ", style=sb[i])
-            t.append_text(line)
-            if pending_args:
-                append_wrapped_args(t, pending_args, args_indent, args_style, row_w)
+        for i, item in enumerate(visible):
+            ai = s.queue_scroll + (n_vis - 1 - i)  # reversed display
+            is_sel = focused and ai == s.queue_sel
+            is_next = (ai == 0)
+            if item["type"] == "cmd":
+                cmd_num = item.get("num", ai + 1)
+                self._render_cmd(t, item, ai, cmd_num, is_sel, is_next, sending_idx, guarding,
+                                 nw, sw, dw, ew, pw, has_non_gs_src, row_w, sb, i, s)
+            else:
+                self._render_delay(t, item, ai, is_sel, sending_idx, guarding, row_w, sb, i, s)
+        if t_ms > 0:
+            total_str = f"{t_ms/1000:.1f}s"
+            t.append("\n"); t.append_text(lr_line(Text(), Text(f"Σ {total_str} ", style=S_DIM), row_w))
         return t
+
+    def _render_cmd(self, t, item, ai, cmd_num, is_sel, is_next, sending_idx, guarding,
+                    nw, sw, dw, ew, pw, has_non_gs_src, row_w, sb, vi, s):
+        """Render a command row."""
+        sent_at = s.sending.get("sent_at", 0.0)
+        is_current = sending_idx >= 0 and ai == sending_idx
+        in_flash = is_current and sent_at > 0 and time.time() - sent_at < 1.0
+        if is_current and guarding:
+            flash = flash_phase()
+            b = "reverse bold #00bfff" if flash else "on #002233 bold #00bfff"
+            tag, ts, uniform = " GUARD", b, True
+        elif in_flash:
+            flash = flash_phase()
+            b = "reverse bold #00ff87" if flash else "on #003300 bold #00ff87"
+            tag, ts, uniform = " SENT", b, True
+        elif is_sel:
+            b, tag, ts, uniform = "reverse bold", "", "", False
+        elif is_next:
+            b, tag, ts, uniform = "on #1a1a1a", "", "", False
+        else:
+            b, tag, ts, uniform = "", "", "", False
+        left = Text(style=b)
+        left.append(f" #{cmd_num:<{nw}} ", style=b if uniform else f"{b} #ffffff")
+        src, dest, echo = item["src"], item["dest"], item["echo"]
+        if has_non_gs_src:
+            left.append(f" {node_label(src):>{sw}} → {node_label(dest):<{dw}} ", style=b if uniform else f"{b} #00bfff")
+        else:
+            left.append(f" {node_label(dest):<{dw}} ", style=b if uniform else f"{b} #00bfff")
+        if ew:
+            left.append(f" E:{node_label(echo):<{ew}} ", style=b if uniform else f"{b} {node_color(echo)}")
+        pt = protocol.PTYPE_NAMES.get(item["ptype"], str(item["ptype"]))
+        left.append(f" {pt:<{pw}} ", style=b if uniform else f"{b} {ptype_color(item['ptype'])}")
+        left.append(f" {item['cmd']} ", style=b if uniform else f"{b} bold #ffffff")
+        args_indent = left.cell_len
+        args_style = b if uniform else (f"{b} #ffffff" if b != "#888888" else b)
+        # Right side
+        right_parts = Text()
+        if is_next and not tag:
+            right_parts.append(" NEXT ", style="bold #000000 on #ffffff")
+        if item.get("guard") and "SENT" not in tag and "GUARD" not in tag:
+            right_parts.append(" GUARDED ", style="bold #000000 on #00bfff")
+        if tag:
+            right_parts.append(f"{tag}  ", style=ts)
+        size_style = ts if tag else (f"{b} #555555" if is_sel else f"{b} #999999")
+        right_parts.append(f" {len(item['raw_cmd'])}B ", style=size_style)
+        pending_args = None
+        if item["args"]:
+            avail = row_w - left.cell_len - right_parts.cell_len
+            if avail >= len(item["args"]):
+                left.append(item["args"], style=args_style)
+            else:
+                pending_args = item["args"]
+        t.append("\n")
+        line = lr_line(left, right_parts, row_w, fill_style=b)
+        if sb and vi < len(sb): line.append(" ", style=sb[vi])
+        t.append_text(line)
+        if pending_args:
+            append_wrapped_args(t, pending_args, args_indent, args_style, row_w)
+
+    def _render_delay(self, t, item, ai, is_sel, sending_idx, guarding, row_w, sb, vi, s):
+        """Render a delay separator row."""
+        delay_ms = item["delay_ms"]
+        editing = is_sel and self._editing
+        delay_end = s.sending.get("delay_end", 0.0)
+        waiting = s.sending.get("waiting", False)
+        is_current = sending_idx >= 0 and ai == sending_idx
+        counting = is_current and waiting and delay_end > 0
+        delay_s = f"{delay_ms / 1000:.1f}s"
+        if editing:
+            label = f" [{self._edit_buf}_]ms "
+            dstyle = S_LABEL
+        elif counting:
+            flash = flash_phase()
+            remaining = max(0, delay_end - time.time())
+            label = f" {remaining:.1f}s "
+            dstyle = "reverse bold #00ff87" if flash else "on #003300 bold #00ff87"
+        elif is_sel:
+            label = f" {delay_s} "
+            dstyle = "reverse bold"
+        else:
+            label = f" {delay_s} "
+            dstyle = "bold #000000 on #aaaaaa"
+        lw = len(label)
+        center = (row_w - lw) // 2
+        line_style = S_DIM
+        sep = Text()
+        sep.append("─" * center, style=line_style)
+        sep.append(label, style=dstyle)
+        sep.append("─" * max(0, row_w - center - lw), style=line_style)
+        t.append("\n")
+        final = lr_line(sep, Text(), row_w)
+        if sb and vi < len(sb): final.append(" ", style=sb[vi])
+        t.append_text(final)
 
 
 class SentHistory(ScrollableWidget):
@@ -203,8 +341,8 @@ class SentHistory(ScrollableWidget):
     def _scroll_by(self, delta):
         s = self.s
         count = len(s.history)
-        data_rows = max(1, self.content_size.height - 3)  # title + col header + blank
-        s.hist_scroll = max(min(data_rows - 1, count - 1), min(count - 1, s.hist_scroll + delta))
+        data_rows = max(1, self.content_size.height - 3)
+        s.hist_scroll = max(min(data_rows - 1, count - 1), min(count - 1, max(0, s.hist_scroll + delta)))
         self.refresh()
 
     def render(self):
@@ -217,6 +355,8 @@ class SentHistory(ScrollableWidget):
         # Compute visible slice first so header and data share same col widths
         data_rows -= 2  # col header + blank line between title and data
         if count > 0:
+            if not self.has_focus:
+                s.hist_scroll = count - 1
             end = min(s.hist_scroll + 1, count)
             start = max(0, end - data_rows)
             visible = hist[start:end]
@@ -239,12 +379,18 @@ class SentHistory(ScrollableWidget):
         if count == 0:
             t.append("\n  (no commands sent yet)", style=S_DIM)
             return t
+        sending_active = s.sending.get("active", False)
         t.append("\n")
         for i, rec in enumerate(visible):
             src = rec.get('src', protocol.GS_NODE)
-            left = Text()
-            h_node = "#778899"  # cool slate for historical protocol data
-            h_val  = "#8899aa"  # slate for historical values
+            is_last = (start + i == count - 1)
+            if is_last and sending_active:
+                b = "on #1a1a2e bold"
+            else:
+                b = ""
+            h_node = f"{b} #778899"
+            h_val  = f"{b} #8899aa"
+            left = Text(style=b)
             left.append(f" #{rec['n']:<{nw}} ", style=h_val)
             left.append(f" {rec['ts']} ", style=h_val)
             if has_non_gs_src:
@@ -252,21 +398,21 @@ class SentHistory(ScrollableWidget):
             else:
                 left.append(f" {node_label(rec['dest']):<{dw}} ", style=h_node)
             if ew:
-                echo_c = "#888888" if protocol.NODE_NAMES.get(rec['echo']) == "NONE" else h_node
+                echo_c = f"{b} #888888" if protocol.NODE_NAMES.get(rec['echo']) == "NONE" else h_node
                 left.append(f" E:{node_label(rec['echo']):<{ew}} ", style=echo_c)
             pt = protocol.PTYPE_NAMES.get(rec['ptype'], '?')
             left.append(f" {pt:<{pw}} ", style=h_node)
-            left.append(f"{rec['cmd']} ", style=f"{h_val} bold")
+            left.append(f"{rec['cmd']} ", style=f"{b} bold #8899aa" if not b else b)
             args_indent = left.cell_len
             pending_args = None
-            right = Text(f"{rec['payload_len']}B ", style="#999999")
+            right = Text(f" {rec['payload_len']}B ", style=f"{b} #999999" if not b else b)
             if rec["args"]:
                 avail = row_w - left.cell_len - right.cell_len
                 if avail >= len(rec["args"]):
                     left.append(rec["args"], style=h_val)
                 else:
                     pending_args = rec["args"]
-            line = lr_line(left, right, row_w)
+            line = lr_line(left, right, row_w, fill_style=b)
             if sb:
                 line.append(" ", style=sb[i])
             t.append_text(line)
@@ -313,10 +459,18 @@ HELP_LINES = [
     ("Mouse wheel", "Scroll focused widget"),
     ("Ctrl+A / Ctrl+E", "Cursor start / end"),
     ("Ctrl+W / Ctrl+U", "Del word / clear input"),
+    ("QUEUE FOCUS", None), ("Up / Down", "Navigate items"),
+    ("Enter (on delay)", "Edit delay value"),
+    ("Space (on cmd)", "Toggle guard"),
+    ("w", "Insert delay after selected"),
+    ("Delete / Backspace", "Remove selected item"),
     ("COMMANDS", None), ("send", "Send all queued"), ("undo / pop", "Remove last queued"),
     ("clear / hclear", "Clear queue / history"), ("cfg / help / nodes", "Panels & info"),
     ("mode [AX.25|ASM+GOLAY]", "Switch uplink encoding"),
-    ("imp [file]", "Import from generated_commands/"), ("raw <hex>", "Send raw bytes"), ("q", "Exit"),
+    ("wait [ms]", "Queue a delay item"),
+    ("imp [file]", "Import from generated_commands/"), ("raw <hex>", "Send raw bytes"),
+    ("tag <name>", "Tag log file for easy ID"),
+    ("log [name]", "Start new log session"), ("q", "Exit"),
 ]
 
 def _is_golay(v): return v.get("uplink_mode") == "ASM+Golay"
@@ -362,3 +516,25 @@ def config_apply(values, csp, ax25):
 def tx_help_info(s):
     """Return (version, schema_count, schema_path, log_path) for the help panel."""
     return (s.version, s.schema_count, s.schema_path, s.tx_log.text_path)
+
+def build_guard_content(item, num, total):
+    """Build a reverse-highlighted Rich Text line for the guard confirmation modal,
+    matching the TX queue row format."""
+    b = "reverse bold"
+    src, dest, echo = item["src"], item["dest"], item["echo"]
+    ptype = item["ptype"]
+    t = Text(style=b)
+    t.append(f" #{num} ", style=f"{b} #ffffff")
+    if src != protocol.GS_NODE:
+        t.append(f" {node_label(src)} → {node_label(dest)} ", style=f"{b} #00bfff")
+    else:
+        t.append(f" {node_label(dest)} ", style=f"{b} #00bfff")
+    if protocol.NODE_NAMES.get(echo) != "NONE":
+        t.append(f" E:{node_label(echo)} ", style=f"{b} {node_color(echo)}")
+    pt = protocol.PTYPE_NAMES.get(ptype, str(ptype))
+    t.append(f" {pt} ", style=f"{b} {ptype_color(ptype)}")
+    t.append(f" {item['cmd']} ", style=f"{b} #ffffff")
+    if item["args"]:
+        t.append(f" {item['args']} ", style=f"{b} #ffffff")
+    t.append(f" {len(item['raw_cmd'])}B ", style=f"{b} #999999")
+    return t

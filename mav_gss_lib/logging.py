@@ -11,6 +11,8 @@ Author:  Irfan Annuar - USC ISI SERC
 import json
 import os
 import queue
+import re
+import sys
 import threading
 import time
 from datetime import datetime
@@ -38,34 +40,14 @@ class _BaseLog:
     _SENTINEL = None  # poison pill to stop the writer thread
 
     def __init__(self, log_dir, prefix, version, mode, zmq_addr):
-        text_dir = os.path.join(log_dir, "text")
-        json_dir = os.path.join(log_dir, "json")
-        os.makedirs(text_dir, exist_ok=True)
-        os.makedirs(json_dir, exist_ok=True)
-
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.text_path  = os.path.join(text_dir, f"{prefix}_{ts}.txt")
-        self.jsonl_path = os.path.join(json_dir, f"{prefix}_{ts}.jsonl")
-        self._text_f  = open(self.text_path, "w")
-        self._jsonl_f = open(self.jsonl_path, "a")
-
-        # Session header (written directly — thread not started yet)
-        session_ts = datetime.now().astimezone().strftime(TS_FULL)
-        self._text_f.write(
-            f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
-            f"  MAVERIC Ground Station Log  v{version}\n"
-            f"  Mode:      {mode}\n"
-            f"  Session:   {session_ts}\n"
-            f"  ZMQ:       {zmq_addr}\n"
-            f"{HEADER_CHAR * LOG_LINE_WIDTH}\n\n"
-        )
-        self._text_f.flush()
-
-        # Background writer thread
-        self._q = queue.Queue()
-        self._writer = threading.Thread(target=self._writer_loop,
-                                        name="log-writer", daemon=True)
-        self._writer.start()
+        self._log_dir = log_dir
+        self._prefix = prefix
+        self._version = version
+        self._mode = mode
+        self._zmq_addr = zmq_addr
+        os.makedirs(os.path.join(log_dir, "text"), exist_ok=True)
+        os.makedirs(os.path.join(log_dir, "json"), exist_ok=True)
+        self._open_files()
 
     def _writer_loop(self):
         """Drain the write queue until sentinel received."""
@@ -79,9 +61,15 @@ class _BaseLog:
                 self._jsonl_f.flush()
             elif kind == "text":
                 self._text_f.write(data)
-            elif kind == "text_flush":
-                self._text_f.write(data)
                 self._text_f.flush()
+            elif kind == "rename":
+                new_text, new_jsonl = data
+                self._text_f.close(); self._jsonl_f.close()
+                os.rename(self.text_path, new_text)
+                os.rename(self.jsonl_path, new_jsonl)
+                self.text_path, self.jsonl_path = new_text, new_jsonl
+                self._text_f = open(new_text, "a", buffering=1)
+                self._jsonl_f = open(new_jsonl, "a", buffering=1)
 
     # -- Shared helpers -------------------------------------------------------
 
@@ -138,20 +126,66 @@ class _BaseLog:
 
     def _write_entry(self, lines):
         """Write a complete log entry (list of lines + trailing blank)."""
-        self._q.put(("text_flush", "\n".join(lines) + "\n\n"))
+        self._q.put(("text", "\n".join(lines) + "\n\n"))
 
     def _write_summary_block(self, summary_lines):
         """Write a summary block with ═ borders."""
         block = [
             "", HEADER_CHAR * LOG_LINE_WIDTH, "  Session Summary", HEADER_CHAR * LOG_LINE_WIDTH,
         ] + summary_lines + [HEADER_CHAR * LOG_LINE_WIDTH, ""]
-        self._q.put(("text_flush", "\n".join(block) + "\n"))
+        self._q.put(("text", "\n".join(block) + "\n"))
+
+    def _open_files(self, tag=""):
+        """Open new log files with fresh timestamp, write header, start writer thread."""
+        tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"{self._prefix}_{ts}_{tag}" if tag else f"{self._prefix}_{ts}"
+        self.text_path = os.path.join(self._log_dir, "text", f"{name}.txt")
+        self.jsonl_path = os.path.join(self._log_dir, "json", f"{name}.jsonl")
+        self._text_f = open(self.text_path, "w", buffering=1)
+        self._jsonl_f = open(self.jsonl_path, "a", buffering=1)
+        session_ts = datetime.now().astimezone().strftime(TS_FULL)
+        self._text_f.write(
+            f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
+            f"  MAVERIC Ground Station Log  v{self._version}\n"
+            f"  Mode:      {self._mode}\n"
+            f"  Session:   {session_ts}\n"
+            f"  ZMQ:       {self._zmq_addr}\n"
+            f"{HEADER_CHAR * LOG_LINE_WIDTH}\n\n"
+        )
+        self._text_f.flush()
+        self._q = queue.Queue()
+        self._writer = threading.Thread(target=self._writer_loop,
+                                        name="log-writer", daemon=True)
+        self._writer.start()
+
+    def new_session(self, tag=""):
+        """Close current log files and start a new session."""
+        self._q.put(self._SENTINEL)
+        self._writer.join(timeout=5.0)
+        self._text_f.flush(); self._jsonl_f.flush()
+        self._text_f.close(); self._jsonl_f.close()
+        self._open_files(tag)
+
+    def rename(self, tag):
+        """Rename log files by appending a sanitized tag before the extension."""
+        tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_')
+        if not tag:
+            return
+        def _new_path(path):
+            base, ext = os.path.splitext(path)
+            return f"{base}_{tag}{ext}"
+        new_text, new_jsonl = _new_path(self.text_path), _new_path(self.jsonl_path)
+        if sys.platform == "win32":
+            self._q.put(("rename", (new_text, new_jsonl)))
+        else:
+            os.rename(self.text_path, new_text)
+            os.rename(self.jsonl_path, new_jsonl)
+            self.text_path, self.jsonl_path = new_text, new_jsonl
 
     def close(self):
         self._q.put(self._SENTINEL)
         self._writer.join(timeout=5.0)
-        self._jsonl_f.flush()
-        self._text_f.flush()
         self._jsonl_f.close()
         self._text_f.close()
 

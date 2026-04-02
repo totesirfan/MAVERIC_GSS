@@ -5,6 +5,7 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 import argparse
+import os
 import queue
 import sys
 import threading
@@ -164,20 +165,46 @@ def _drain_rx_queue(state, pkt_queue):
     return dirty
 
 
+def _toggle_flag(state, attr, label):
+    """Toggle a boolean state flag and show a brief ON/OFF status."""
+    setattr(state, attr, not getattr(state, attr))
+    state.status.set(f"{label} {'ON' if getattr(state, attr) else 'OFF'}", STATUS_BRIEF)
+
 def _dispatch_rx_command(state, line):
     """Dispatch an RX-specific command (hex, ul, wrapper, detail, hclear, live)."""
     cmd = line.lower()
     common = dispatch_common(state, cmd)
+    if isinstance(common, tuple) and common[0] == "tag":
+        tag = common[1]
+        if not tag.strip():
+            state.status.set("Usage: tag <name>", STATUS_NORMAL); return True
+        if state.log:
+            state.log.rename(tag)
+            state.status.set(f"Log tagged: {tag}", STATUS_BRIEF)
+        else:
+            state.status.set("Logging disabled", STATUS_BRIEF)
+        return True
+    if isinstance(common, tuple) and common[0] == "log":
+        tag = common[1]
+        if state.log:
+            state.log.write_summary(state.pipeline.packet_count, state.session_start,
+                state.first_pkt_ts, state.last_pkt_ts,
+                unique=len(state.pipeline.seen_fps),
+                duplicates=state.pipeline.packet_count - len(state.pipeline.seen_fps),
+                unknown=state.pipeline.unknown_count,
+                uplink_echoes=state.pipeline.uplink_echo_count)
+            state.log.new_session(tag)
+            state.pipeline.reset_counts()
+            state.session_start = time.time()
+            state.first_pkt_ts = None; state.last_pkt_ts = None
+            state.status.set(f"New log: {os.path.basename(state.log.text_path)}", STATUS_BRIEF)
+        else:
+            state.status.set("Logging disabled", STATUS_BRIEF)
+        return True
     if common is not None: return common
-    if cmd == 'hex':
-        state.show_hex = not state.show_hex
-        state.status.set(f"HEX {'ON' if state.show_hex else 'OFF'}", STATUS_BRIEF)
-    elif cmd == 'ul':
-        state.hide_uplink = not state.hide_uplink
-        state.status.set(f"Hide Uplink {'ON' if state.hide_uplink else 'OFF'}", STATUS_BRIEF)
-    elif cmd == 'wrapper':
-        state.show_wrapper = not state.show_wrapper
-        state.status.set(f"Wrapper {'ON' if state.show_wrapper else 'OFF'}", STATUS_BRIEF)
+    if cmd == 'hex': _toggle_flag(state, 'show_hex', 'HEX')
+    elif cmd == 'ul': _toggle_flag(state, 'hide_uplink', 'Hide Uplink')
+    elif cmd == 'wrapper': _toggle_flag(state, 'show_wrapper', 'Wrapper')
     elif cmd == 'detail':
         state.detail_open = not state.detail_open
     elif cmd == 'hclear':
@@ -244,7 +271,7 @@ class MavRxApp(MavAppBase):
         self._zmq_ctx, self._sock, self._zmq_monitor = init_zmq_sub(ZMQ_ADDR, ZMQ_RECV_TIMEOUT_MS)
         self._pkt_queue = queue.Queue()
         self._stop_event = threading.Event()
-        self._zmq_status = ["SUB"]
+        self._zmq_status = ["OFFLINE"]
         self.result = None
 
     def compose(self) -> ComposeResult:
@@ -275,7 +302,7 @@ class MavRxApp(MavAppBase):
                   lambda msg: self.state.error_status.set(msg, STATUS_LONG)),
             daemon=True)
         self._rx_thread.start()
-        self.set_interval(1/15, self._tick)
+        self.set_interval(1/60, self._tick)
         self._last_tick_time = time.time()
         self._last_header_sec = -1
         self.query_one("#rx-input").focus()
@@ -306,7 +333,8 @@ class MavRxApp(MavAppBase):
         if pkt_dirty:
             self.query_one("#packet-detail").refresh()
         now_sec = int(time.time())
-        if now_sec != self._last_header_sec:
+        zmq_offline = self._zmq_status[0] != "ONLINE"
+        if now_sec != self._last_header_sec or zmq_offline:
             self._last_header_sec = now_sec
             self.query_one("#rx-header").refresh()
         if pkt_dirty and s.help_open:
@@ -392,15 +420,14 @@ class MavRxApp(MavAppBase):
 
     def _on_config_done(self, values):
         s = self.state
-        new_hex = (values.get("show_hex", "OFF").upper() == "ON")
-        new_wrap = (values.get("show_wrapper", "OFF").upper() == "ON")
-        new_ul = (values.get("hide_uplink", "OFF").upper() == "ON")
-        if new_hex != s.show_hex:
-            s.show_hex = new_hex; s.status.set(f"HEX {'ON' if s.show_hex else 'OFF'}", STATUS_BRIEF)
-        if new_wrap != s.show_wrapper:
-            s.show_wrapper = new_wrap; s.status.set(f"Wrapper {'ON' if s.show_wrapper else 'OFF'}", STATUS_BRIEF)
-        if new_ul != s.hide_uplink:
-            s.hide_uplink = new_ul; s.status.set(f"Hide Uplink {'ON' if s.hide_uplink else 'OFF'}", STATUS_BRIEF)
+        def _apply(attr, key, label):
+            new = values.get(key, "OFF").upper() == "ON"
+            if new != getattr(s, attr):
+                setattr(s, attr, new)
+                s.status.set(f"{label} {'ON' if new else 'OFF'}", STATUS_BRIEF)
+        _apply("show_hex", "show_hex", "HEX")
+        _apply("show_wrapper", "show_wrapper", "Wrapper")
+        _apply("hide_uplink", "hide_uplink", "Hide Uplink")
         self._act()
 
     # -- Cleanup --------------------------------------------------------------
@@ -436,6 +463,11 @@ def main():
     args = parser.parse_args()
     app = MavRxApp(show_splash=not args.nosplash)
     app.run()
+    if app.return_value == "restart":
+        print("\n  Restarting...\n")
+        argv = sys.argv[:]
+        if "--nosplash" not in argv: argv.append("--nosplash")
+        os.execv(sys.executable, [sys.executable] + argv)
     r = app.result
     if r:
         print(f"\n  Session ended\n  Packets: {r['packet_count']} "

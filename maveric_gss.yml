@@ -29,14 +29,14 @@ csp:
 tx:
   zmq_addr: tcp://127.0.0.1:52002
   frequency: 437.25 MHz
-  delay_ms: 3500
+  delay_ms: 1000
   uplink_mode: ASM+Golay
   asm_hw: false
 rx:
   zmq_port: 52001
   zmq_addr: tcp://127.0.0.1:52001
 general:
-  version: 4.1.3
+  version: 4.2.0
   log_dir: logs
   command_defs: maveric_commands.yml
   decoder_yml: maveric_decoder.yml

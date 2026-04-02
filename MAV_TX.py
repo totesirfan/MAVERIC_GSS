@@ -7,6 +7,7 @@ Author:  Irfan Annuar - USC ISI SERC
 import argparse
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -44,7 +45,7 @@ from mav_gss_lib.ax25 import build_ax25_gfsk_frame
 from mav_gss_lib.tui_tx import (
     TxHeader, TxQueue, SentHistory, TxStatusBar,
     HELP_LINES, CONFIG_FIELDS, config_get_values, config_apply,
-    tx_help_info,
+    tx_help_info, build_guard_content,
 )
 
 CFG = load_gss_config()
@@ -62,23 +63,50 @@ MAX_CMD_HISTORY = 500
 QUEUE_FILE = os.path.join(LOG_DIR, ".pending_queue.jsonl")
 IMPORT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated_commands")
 
+# -- Queue item helpers -------------------------------------------------------
+
+def _make_cmd(src, dest, echo, ptype, cmd, args, guard=False):
+    """Create a command queue item dict with raw_cmd built from fields."""
+    raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype, origin=src)
+    return {"type": "cmd", "src": src, "dest": dest, "echo": echo, "ptype": ptype,
+            "cmd": cmd, "args": args, "guard": guard, "raw_cmd": raw_cmd}
+
+def _renumber_queue(tx_queue):
+    """Assign sequential numbers to cmd items in the queue."""
+    n = 0
+    for item in tx_queue:
+        if item["type"] == "cmd":
+            n += 1
+            item["num"] = n
+
+def _make_delay(delay_ms):
+    """Create a delay queue item dict."""
+    return {"type": "delay", "delay_ms": delay_ms}
+
 # -- Queue persistence --------------------------------------------------------
 
-def _queue_entry_to_dict(entry):
-    """Serialize a queue tuple to a JSON-safe dict for JSONL persistence."""
-    src, dest, echo, ptype, cmd, args, raw_cmd = entry
-    return {"src": src, "dest": dest, "echo": echo, "ptype": ptype,
-            "cmd": cmd, "args": args, "raw_cmd": raw_cmd.hex()}
+def _item_to_json(item):
+    """Serialize a queue item dict to a JSON-safe dict (no raw_cmd)."""
+    d = {k: v for k, v in item.items() if k != "raw_cmd"}
+    if d["type"] == "cmd" and not d.get("guard"):
+        d.pop("guard", None)
+    return d
 
-def _dict_to_queue_entry(d):
-    """Deserialize a JSON dict back into a queue tuple."""
-    return (d["src"], d["dest"], d["echo"], d["ptype"],
-            d["cmd"], d["args"], bytes.fromhex(d["raw_cmd"]))
+def _json_to_items(d):
+    """Deserialize a JSON dict into a queue item."""
+    if d["type"] == "delay":
+        return [_make_delay(d.get("delay_ms", 0))]
+    return [_make_cmd(d["src"], d["dest"], d["echo"], d["ptype"],
+                      d["cmd"], d.get("args", ""), bool(d.get("guard")))]
 
-def _array_to_queue_entry(arr):
-    """Convert a 6-element JSON array [src, dest, echo, ptype, cmd, args]
-    (as exported by MAVERIC Command Generator) into a queue tuple."""
-    src_s, dest_s, echo_s, ptype_s, cmd, args = arr
+def _array_to_items(arr, kvs=None):
+    """Convert a JSON array [src, dest, echo, ptype, cmd, ?args]
+    into a cmd item. Optional kvs dict for hybrid format overrides (guard)."""
+    if len(arr) < 5:
+        raise ValueError("array too short: need at least [src, dest, echo, ptype, cmd]")
+    src_s, dest_s, echo_s, ptype_s, cmd = arr[:5]
+    args = arr[5] if len(arr) > 5 else ""
+    guard = bool(kvs.get("guard", False)) if kvs else False
     src   = protocol.resolve_node(str(src_s))
     dest  = protocol.resolve_node(str(dest_s))
     echo  = protocol.resolve_node(str(echo_s))
@@ -86,8 +114,7 @@ def _array_to_queue_entry(arr):
     if None in (src, dest, echo, ptype):
         raise ValueError("unresolvable node/ptype in array entry")
     cmd = cmd.lower()
-    raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype, origin=src)
-    return (src, dest, echo, ptype, cmd, args, raw_cmd)
+    return [_make_cmd(src, dest, echo, ptype, cmd, args, guard)]
 
 def _save_queue(tx_queue):
     """Atomically write the full TX queue to .pending_queue.jsonl."""
@@ -98,34 +125,82 @@ def _save_queue(tx_queue):
     fd, tmp = tempfile.mkstemp(suffix=".tmp", dir=os.path.dirname(QUEUE_FILE) or ".")
     try:
         with os.fdopen(fd, "w") as f:
-            for e in tx_queue: f.write(json.dumps(_queue_entry_to_dict(e)) + "\n")
+            for item in tx_queue: f.write(json.dumps(_item_to_json(item)) + "\n")
         os.replace(tmp, QUEUE_FILE)
     except BaseException:
         try: os.unlink(tmp)
         except OSError: pass
         raise
 
-def _append_queue(entry):
-    """Append a single queue entry to .pending_queue.jsonl."""
+def _append_queue(item):
+    """Append a single queue item to .pending_queue.jsonl."""
     with open(QUEUE_FILE, "a") as f:
-        f.write(json.dumps(_queue_entry_to_dict(entry)) + "\n")
+        f.write(json.dumps(_item_to_json(item)) + "\n")
+
+def _normalize_jsonl_line(line):
+    """Normalize a JSONL line: strip comments, fix hybrid array+dict syntax."""
+    import re
+    line = line.strip()
+    if not line or line.startswith("//"):
+        return None
+    # Strip inline // comments (outside strings)
+    in_str, escaped, out = False, False, []
+    for i, ch in enumerate(line):
+        if escaped: escaped = False; out.append(ch); continue
+        if ch == '\\' and in_str: escaped = True; out.append(ch); continue
+        if ch == '"': in_str = not in_str; out.append(ch); continue
+        if not in_str and ch == '/' and i + 1 < len(line) and line[i + 1] == '/':
+            break
+        out.append(ch)
+    line = "".join(out).rstrip().rstrip(",")
+    if not line:
+        return None
+    if line.startswith("["):
+        kv_pattern = re.compile(r',\s*"(\w+)"\s*:\s*(true|false|null|\d+(?:\.\d+)?|"[^"]*")')
+        kvs = {}
+        for m in kv_pattern.finditer(line):
+            key = m.group(1)
+            raw = m.group(2)
+            if raw == "true": kvs[key] = True
+            elif raw == "false": kvs[key] = False
+            elif raw == "null": kvs[key] = None
+            elif raw.startswith('"'): kvs[key] = raw[1:-1]
+            elif "." in raw: kvs[key] = float(raw)
+            else: kvs[key] = int(raw)
+        if kvs:
+            cleaned = kv_pattern.sub("", line)
+            cleaned = cleaned.rstrip().rstrip(",").rstrip()
+            if not cleaned.endswith("]"):
+                cleaned = cleaned.rstrip(",").rstrip() + "]"
+            try:
+                arr = json.loads(cleaned)
+                return ("hybrid", arr, kvs)
+            except json.JSONDecodeError:
+                pass
+    return ("raw", line)
 
 def _parse_jsonl_file(path):
-    """Parse a JSONL file of queue entries (dict or array format).
-    Returns (entries, skipped_count). Raises FileNotFoundError if missing."""
-    entries, skipped = [], 0
+    """Parse a JSONL file of queue items (dict, array, or hybrid format).
+    Supports // comments, hybrid arrays, and legacy 9-tuple dicts.
+    Returns (items_list, skipped_count). Raises FileNotFoundError if missing."""
+    items, skipped = [], 0
     with open(path) as f:
         for line in f:
-            line = line.strip()
-            if not line: continue
+            result = _normalize_jsonl_line(line)
+            if result is None: continue
             try:
-                obj = json.loads(line)
-                if isinstance(obj, list):
-                    entries.append(_array_to_queue_entry(obj))
+                if result[0] == "hybrid":
+                    _, arr, kvs = result
+                    items.extend(_array_to_items(arr, kvs))
                 else:
-                    entries.append(_dict_to_queue_entry(obj))
-            except (json.JSONDecodeError, KeyError, ValueError): skipped += 1
-    return entries, skipped
+                    obj = json.loads(result[1])
+                    if isinstance(obj, list):
+                        items.extend(_array_to_items(obj))
+                    else:
+                        items.extend(_json_to_items(obj))
+            except (json.JSONDecodeError, KeyError, ValueError):
+                skipped += 1
+    return items, skipped
 
 def _load_queue():
     """Load the persisted TX queue from .pending_queue.jsonl, if it exists."""
@@ -145,21 +220,37 @@ def _list_import_files():
     files.sort(key=lambda f: os.path.getmtime(os.path.join(IMPORT_DIR, f)), reverse=True)
     return files
 
+def _frame_overhead(state):
+    """Total protocol overhead (CSP + optional AX.25) for the current uplink mode."""
+    return state.csp.overhead() if state.uplink_mode == "ASM+Golay" else state.csp.overhead() + state.ax25.overhead()
+
+def _perform_undo(state):
+    """Pop the last TX queue item and persist. Returns True if an item was removed."""
+    if state.tx_queue:
+        r = state.tx_queue.pop(); _save_queue(state.tx_queue)
+        _renumber_queue(state.tx_queue); state._queue_dirty = True
+        if state.queue_sel >= len(state.tx_queue): state.queue_sel = len(state.tx_queue) - 1
+        label = r.get("cmd", f"{r['delay_ms']}ms") if r["type"] == "cmd" else f"{r['delay_ms']}ms"
+        state.status.set(f"Removed: {label} ({len(state.tx_queue)} left)", STATUS_BRIEF)
+        return True
+    state.status.set("Queue is empty", STATUS_BRIEF)
+    return False
+
 def _import_file(state, filename):
-    """Import commands from a JSONL file into the TX queue.
+    """Import items from a JSONL file into the TX queue.
     Returns (loaded_count, skipped_count) or raises FileNotFoundError."""
-    entries, skipped = _parse_jsonl_file(os.path.join(IMPORT_DIR, filename))
-    overhead = state.csp.overhead() if state.uplink_mode == "ASM+Golay" else state.csp.overhead() + state.ax25.overhead()
+    new_items, skipped = _parse_jsonl_file(os.path.join(IMPORT_DIR, filename))
+    overhead = _frame_overhead(state)
     accepted = []
-    for e in entries:
-        raw_cmd = e[6]
-        if len(raw_cmd) + overhead > MAX_RS_PAYLOAD:
+    for item in new_items:
+        if item["type"] == "cmd" and len(item["raw_cmd"]) + overhead > MAX_RS_PAYLOAD:
             skipped += 1
             continue
-        state.tx_queue.append(e)
-        _append_queue(e)
-        accepted.append(e)
-    if accepted: state._queue_dirty = True
+        state.tx_queue.append(item)
+        _append_queue(item)
+        accepted.append(item)
+    if accepted:
+        _renumber_queue(state.tx_queue); state._queue_dirty = True
     return len(accepted), skipped
 
 # -- State (widgets read directly) --------------------------------------------
@@ -183,7 +274,7 @@ class TxState:
     session_start: float = 0.0
     freq: str = ""
     zmq_addr_disp: str = ""
-    zmq_status: str = "BOUND"
+    zmq_status: str = "OFFLINE"
     tx_delay_ms: int = 0
     cmd_history: deque = field(default_factory=lambda: deque(maxlen=MAX_CMD_HISTORY))
     cmd_hist_idx: int = -1
@@ -192,24 +283,71 @@ class TxState:
     hist_scroll: int = 0
     help_open: bool = False
     send_abort: threading.Event = field(default_factory=threading.Event)
+    send_guard: threading.Event = field(default_factory=threading.Event)      # worker sets: guard reached
+    send_guard_ok: threading.Event = field(default_factory=threading.Event)   # UI sets: user confirmed
     send_lock: threading.Lock = field(default_factory=threading.Lock)
-    sending: dict = field(default_factory=lambda: {"active": False, "idx": -1, "total": 0})
+    sending: dict = field(default_factory=lambda: {"active": False, "idx": -1, "total": 0, "guarding": False, "sent_at": 0.0, "delay_end": 0.0, "waiting": False})
     status: StatusMessage = field(default_factory=StatusMessage)
     uplink_mode: str = "AX.25"
     version: str = ""
     schema_count: int = 0
     schema_path: str = ""
+    queue_sel: int = -1       # selected row in queue (-1 = none)
     _queue_dirty: bool = False
+    _queue_save: bool = False  # trigger persistence from widget delay edits
     _hist_dirty: bool = False
 
 # -- Send thread --------------------------------------------------------------
 
-def _send_worker(state, snapshot, delay_ms, sock):
-    """Background thread: send queued commands with inter-packet delay. Supports abort."""
+def _timed_wait(state, duration_ms):
+    """Sleep with abort check, updating sending state for UI countdown.
+    Returns True if aborted."""
+    if duration_ms <= 0: return False
+    with state.send_lock:
+        state.sending["waiting"] = True
+        state.sending["delay_end"] = time.time() + duration_ms / 1000.0
+    aborted = state.send_abort.wait(timeout=duration_ms / 1000.0)
+    with state.send_lock:
+        state.sending["waiting"] = False
+        state.sending["delay_end"] = 0.0
+    return aborted
+
+def _send_worker(state, total, default_delay_ms, sock):
+    """Background thread: process queue items from the front. Removes each after processing."""
     sent = 0
-    for i, (src, dest, echo, ptype, cmd, args, raw_cmd) in enumerate(snapshot):
-        if state.send_abort.is_set(): break
-        with state.send_lock: state.sending["idx"] = i
+    prev_was_cmd = False
+    while not state.send_abort.is_set():
+        with state.send_lock:
+            if not state.tx_queue:
+                break
+            item = state.tx_queue[0]
+            state.sending["idx"] = 0
+            state.sending["waiting"] = False
+            state.sending["delay_end"] = 0.0
+
+        if item["type"] == "delay":
+            with state.send_lock: state.sending["sent_at"] = 0.0
+            prev_was_cmd = False
+            if _timed_wait(state, item["delay_ms"]): break
+            with state.send_lock:
+                if state.tx_queue: state.tx_queue.pop(0)
+                state._queue_dirty = True
+            continue
+
+        # cmd item — apply default delay if two cmds are adjacent
+        if prev_was_cmd and _timed_wait(state, default_delay_ms): break
+
+        if item.get("guard"):
+            with state.send_lock: state.sending["guarding"] = True
+            state.send_guard_ok.clear()
+            state.send_guard.set()
+            while not state.send_guard_ok.is_set():
+                if state.send_abort.wait(timeout=0.1): break
+            state.send_guard.clear()
+            with state.send_lock: state.sending["guarding"] = False
+            if state.send_abort.is_set(): break
+
+        raw_cmd = item["raw_cmd"]
         csp_packet = state.csp.wrap(raw_cmd)
         if state.uplink_mode == "ASM+Golay":
             payload = build_asm_golay_frame(csp_packet)
@@ -218,31 +356,40 @@ def _send_worker(state, snapshot, delay_ms, sock):
             payload = build_ax25_gfsk_frame(ax25_frame)
         if not send_pdu(sock, payload):
             state.status.set("ZMQ send error — aborting send", STATUS_LONG); break
+        with state.send_lock:
+            state.sending["sent_at"] = time.time()
         state.tx_count += 1; sent += 1
+        src, dest, echo, ptype = item["src"], item["dest"], item["echo"], item["ptype"]
         state.tx_log.write_command(state.tx_count, src, dest, echo, ptype,
-                                   cmd, args, raw_cmd, payload, state.ax25, state.csp,
-                                   uplink_mode=state.uplink_mode)
+                                   item["cmd"], item["args"], raw_cmd, payload,
+                                   state.ax25, state.csp, uplink_mode=state.uplink_mode)
         with state.send_lock:
             state.history.append({"n": state.tx_count, "ts": datetime.now().strftime(TS_SHORT),
-                "src": src, "dest": dest, "cmd": cmd, "args": args, "echo": echo,
+                "src": src, "dest": dest, "cmd": item["cmd"], "args": item["args"], "echo": echo,
                 "ptype": ptype, "payload_len": len(payload), "csp_enabled": state.csp.enabled})
             state.hist_scroll = len(state.history) - 1
-        if i < len(snapshot) - 1 and delay_ms > 0:
-            if state.send_abort.wait(timeout=delay_ms / 1000.0): break
+        # Flash for 1s then remove (abort-aware)
+        state.send_abort.wait(timeout=1.0)
+        with state.send_lock:
+            if state.tx_queue: state.tx_queue.pop(0)
+            state.sending["sent_at"] = 0.0
+            state._queue_dirty = True
+        prev_was_cmd = True
+
     with state.send_lock:
+        _save_queue(state.tx_queue)
         if len(state.history) > MAX_HISTORY: del state.history[:len(state.history) - MAX_HISTORY]
         state.hist_scroll = max(0, len(state.history) - 1)
-        total = state.sending["total"]
-        state.sending["idx"] = sent - 1  # keep on last sent item so it blinks
-    # Hold briefly so UI can render the final blink
-    time.sleep(1.5)
-    with state.send_lock:
-        del state.tx_queue[:sent]; _save_queue(state.tx_queue)
+        state.queue_scroll = 0
+        state.queue_sel = min(state.queue_sel, len(state.tx_queue) - 1)
+        state._queue_dirty = True
+    remaining = len(state.tx_queue)
     if state.send_abort.is_set():
-        state.status.set(f"Aborted: sent {sent}/{total}, {total-sent} remain", STATUS_LONG)
+        state.status.set(f"Aborted: sent {sent}, {remaining} remain", STATUS_LONG)
     else:
         state.status.set(f"Sent {sent} command{'s' if sent != 1 else ''}")
-    with state.send_lock: state.sending["active"] = False; state.sending["idx"] = -1
+    with state.send_lock:
+        state.sending.update(active=False, idx=-1, sent_at=0.0, waiting=False, delay_end=0.0, guarding=False)
 
 def _start_send(state, sock):
     """Start the send worker thread if queue is non-empty and no send is active."""
@@ -250,10 +397,12 @@ def _start_send(state, sock):
         if state.sending["active"]: state.status.set("Send already in progress", STATUS_BRIEF); return
         if not state.tx_queue: state.status.set("Nothing queued", STATUS_BRIEF); return
         state.send_abort.clear()
-        snapshot = list(state.tx_queue)
-        state.sending.update(active=True, total=len(snapshot), idx=0)
+        state.send_guard.clear()
+        state.send_guard_ok.clear()
+        total = len(state.tx_queue)
+        state.sending.update(active=True, total=total, idx=0)
     state.queue_scroll = 0
-    threading.Thread(target=_send_worker, args=(state, snapshot, state.tx_delay_ms, sock), daemon=True).start()
+    threading.Thread(target=_send_worker, args=(state, total, state.tx_delay_ms, sock), daemon=True).start()
 
 # -- Command dispatch ---------------------------------------------------------
 
@@ -287,61 +436,62 @@ def _queue_command(state, line):
     candidate = parts[0].lower()
 
     # Shorthand: first token is a known TX command with a dest default
-    if candidate in state.cmd_defs:
-        defn = state.cmd_defs[candidate]
-        if not defn.get("rx_only") and defn.get("dest") is not None:
-            cmd = candidate
-            args = " ".join(parts[1:])
-            src, dest = protocol.GS_NODE, defn["dest"]
-            echo, ptype = defn["echo"], defn["ptype"]
-        else:
-            # Known command but no dest default (or rx_only) — need full form
-            try:
-                src, dest, echo, ptype, cmd, args = parse_cmd_line(line)
-            except ValueError as e:
-                if defn.get("rx_only"):
-                    state.status.set(f"Rejected: '{candidate}' is receive-only", STATUS_NORMAL)
-                else:
-                    state.status.set(f"Bad command: {e}", STATUS_NORMAL)
-                return True
+    defn = state.cmd_defs.get(candidate)
+    if defn and not defn.get("rx_only") and defn.get("dest") is not None:
+        cmd = candidate
+        args = " ".join(parts[1:])
+        src, dest = protocol.GS_NODE, defn["dest"]
+        echo, ptype = defn["echo"], defn["ptype"]
     else:
-        # Full-form parsing
+        # Full-form parsing (also handles known commands without routing defaults)
         try:
             src, dest, echo, ptype, cmd, args = parse_cmd_line(line)
         except ValueError as e:
-            state.status.set(f"Bad command: {e}", STATUS_NORMAL); return True
+            if defn and defn.get("rx_only"):
+                state.status.set(f"Rejected: '{candidate}' is receive-only", STATUS_NORMAL)
+            else:
+                state.status.set(f"Bad command: {e}", STATUS_NORMAL)
+            return True
 
     valid, issues = validate_args(cmd, args, state.cmd_defs)
     if not valid:
         state.status.set(f"Rejected: {issues[0]}", STATUS_NORMAL); return True
     if state.cmd_defs and cmd not in state.cmd_defs:
         state.status.set(f"Rejected: '{cmd}' not in schema", STATUS_NORMAL); return True
-    raw_cmd = build_cmd_raw(dest, cmd, args, echo=echo, ptype=ptype, origin=src)
-    overhead = state.csp.overhead() if state.uplink_mode == "ASM+Golay" else state.csp.overhead() + state.ax25.overhead()
-    if len(raw_cmd) + overhead > MAX_RS_PAYLOAD:
+    item = _make_cmd(src, dest, echo, ptype, cmd, args)
+    if len(item["raw_cmd"]) + _frame_overhead(state) > MAX_RS_PAYLOAD:
         state.status.set("Command too large for RS payload", STATUS_NORMAL); return True
-    entry = (src, dest, echo, ptype, cmd, args, raw_cmd)
-    state.tx_queue.append(entry); _append_queue(entry); state._queue_dirty = True
+    state.tx_queue.append(item); _append_queue(item)
+    _renumber_queue(state.tx_queue); state._queue_dirty = True
     src_tag = f"{node_label(src)}→" if src != protocol.GS_NODE else ""
     state.status.set(f"Queued: {src_tag}{node_label(dest)} E:{echo} "
-                     f"{protocol.PTYPE_NAMES.get(ptype,'?')} {cmd} {args} ({len(raw_cmd)}B)", STATUS_BRIEF)
+                     f"{protocol.PTYPE_NAMES.get(ptype,'?')} {cmd} {args} ({len(item['raw_cmd'])}B)", STATUS_BRIEF)
     return True
 
 def _dispatch_tx_command(state, line, sock):
     """Dispatch a TX command: try common → exact → prefix → queue as uplink command."""
     cl = line.lower()
     common = dispatch_common(state, cl)
+    if isinstance(common, tuple) and common[0] == "tag":
+        tag = common[1]
+        if not tag.strip():
+            state.status.set("Usage: tag <name>", STATUS_NORMAL); return True
+        state.tx_log.rename(tag)
+        state.status.set(f"Log tagged: {tag}", STATUS_BRIEF)
+        return True
+    if isinstance(common, tuple) and common[0] == "log":
+        tag = common[1]
+        state.tx_log.write_summary(state.tx_count, state.session_start)
+        state.tx_log.new_session(tag)
+        state.tx_count = 0; state.session_start = time.time()
+        state.status.set(f"New log: {os.path.basename(state.tx_log.text_path)}", STATUS_BRIEF)
+        return True
     if common is not None:
         return common
     if cl == "send": return "confirm_send"
     if cl == "clear": return "confirm_clear"
     if cl in ("undo", "pop"):
-        if state.tx_queue:
-            r = state.tx_queue.pop(); _save_queue(state.tx_queue); state._queue_dirty = True
-            state.status.set(f"Removed: {r[4]} ({len(state.tx_queue)} left)", STATUS_BRIEF)
-        else:
-            state.status.set("Queue is empty", STATUS_BRIEF)
-        return True
+        _perform_undo(state); return True
     if cl == "hclear":
         if state.history:
             state.status.set(f"Cleared {len(state.history)} entries", STATUS_BRIEF)
@@ -362,6 +512,16 @@ def _dispatch_tx_command(state, line, sock):
         return True
     if cl == "mode" or cl.startswith("mode "):
         _cmd_mode(state, line); return True
+    if cl.startswith("wait"):
+        arg = cl[4:].strip()
+        try:
+            ms = int(arg) if arg else state.tx_delay_ms
+        except ValueError:
+            state.status.set("Usage: wait [ms]", STATUS_NORMAL); return True
+        item = _make_delay(max(0, ms))
+        state.tx_queue.append(item); _append_queue(item); state._queue_dirty = True
+        state.status.set(f"Queued delay: {ms/1000:.1f}s", STATUS_BRIEF)
+        return True
     return _queue_command(state, line)
 
 # =============================================================================
@@ -412,6 +572,7 @@ class MavTxApp(MavAppBase):
         cmd_defs, self._schema_warning = load_command_defs(CMD_DEFS_PATH)
         self._zmq_ctx, self._sock, self._zmq_monitor = init_zmq_pub(ZMQ_ADDR)
         tx_queue, q_skipped = _load_queue()
+        _renumber_queue(tx_queue)
         self.state = TxState(
             csp=csp, ax25=ax25, cmd_defs=cmd_defs, tx_queue=tx_queue, history=[],
             tx_log=TXLog(LOG_DIR, ZMQ_ADDR, version=VERSION), session_start=time.time(),
@@ -447,9 +608,10 @@ class MavTxApp(MavAppBase):
                     ("AX.25", f"GS:{ax['src_call']}-{ax['src_ssid']} -> SAT:{ax['dest_call']}-{ax['dest_ssid']}"),
                     ("CSP", f"Prio:{cs['priority']} Src:{cs['source']} Dest:{cs['destination']}"),
                     ("Commands", CMD_DEFS_PATH), ("Log", f"{LOG_DIR}/text")]))
-        self.set_interval(1/15, self._tick)
+        self.set_interval(1/60, self._tick)
         self._last_header_sec = -1
         self._last_send_idx = -1
+        self._guard_shown = False
         self.query_one("#tx-input").focus()
 
     def _tick(self):
@@ -463,22 +625,50 @@ class MavTxApp(MavAppBase):
             send_active = s.sending["active"]
         send_dirty = (cur_idx != self._last_send_idx)
         self._last_send_idx = cur_idx
+        # Guard: show confirmation dialog when send worker is waiting
+        if s.send_guard.is_set() and not self._guard_shown:
+            self._guard_shown = True
+            idx = s.sending["idx"]
+            total = s.sending["total"]
+            item = s.tx_queue[idx] if 0 <= idx < len(s.tx_queue) else None
+            if item and item["type"] == "cmd":
+                cmd_name = item["cmd"]
+                num = item.get('num', idx + 1)
+                content = build_guard_content(item, num, total)
+            else:
+                cmd_name, content = "?", None
+            self.push_screen(
+                ConfirmScreen("Send guarded command?", "Send", content=content),
+                self._on_guard_done)
+        if not s.send_guard.is_set():
+            self._guard_shown = False
         # Selective refresh: only redraw widgets whose data actually changed
         self.query_one("#help-panel").display = s.help_open
         now_sec = int(time.time())
-        if now_sec != self._last_header_sec or status_dirty:
+        zmq_offline = s.zmq_status != "ONLINE"
+        if now_sec != self._last_header_sec or status_dirty or zmq_offline:
             self._last_header_sec = now_sec
             self.query_one("#tx-header").refresh()
-        if s._queue_dirty or send_dirty or send_active:
+        if s._queue_save:
+            s._queue_save = False; _renumber_queue(s.tx_queue); _save_queue(s.tx_queue)
+        if s._queue_dirty or send_active:
             s._queue_dirty = False
             self.query_one("#tx-queue").refresh()
-        if s._hist_dirty or send_dirty:
+        if s._hist_dirty or send_active:
             s._hist_dirty = False
             self.query_one("#sent-history").refresh()
         if status_dirty or send_dirty:
             self.query_one("#status-bar").refresh()
         if s.help_open and s._queue_dirty:
             self.query_one("#help-panel").refresh()
+
+    def _on_guard_done(self, confirmed):
+        s = self.state
+        if confirmed:
+            s.send_guard_ok.set()
+        else:
+            s.send_abort.set()
+        self._act()
 
     def action_quit_or_close(self):
         s = self.state
@@ -505,14 +695,17 @@ class MavTxApp(MavAppBase):
         n = len(s.tx_queue)
         def _on_confirm(confirmed):
             if confirmed: _start_send(self.state, self._sock); self._act()
-        self.push_screen(ConfirmScreen(f"Send {n} command{'s' if n != 1 else ''}?", "Send"), _on_confirm)
+        cmds = sum(1 for e in s.tx_queue if e["type"] == "cmd")
+        guards = sum(1 for e in s.tx_queue if e.get("guard"))
+        delays = sum(1 for e in s.tx_queue if e["type"] == "delay")
+        details = [("Commands", str(cmds))]
+        if delays: details.append(("Delays", str(delays)))
+        if guards: details.append(("Guards", str(guards)))
+        details.append(("Mode", s.uplink_mode))
+        self.push_screen(ConfirmScreen(f"Send {n} command{'s' if n != 1 else ''}?", "Send", details=details), _on_confirm)
 
     def action_undo_queue(self):
-        s = self.state
-        if s.tx_queue:
-            r = s.tx_queue.pop(); _save_queue(s.tx_queue); s._queue_dirty = True
-            s.status.set(f"Removed: {r[4]} ({len(s.tx_queue)} left)", STATUS_BRIEF)
-        else: s.status.set("Queue is empty", STATUS_BRIEF)
+        _perform_undo(self.state)
         self._act()
 
     def action_clear_queue(self):
@@ -522,9 +715,10 @@ class MavTxApp(MavAppBase):
         def _on_confirm(confirmed):
             if confirmed and s.tx_queue:
                 s.status.set(f"Cleared {len(s.tx_queue)} command{'s' if len(s.tx_queue)!=1 else ''}", STATUS_BRIEF)
-                s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0; s._queue_dirty = True
+                s.tx_queue.clear(); _save_queue(s.tx_queue); s.queue_scroll = 0; s.queue_sel = -1; s._queue_dirty = True
                 self._act()
-        self.push_screen(ConfirmScreen(f"Clear {n} command{'s' if n != 1 else ''}?", "Clear", destructive=True), _on_confirm)
+        self.push_screen(ConfirmScreen(f"Clear {n} command{'s' if n != 1 else ''}?", "Clear",
+                                       destructive=True, details=[("Commands", str(n))]), _on_confirm)
 
     def _cycle_focus(self, direction):
         cycle = self._FOCUS_CYCLE
@@ -596,7 +790,9 @@ class MavTxApp(MavAppBase):
         if not filename: self._act(); return
         s = self.state
         try:
+            first_new = len(s.tx_queue)
             loaded, skipped = _import_file(s, filename)
+            s.queue_scroll = first_new; s.queue_sel = first_new
             msg = f"Loaded {loaded} command{'s' if loaded != 1 else ''} from {filename}"
             if skipped: msg += f" ({skipped} skipped)"
             s.status.set(msg, STATUS_LONG)
@@ -624,6 +820,11 @@ def main():
     args = parser.parse_args()
     app = MavTxApp(show_splash=not args.nosplash)
     app.run()
+    if app.return_value == "restart":
+        print("\n  Restarting...\n")
+        argv = sys.argv[:]
+        if "--nosplash" not in argv: argv.append("--nosplash")
+        os.execv(sys.executable, [sys.executable] + argv)
     print(f"\n  Session ended\n  Transmitted: {app.state.tx_count}\n  Log: {app.state.tx_log.text_path}\n")
 
 

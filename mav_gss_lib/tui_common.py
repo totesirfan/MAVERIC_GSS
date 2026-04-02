@@ -236,6 +236,10 @@ def lr_line(left, right, w, fill_style=""):
     return line
 
 
+def flash_phase():
+    """Return True/False alternating at 500ms intervals for blink animations."""
+    return int(time.time() * 1000 / 500) % 2 == 0
+
 S_SCROLLBAR_THUMB = Style(bgcolor="#666666")  # lighter grey — thumb (visible area)
 S_SCROLLBAR_TRACK = Style(bgcolor="#222222")  # darker grey — track (background)
 
@@ -282,6 +286,7 @@ class ScrollableWidget(Widget):
     def _scroll_by(self, delta):
         raise NotImplementedError
 
+    def on_click(self, event): self.focus()
     def on_mouse_scroll_up(self, event): self._scroll_by(-3)
     def on_mouse_scroll_down(self, event): self._scroll_by(3)
 
@@ -304,6 +309,13 @@ class MavAppBase(App):
     _WIDGET_QUERY = ""
     _INPUT_ID = ""
 
+    def on_click(self, event):
+        w = event.widget if hasattr(event, "widget") else None
+        while w is not None and not getattr(w, "can_focus", False):
+            w = w.parent
+        if w is not None and w is not self:
+            w.focus()
+
     def _act(self):
         for w in self.query(self._WIDGET_QUERY):
             if w.display:
@@ -324,6 +336,7 @@ class MavAppBase(App):
         self._pre_dispatch(line)
         result = self._dispatch(line)
         if result == "break": self._cleanup(); self.exit(); return
+        if result == "restart": self._cleanup(); self.exit(result="restart"); return
         if result == "open_config": self._open_config(); return
         if self._handle_result(result): return
         self._act()
@@ -335,6 +348,11 @@ def dispatch_common(state, cmd):
     if cmd in ('q', 'quit', 'exit'): return "break"
     if cmd == 'help': state.help_open = not getattr(state, 'help_open', False); return True
     if cmd in ('cfg', 'config'): state.help_open = False; return "open_config"
+    if cmd.startswith('tag '): return ("tag", cmd[4:])
+    if cmd == 'tag': return ("tag", "")
+    if cmd.startswith('log '): return ("log", cmd[4:])
+    if cmd == 'log': return ("log", "")
+    if cmd == 'restart': return "restart"
     if cmd == 'hclear': return None  # data differs per app, let subclass handle
     return None
 
@@ -508,23 +526,27 @@ class ConfirmScreen(ModalScreen):
     """Modal confirmation dialog — Enter to confirm, Escape to cancel.
 
     Uses a semi-transparent overlay so the TX queue remains visible
-    behind the guard, following spacecraft ops "see what you're commanding".
+    behind the dialog, following spacecraft ops "see what you're commanding".
 
     Set destructive=True for irreversible actions (clear, delete) —
     uses red border and red action button so the modal is visually
     distinct from routine confirmations (NASA-HFDS 8.5.1).
+
+    Optional detail lines provide extra context (e.g. command routing, args).
     """
     CSS = """
     ConfirmScreen { align: center middle; background: black 40%; }
-    #confirm-box { width: auto; min-width: 30; height: auto;
+    #confirm-box { width: auto; min-width: 40; height: auto;
                    border: solid #555555; background: black; padding: 1 3; }
     """
 
-    def __init__(self, message, action_label="Confirm", *, destructive=False):
+    def __init__(self, message, action_label="Confirm", *, destructive=False, details=None, content=None):
         super().__init__()
         self._message = message
         self._action_label = action_label
         self._destructive = destructive
+        self._details = details or []
+        self._content = content
 
     def compose(self):
         yield Static(id="confirm-box")
@@ -536,16 +558,27 @@ class ConfirmScreen(ModalScreen):
         t = Text(justify="center")
         box = self.query_one("#confirm-box", Static)
         if self._destructive:
-            t.append(f"⚠ {self._message}\n\n", style=S_ERROR)
-            t.append(f" Enter:{self._action_label} ", style="bold #ffffff on #cc0000")
-            t.append("  ")
-            t.append(" Esc:Cancel ", style="bold #000000 on #888888")
+            t.append(f"⚠ {self._message}\n", style=S_ERROR)
             box.styles.border = ("solid", "#cc0000")
         else:
-            t.append(f"{self._message}\n\n", style=S_WARNING)
+            t.append(f"{self._message}\n", style=S_LABEL)
+            box.styles.border = ("solid", "#00bfff")
+        if self._content:
+            t.append("\n")
+            t.append_text(self._content)
+            t.append("\n")
+        if self._details:
+            t.append("\n")
+            for lbl, val in self._details:
+                t.append(f"  {lbl:<12}", style=S_DIM)
+                t.append(f"{val}\n", style=S_VALUE)
+        t.append("\n")
+        if self._destructive:
+            t.append(f" Enter:{self._action_label} ", style="bold #ffffff on #cc0000")
+        else:
             t.append(f" Enter:{self._action_label} ", style="bold #000000 on #00ff87")
-            t.append("  ")
-            t.append(" Esc:Cancel ", style="bold #000000 on #ff4444")
+        t.append("  ")
+        t.append(" Esc:Cancel ", style="bold #000000 on #888888")
         box.update(t)
 
     def on_key(self, event):

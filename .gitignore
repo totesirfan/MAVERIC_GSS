@@ -6,3 +6,4 @@ logs/
 legacy/
 perf_bench.py
 maveric_commands.yml
+generated_commands/

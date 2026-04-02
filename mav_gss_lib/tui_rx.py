@@ -14,7 +14,7 @@ import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label, ptype_label, format_arg_value
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles, append_wrapped_args, build_header,
+    scrollbar_styles, append_wrapped_args, build_header, flash_phase,
     TS_SHORT, frame_color, ptype_color, node_color, compute_col_widths, title_style,
     hide_echo_if_all_none,
 )
@@ -31,10 +31,14 @@ class RxHeader(Widget):
     def render(self):
         s, w = self.s, self.content_size.width
         st = self._zmq[0]
-        zmq_style = S_SUCCESS if st == "LIVE" else (S_ERROR if st == "DOWN" else S_VALUE)
+        if st == "ONLINE":
+            zmq_style = S_SUCCESS
+        else:
+            zmq_style = "reverse bold #ff4444" if flash_phase() else "on #330000 bold #ff4444"
         zmq_val = Text()
         zmq_val.append(s.zmq_addr, style=S_VALUE)
-        zmq_val.append(f" [{st}]", style=zmq_style)
+        zmq_val.append(" ")
+        zmq_val.append(f"[{st}]", style=zmq_style)
         qdepth = self._q.qsize()
         hex_s = S_SUCCESS if s.show_hex else S_DIM
         ul_s = S_DIM if s.hide_uplink else S_WARNING
@@ -87,28 +91,25 @@ class PacketList(Widget):
 
     # -- Mouse wheel -----------------------------------------------------------
 
+    def _is_visible(self, idx):
+        return not self.s.hide_uplink or not self.s.packets[idx].get("is_uplink_echo")
+
     def _find_prev_visible(self, from_idx):
         """Find the previous visible packet index, skipping hidden uplink echoes."""
-        s = self.s
         for i in range(from_idx - 1, -1, -1):
-            if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
-                return i
+            if self._is_visible(i): return i
         return from_idx
 
     def _find_next_visible(self, from_idx):
         """Find the next visible packet index, or -1 for auto-scroll."""
-        s = self.s
-        for i in range(from_idx + 1, len(s.packets)):
-            if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
-                return i
+        for i in range(from_idx + 1, len(self.s.packets)):
+            if self._is_visible(i): return i
         return -1
 
     def _find_last_visible(self):
         """Find the last visible packet index (for entering selection mode)."""
-        s = self.s
-        for i in range(len(s.packets) - 1, -1, -1):
-            if not s.hide_uplink or not s.packets[i].get("is_uplink_echo"):
-                return i
+        for i in range(len(self.s.packets) - 1, -1, -1):
+            if self._is_visible(i): return i
         return 0
 
     def on_key(self, event):
@@ -270,7 +271,7 @@ class PacketList(Widget):
         else:
             spin_char = s.spinner[s.spin_idx] if s.spinner else "▸"
             if s.receiving:
-                flash = int(time.time() * 1000 / 500) % 2 == 0
+                flash = flash_phase()
                 if s.receiving_unknown:
                     if flash:
                         rs, fill = "reverse bold #ffd700", "reverse #ffd700"
@@ -339,7 +340,8 @@ class PacketList(Widget):
             right.append("UL  ", style=f"{b} bold #ffd700")
         if pkt.get("is_dup"):
             right.append("DUP  ", style=f"{b} bold #ff4444")
-        right.append(f"{len(pkt.get('inner_payload',b''))}B ", style=f"{b} #999999")
+        sz_style = f"{b} #555555" if is_sel else f"{b} #999999"
+        right.append(f" {len(pkt.get('inner_payload',b''))}B ", style=sz_style)
         if pending_args:
             args_text, indent, args_style = pending_args
             avail = w - left.cell_len - right.cell_len
@@ -381,7 +383,7 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
         lines.append(("CMD ROUTE", route, S_VALUE))
         f("CMD ID", cmd["cmd_id"])
         if cmd.get("schema_match"):
-            for ta in cmd.get("typed_args", []): f(ta["name"].upper()[:12], format_arg_value(ta))
+            for ta in cmd.get("typed_args", []): f(ta["name"].upper(), format_arg_value(ta))
             for i, ex in enumerate(cmd.get("extra_args", [])): f(f"ARG +{i}", str(ex))
         else:
             if cmd.get("schema_warning"): lines.append(("⚠", cmd["schema_warning"], S_WARNING))
@@ -442,7 +444,8 @@ class PacketDetail(Widget):
         lines = _build_detail_lines(pkt, is_unk, s.show_hex, s.show_wrapper)
 
         # Render lines, wrapping long values with aligned continuation
-        label_w = 13  # " " + 12-char label
+        max_lbl = max((len(lbl) for lbl, _, _ in lines), default=12)
+        label_w = max_lbl + 2  # " " + label + " "
         val_w = max(1, w - label_w)
         rendered_rows = 1  # title
         t = Text()
@@ -450,7 +453,7 @@ class PacketDetail(Widget):
         for lbl, val, st in lines:
             t.append("\n")
             row = Text()
-            row.append(f" {lbl:<12}", style="#00bfff")
+            row.append(f" {lbl:<{label_w - 1}}", style="#00bfff")
             if isinstance(val, Text):
                 row.append_text(val)
             else:
@@ -483,6 +486,8 @@ RX_HELP_LINES = [
     ("hex / ul / wrapper", "Toggle hex / uplink / wrapper"),
     ("wrapper", "Toggle AX.25/CSP/CRC detail"),
     ("detail / live", "Toggle detail / follow"),
+    ("tag <name>", "Tag log file for easy ID"),
+    ("log [name]", "Start new log session"),
     ("q", "Exit"),
     ("INDICATORS", None), ("[LIVE]", "Auto-follow newest"), ("UL", "Uplink echo"),
     ("DUP", "Duplicate packet"), ("CRC:OK/FAIL", "Integrity check"),

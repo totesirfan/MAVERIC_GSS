@@ -20,8 +20,6 @@ from mav_gss_lib.protocol import (
     try_parse_csp_v1, try_parse_command, apply_schema,
     verify_csp_crc32, clean_text,
 )
-from mav_gss_lib.tui_common import TS_FULL, TS_SHORT
-
 
 DUP_WINDOW = 1.0  # seconds -- only flag as duplicate if same fingerprint seen within this window
 
@@ -80,6 +78,14 @@ class RxPipeline:
         self.uplink_echo_count = 0
         self.last_arrival = None
         self.frequency = None
+
+    def reset_counts(self):
+        """Reset counters for a new log session."""
+        self.packet_count = 0
+        self.unknown_count = 0
+        self.uplink_echo_count = 0
+        self.seen_fps.clear()
+        self.pkt_times.clear()
 
     def process(self, meta, raw):
         """Process one raw PDU into a Packet record.

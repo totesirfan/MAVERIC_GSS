@@ -100,15 +100,15 @@ def send_pdu(sock, payload):
 
 # Event-to-status mappings for SUB (connect) and PUB (bind) sockets
 SUB_STATUS = {
-    zmq.EVENT_CONNECTED:       "LIVE",
-    zmq.EVENT_DISCONNECTED:    "DOWN",
-    zmq.EVENT_CONNECT_RETRIED: "RETRY",
+    zmq.EVENT_CONNECTED:       "ONLINE",
+    zmq.EVENT_DISCONNECTED:    "OFFLINE",
+    zmq.EVENT_CONNECT_RETRIED: "OFFLINE",
 }
 
 PUB_STATUS = {
-    zmq.EVENT_LISTENING:    "BOUND",
-    zmq.EVENT_ACCEPTED:     "LIVE",
-    zmq.EVENT_DISCONNECTED: "BOUND",
+    zmq.EVENT_LISTENING:    "OFFLINE",
+    zmq.EVENT_ACCEPTED:     "ONLINE",
+    zmq.EVENT_DISCONNECTED: "OFFLINE",
 }
 
 
@@ -126,8 +126,8 @@ def poll_monitor(monitor, status_map, current):
             event = int.from_bytes(msg[0][:2], "little")
             if event in status_map:
                 current = status_map[event]
-        except Exception:
-            break
+        except (IndexError, ValueError):
+            pass  # malformed event, skip
     return current
 
 
