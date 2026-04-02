@@ -42,7 +42,7 @@ mav_gss_lib/
     logging.py            Session logging — JSONL + formatted text, background writer thread
     golay.py              ASM+Golay encoder: Golay(24,12), RS FEC (cached), CCSDS scrambler, frame assembly
     ax25.py               AX.25 HDLC encoder: fused HDLC+G3RUH+NRZI+pack single-pass pipeline
-    tui_common.py         Shared Textual UI: ConfigScreen, ConfirmScreen, HelpPanel, SplashScreen, styles
+    tui_common.py         Shared Textual UI: ConfigScreen, ConfirmScreen, HelpPanel, SplashScreen, flash_phase, styles
     tui_rx.py             RX widgets: header, packet list (cached filter), packet detail
     tui_tx.py             TX widgets: header, queue, sent history, config fields
 
@@ -90,13 +90,13 @@ The GomSpace AX100 radio provides SSID values as raw hex bytes. The encoder acce
 
 ## MAV_RX — Downlink Monitor
 
-Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread receives packets into a queue; the Textual UI drains and displays them at 10Hz.
+Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread receives packets into a queue; the Textual UI drains and displays them at 60Hz.
 
 ```
 ┌──────────────────────────────────────────────┐
 │ MAVERIC DOWNLINK        2026-03-31 12:00:00 UTC │
 │ ─────────────────────────────────────────────── │
-│ ZMQ: tcp://... [LIVE]  HEX:OFF  UL:HIDE  Q:0   │
+│ ZMQ: tcp://... [ONLINE]  HEX:OFF  UL:HIDE  Q:0 │
 ├─────────────────────────────────────────────────┤
 │ PACKETS (5)   Auto Scroll: ON                   │
 │  #  TIME      FRAME  SRC → DEST  E:ECHO  TYPE  │
@@ -116,7 +116,7 @@ Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread re
 └─────────────────────────────────────────────────┘
 ```
 
-**Commands**: `help`, `cfg`, `hex`, `ul`, `wrapper`, `detail`, `live`, `hclear`, `q`
+**Commands**: `help`, `cfg`, `hex`, `ul`, `wrapper`, `detail`, `live`, `hclear`, `tag <name>`, `log [name]`, `restart`, `q`
 
 **Keys**: Up/Down (select packet), PgUp/PgDn (scroll), Shift+Down (jump to live), Enter (toggle detail), Tab (toggle focus), Ctrl+C (quit)
 
@@ -127,21 +127,24 @@ Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread re
 - Unparseable signals shown as `UNKNOWN` with separate numbering
 - Uplink echoes excluded from pkt/min rate
 - Hex/ASCII display toggleable; ASCII always shown in detail
+- `tag` renames current log files; `log` starts a new log session
 
 ## MAV_TX — Uplink Dashboard
 
-Publishes command PDUs via ZMQ to the GNU Radio flowgraph. Commands are queued, then sent asynchronously in a background thread with configurable inter-packet delay.
+Publishes command PDUs via ZMQ to the GNU Radio flowgraph. Commands are queued with optional delay and guard items, then sent asynchronously in a background thread. The queue renders bottom-up with the next-to-send command at the bottom.
 
 ```
 ┌──────────────────────────────────────────────┐
 │ MAVERIC UPLINK          2026-03-31 12:00:00 UTC │
 │ ─────────────────────────────────────────────── │
-│ ZMQ: tcp://... [LIVE]  Mode: ASM+GOLAY          │
+│ ZMQ: tcp://... [ONLINE]  Mode: ASM+GOLAY        │
 ├─────────────────────────────────────────────────┤
-│ TX QUEUE (2)   buf: 3000ms  total: 3.0s         │
+│ TX QUEUE (2)       Ctrl+S: send | Ctrl+X: clear │
 │  ## DEST    E:ECHO  TYPE  CMD/ARGS         SIZE │
-│  #1 EPS     E:UPPM  REQ   ping              12B │
+│                                                 │
 │  #2 UPPM    E:UPPM  REQ   set_mode 5        15B │
+│  ──────────────── 1.0s ─────────────────────    │
+│  #1 EPS     E:UPPM  REQ   ping     NEXT     12B │
 ├─────────────────────────────────────────────────┤
 │ SENT HISTORY (3)                                │
 │  ## TIME     DEST    E:ECHO  TYPE  CMD/ARGS SIZE│
@@ -154,22 +157,31 @@ Publishes command PDUs via ZMQ to the GNU Radio flowgraph. Commands are queued, 
 └─────────────────────────────────────────────────┘
 ```
 
-**Command format**: `[SRC] DEST ECHO TYPE CMD [ARGS]`
+**Command format**: `CMD [ARGS]` (shorthand, uses schema defaults) or `[SRC] DEST ECHO TYPE CMD [ARGS]` (full form)
 
 SRC defaults to GS. Examples:
 ```
-EPS UPPM REQ ping
-EPS 2 3 1 set_voltage 3.3
+ping                          # Shorthand (if schema has routing defaults)
+set_voltage 3.3               # Shorthand with args
+EPS UPPM REQ ping             # Full form
+EPS 2 3 1 set_voltage 3.3     # Full form with numeric IDs
 ```
 
 **Keys**: Ctrl+S (send queue — with confirmation), Ctrl+Z (undo last), Ctrl+X (clear queue — with confirmation), Up/Down (history recall), Tab (cycle focus), Ctrl+C/Esc (abort send or quit)
 
-**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+GOLAY]`, `imp [file]`, `raw <hex>`, `q`
+**Queue Focus Keys**: Up/Down (navigate items), Space (toggle guard on command), Enter (edit delay value), W (insert delay after selected), Delete/Backspace (remove selected item)
+
+**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `wait [ms]`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+GOLAY]`, `imp [file]`, `raw <hex>`, `tag <name>`, `log [name]`, `restart`, `q`
 
 **Features**:
 - **Dual uplink mode**: AX.25 HDLC (Mode 6) or ASM+Golay (Mode 5), switchable via `mode` command or cfg panel — both verified against live AX100 hardware
+- **Typed queue items**: commands and delay separators, with optional guard flag for per-command confirmation during send
+- **Reversed queue display**: next-to-send at bottom with `NEXT` pill flag, new items added above
+- **Interactive queue editing**: navigate, delete, insert delays, toggle guards, edit delay values — all from keyboard
 - Queue persisted to `.pending_queue.jsonl`, restored on startup
-- Async send with abort support (Ctrl+C/Esc during send)
+- Import supports JSONL with `//` comments and hybrid array+dict format
+- Async send with instant abort (Ctrl+C/Esc), uniform SENT/GUARD flash
+- `tag` renames current log files; `log` starts a new log session
 - Config changes saved to `maveric_gss.yml` on exit
 - Commands validated against `maveric_commands.yml` schema
 
@@ -204,8 +216,8 @@ csp:
 
 tx:
   zmq_addr: tcp://127.0.0.1:52002
-  frequency: 437.25 MHz
-  delay_ms: 3000            # Inter-packet delay for queue sends
+  frequency: 437.6 MHz
+  delay_ms: 1000            # Inter-packet delay for queue sends (ms)
   uplink_mode: AX.25        # or "ASM+Golay"
 
 rx:
@@ -230,7 +242,7 @@ Both sessions produce paired logs in `logs/text/` and `logs/json/`:
 | `uplink_YYYYMMDD_HHMMSS.txt` | TX commands — routing, AX.25/CSP state, CRC, hex |
 | `uplink_YYYYMMDD_HHMMSS.jsonl` | TX commands — machine-readable |
 
-All file I/O runs on a background thread so the UI never blocks on disk writes. RX logging can be toggled at runtime.
+All file I/O runs on a background thread so the UI never blocks on disk writes. RX logging can be toggled at runtime. Use `tag <name>` to rename the current log files for easy identification, or `log [name]` to write a session summary and start a new log file pair.
 
 ## Decoder
 
