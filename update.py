@@ -74,7 +74,8 @@ def get_local_version():
         with open(CONFIG_FILE) as f:
             cfg = yaml.safe_load(f)
         return cfg.get("general", {}).get("version", "unknown")
-    except Exception:
+    except Exception as e:
+        print(f"WARNING: could not read version: {e}", file=sys.stderr)
         return "unknown"
 
 def parse_version(v):
@@ -168,7 +169,8 @@ def api_get_changelog(local_ver, remote_tag):
             data = json.loads(resp.read())
         commits = data.get("commits", [])
         return "\n".join(c["commit"]["message"].split("\n")[0] for c in commits)
-    except Exception:
+    except Exception as e:
+        print(f"WARNING: could not fetch changelog: {e}", file=sys.stderr)
         return ""
 
 def zip_do_update(remote_tag, on_progress):

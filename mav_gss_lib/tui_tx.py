@@ -85,9 +85,12 @@ class TxHeader(Widget):
         zmq_val.append(s.zmq_addr_disp, style=S_VALUE)
         zmq_val.append(" ")
         zmq_val.append(f"[{s.zmq_status}]", style=zmq_style)
+        crc_label = "CRC32" if s.csp.csp_crc else "NO CRC"
+        crc_style = Style(color="#55bb55", bold=True) if s.csp.csp_crc else Style(color="#ff6666", bold=True)
         items = [
             ("ZMQ", zmq_val, None),
             ("Mode", mode_label, mode_style),
+            ("", crc_label, crc_style),
         ]
         t, _ = build_header("MAVERIC UPLINK", S_LABEL, items, w)
         return t
@@ -484,6 +487,7 @@ CONFIG_FIELDS = [
     ("AX.25 Dest Call", "ax25_dest_call", True, _is_ax25),
     ("AX.25 Dest SSID", "ax25_dest_ssid", True, _is_ax25),
     # Common fields (always visible)
+    ("CSP CRC-32", "csp_crc", ("cycle", ["ON", "OFF"], {"ON": Style(color="#55bb55", bold=True), "OFF": Style(color="#ff6666", bold=True)}, {})),
     ("CSP Priority", "csp_prio", True), ("CSP Source", "csp_src", True),
     ("CSP Destination", "csp_dest", True), ("CSP Dest Port", "csp_dport", True),
     ("CSP Src Port", "csp_sport", True), ("CSP Flags", "csp_flags", True),
@@ -497,6 +501,7 @@ def config_get_values(csp, ax25, freq, zmq_addr, tx_delay_ms, uplink_mode="AX.25
         "uplink_mode": uplink_mode,
         "ax25_src_call": ax25.src_call, "ax25_src_ssid": str(ax25.src_ssid),
         "ax25_dest_call": ax25.dest_call, "ax25_dest_ssid": str(ax25.dest_ssid),
+        "csp_crc": "ON" if csp.csp_crc else "OFF",
         "csp_prio": str(csp.prio), "csp_src": str(csp.src), "csp_dest": str(csp.dest),
         "csp_dport": str(csp.dport), "csp_sport": str(csp.sport), "csp_flags": f"0x{csp.flags:02X}",
         "freq": freq, "zmq_addr": zmq_addr, "tx_delay_ms": str(tx_delay_ms),
@@ -508,6 +513,7 @@ def config_apply(values, csp, ax25):
     ax25.src_ssid = int(values["ax25_src_ssid"])
     ax25.dest_call = values["ax25_dest_call"].upper()[:6]
     ax25.dest_ssid = int(values["ax25_dest_ssid"])
+    csp.csp_crc = values["csp_crc"] == "ON"
     csp.prio = int(values["csp_prio"], 0); csp.src = int(values["csp_src"], 0)
     csp.dest = int(values["csp_dest"], 0); csp.dport = int(values["csp_dport"], 0)
     csp.sport = int(values["csp_sport"], 0); csp.flags = int(values["csp_flags"], 0)

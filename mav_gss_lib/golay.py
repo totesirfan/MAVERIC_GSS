@@ -44,7 +44,8 @@ Encoding: NRZ, MSB first (§10.1.5).  No G3RUH, no NRZI — those
     modulation; this encoder just builds the baseband byte frame.
 
 Configuration requirements:
-    - AX100 must have mode=5, csp_rs=true, csp_crc=true, csp_rand=true
+    - AX100 must have mode=5, csp_rs=true, csp_rand=true
+    - csp_crc: match GSS setting (maveric_gss.yml csp.csp_crc)
     - After switching the AX100 to Mode 5, run 'config load 1' to
       force the AX5043 radio chip to reinitialize its RX registers
 

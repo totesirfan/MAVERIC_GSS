@@ -19,7 +19,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input
 
-from mav_gss_lib.protocol import init_nodes, load_command_defs
+from mav_gss_lib.protocol import init_nodes, load_command_defs, resolve_ptype
 from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
                                    poll_monitor, SUB_STATUS, zmq_cleanup)
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
@@ -29,6 +29,7 @@ from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
                                     dispatch_common, TS_FULL,
                                     STATUS_BRIEF, STATUS_NORMAL, STATUS_LONG, STATUS_STARTUP)
 from mav_gss_lib.config import load_gss_config
+from mav_gss_lib.imaging import ImageAssembler
 from mav_gss_lib.tui_rx import (
     RxHeader, PacketList, PacketDetail,
     RX_HELP_LINES, RX_CONFIG_FIELDS, rx_config_get_values, rx_help_info,
@@ -58,7 +59,8 @@ def _load_tx_frequencies(path):
         return {n: f"{float(i.get('frequency',0))/1e6:.3f} MHz"
                 for n, i in data.get("transmitters", {}).items()
                 if i.get("frequency") is not None}
-    except Exception:
+    except Exception as e:
+        print(f"WARNING: failed to load TX frequencies: {e}", file=sys.stderr)
         return {}
 
 
@@ -107,6 +109,7 @@ class RxState:
     schema_count: int = 0
     schema_path: str = ""
     pkt_gen: int = 0
+    image_assembler: ImageAssembler = field(default_factory=ImageAssembler)
 
 
 # =============================================================================
@@ -156,6 +159,8 @@ def _drain_rx_queue(state, pkt_queue):
                 state.log.write_packet(pkt_record)
             except Exception as e:
                 state.error_status.set(f"Log error: {e}", STATUS_LONG)
+        # Image chunk reassembly
+        _feed_image_assembler(state, pkt_record)
         was_full = len(state.packets) >= state.packets.maxlen
         state.packets.append(pkt_record)
         state.pkt_gen += 1
@@ -163,6 +168,60 @@ def _drain_rx_queue(state, pkt_queue):
             state.selected_idx = max(-1, state.selected_idx - 1)
     state.receiving = (time.time() - state.last_watchdog) < RECEIVING_TIMEOUT
     return dirty
+
+
+def _feed_image_assembler(state, pkt):
+    """Feed image-related packets to the ImageAssembler."""
+    cmd = pkt.cmd
+    if not cmd or pkt.is_uplink_echo:
+        return
+    cmd_id = cmd.get("cmd_id", "")
+    if cmd_id == "img_cnt_chunks" and cmd.get("pkt_type") == resolve_ptype("RES"):
+        # RES response only contains the count, no filename —
+        # store as pending and apply when the first img_get_chunk arrives
+        args = cmd.get("args", [])
+        if args:
+            try:
+                state.image_assembler.pending_total = int(args[0])
+                state.status.set(
+                    f"Image chunk count: {args[0]}", STATUS_NORMAL)
+            except (ValueError, TypeError):
+                pass
+    elif cmd_id == "img_get_chunk" and cmd.get("pkt_type") == resolve_ptype("FILE"):
+        typed = cmd.get("typed_args")
+        if not typed:
+            return
+        blob_data = None
+        filename = chunk_num = chunk_size = None
+        for ta in typed:
+            if ta["type"] == "blob":
+                blob_data = ta["value"]
+            elif ta["name"] == "Filename":
+                filename = ta["value"]
+            elif ta["name"] == "Chunk Number":
+                chunk_num = ta["value"]
+            elif ta["name"] == "Chunk Size":
+                chunk_size = ta["value"]
+        # Validate chunk_size is numeric — old-format packets without
+        # a chunk size field cause misparsed args and must be skipped
+        try:
+            if chunk_size is not None:
+                int(chunk_size)
+        except (ValueError, TypeError):
+            return
+        if blob_data and filename and chunk_num is not None:
+            # Apply pending total from img_cnt_chunks if not yet set
+            asm = state.image_assembler
+            pending = getattr(asm, "pending_total", None)
+            if pending is not None and filename not in asm.totals:
+                asm.set_total(filename, pending)
+                asm.pending_total = None
+            received, total, complete = asm.feed_chunk(
+                filename, chunk_num, blob_data, chunk_size)
+            if complete:
+                state.status.set(
+                    f"Image complete: images/{filename} ({received} chunks)",
+                    STATUS_LONG)
 
 
 def _toggle_flag(state, attr, label):
@@ -309,6 +368,21 @@ class MavRxApp(MavAppBase):
 
     def _tick(self):
         s = self.state
+        # Thread watchdog: restart RX thread if it died unexpectedly
+        if not self._rx_thread.is_alive() and not self._stop_event.is_set():
+            s.error_status.set("RX THREAD DEAD — restarting", STATUS_LONG)
+            self._rx_thread = threading.Thread(
+                target=_receiver_thread,
+                args=(self._sock, self._pkt_queue, self._stop_event,
+                      self._zmq_monitor, self._zmq_status,
+                      lambda msg: s.error_status.set(msg, STATUS_LONG)),
+                daemon=True)
+            self._rx_thread.start()
+            print("WARNING: RX thread died and was restarted", file=sys.stderr)
+        if s.logging_enabled and s.log and not s.log._writer.is_alive():
+            s.error_status.set("LOG WRITER DEAD — logging stopped", STATUS_LONG)
+            s.logging_enabled = False
+            print("WARNING: RX log writer thread died", file=sys.stderr)
         now = time.time()
         dt = now - self._last_tick_time
         self._last_tick_time = now
@@ -445,7 +519,8 @@ class MavRxApp(MavAppBase):
                     duplicates=s.pipeline.packet_count - len(s.pipeline.seen_fps),
                     unknown=s.pipeline.unknown_count, uplink_echoes=s.pipeline.uplink_echo_count)
                 s.log.close()
-        except Exception: pass
+        except Exception as e:
+            print(f"WARNING: failed to close RX session log: {e}", file=sys.stderr)
         zmq_cleanup(self._zmq_monitor, SUB_STATUS, self._zmq_status[0], self._sock, self._zmq_ctx)
         self.result = {
             "packet_count": s.pipeline.packet_count, "unique": len(s.pipeline.seen_fps),

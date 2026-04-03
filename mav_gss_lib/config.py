@@ -33,6 +33,7 @@ _DEFAULTS = {
         "dest_port":   24,
         "src_port":    0,
         "flags":       0x00,
+        "csp_crc":     True,
     },
     "tx": {
         "zmq_addr":  "tcp://127.0.0.1:52002",
@@ -95,12 +96,13 @@ _AX25_MAP = [
 ]
 
 _CSP_MAP = [
-    ("priority",    "prio",  int),
-    ("source",      "src",   int),
-    ("destination", "dest",  int),
-    ("dest_port",   "dport", int),
-    ("src_port",    "sport", int),
-    ("flags",       "flags", int),
+    ("priority",    "prio",    int),
+    ("source",      "src",     int),
+    ("destination", "dest",    int),
+    ("dest_port",   "dport",   int),
+    ("src_port",    "sport",   int),
+    ("flags",       "flags",   int),
+    ("csp_crc",     "csp_crc", bool),
 ]
 
 
@@ -164,9 +166,10 @@ def csp_handle_msg(csp, args):
     """Handle CSP config command, return status message."""
     if not args:
         hdr = csp.build_header()
+        crc_label = "ON" if csp.csp_crc else "OFF"
         return (f"CSP  Prio:{csp.prio} Src:{csp.src} "
                 f"Dest:{csp.dest} DPort:{csp.dport} SPort:{csp.sport} "
-                f"Flags:0x{csp.flags:02X}  ({hdr.hex(' ')})")
+                f"Flags:0x{csp.flags:02X} CRC32:{crc_label}  ({hdr.hex(' ')})")
     parts = args.split()
     cmd = parts[0].lower()
     if cmd in ('prio', 'src', 'dest', 'dport', 'sport', 'flags') and len(parts) > 1:

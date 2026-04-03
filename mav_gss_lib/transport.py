@@ -27,6 +27,12 @@ def init_zmq_sub(addr, timeout_ms=200):
     sock.setsockopt(zmq.SUBSCRIBE, b"")
     sock.setsockopt(zmq.RCVHWM, 10000)
     sock.setsockopt(zmq.RCVTIMEO, timeout_ms)
+    sock.setsockopt(zmq.RECONNECT_IVL, 500)
+    sock.setsockopt(zmq.RECONNECT_IVL_MAX, 30000)
+    sock.setsockopt(zmq.LINGER, 0)
+    sock.setsockopt(zmq.TCP_KEEPALIVE, 1)
+    sock.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 30)
+    sock.setsockopt(zmq.TCP_KEEPALIVE_INTVL, 10)
     monitor = sock.get_monitor_socket()
     sock.connect(addr)
     return context, sock, monitor
@@ -40,6 +46,11 @@ def init_zmq_pub(addr, settle_ms=300):
     """
     context = zmq.Context()
     sock = context.socket(zmq.PUB)
+    sock.setsockopt(zmq.LINGER, 0)
+    sock.setsockopt(zmq.SNDHWM, 10000)
+    sock.setsockopt(zmq.TCP_KEEPALIVE, 1)
+    sock.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 30)
+    sock.setsockopt(zmq.TCP_KEEPALIVE_INTVL, 10)
     monitor = sock.get_monitor_socket()
     try:
         sock.bind(addr)
@@ -102,7 +113,7 @@ def send_pdu(sock, payload):
 SUB_STATUS = {
     zmq.EVENT_CONNECTED:       "ONLINE",
     zmq.EVENT_DISCONNECTED:    "OFFLINE",
-    zmq.EVENT_CONNECT_RETRIED: "OFFLINE",
+    zmq.EVENT_CONNECT_RETRIED: "RETRY",
 }
 
 PUB_STATUS = {
@@ -138,5 +149,5 @@ def zmq_cleanup(monitor, status_map, current_status, socket, context):
         monitor.close()
         socket.close()
         context.term()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"WARNING: ZMQ cleanup error: {e}", file=sys.stderr)

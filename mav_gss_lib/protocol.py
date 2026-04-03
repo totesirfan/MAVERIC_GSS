@@ -165,7 +165,8 @@ def verify_csp_crc32(inner_payload):
 #    [id_str][0x00][args_str][0x00][CRC-16 LE]
 #
 #  Full CSP packet on the wire:
-#    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]
+#    [CSP v1 header 4B][command + CRC-16][CRC-32C 4B BE]  (csp_crc=true)
+#    [CSP v1 header 4B][command + CRC-16]                 (csp_crc=false)
 #
 #  CommandFrame is the single source of truth for this layout --
 #  both build_cmd_raw() and try_parse_command() delegate to it.
@@ -177,16 +178,17 @@ _CMD_HDR_LEN = 6  # origin, dest, echo, ptype, id_len, args_len
 class CommandFrame:
     """Symmetric encode/decode for the MAVERIC command wire format."""
     __slots__ = ("src", "dest", "echo", "pkt_type", "cmd_id", "args_str",
-                 "crc", "crc_valid", "csp_crc32")
+                 "args_raw", "crc", "crc_valid", "csp_crc32")
 
     def __init__(self, src, dest, echo, pkt_type, cmd_id, args_str="",
-                 crc=None, crc_valid=None, csp_crc32=None):
+                 args_raw=b"", crc=None, crc_valid=None, csp_crc32=None):
         self.src = src
         self.dest = dest
         self.echo = echo
         self.pkt_type = pkt_type
         self.cmd_id = cmd_id
         self.args_str = args_str
+        self.args_raw = args_raw
         self.crc = crc
         self.crc_valid = crc_valid
         self.csp_crc32 = csp_crc32
@@ -225,7 +227,8 @@ class CommandFrame:
             null_pos += 1
 
         args_end = null_pos + args_len
-        args_str = payload[null_pos:args_end].decode("ascii", errors="replace").strip()
+        args_raw = bytes(payload[null_pos:args_end])
+        args_str = args_raw.decode("ascii", errors="replace").strip()
 
         tail_start = args_end
         if tail_start < len(payload) and payload[tail_start] == 0x00:
@@ -247,17 +250,20 @@ class CommandFrame:
             tail = b""
 
         frame = cls(src, dest, echo, pkt_type, cmd_id, args_str,
-                    crc_val, crc_valid, csp_crc32)
+                    args_raw, crc_val, crc_valid, csp_crc32)
         return frame, tail
 
     def to_dict(self):
         """Convert to dict (backward-compatible with old try_parse_command output)."""
-        return {
+        d = {
             "src": self.src, "dest": self.dest, "echo": self.echo,
             "pkt_type": self.pkt_type, "cmd_id": self.cmd_id,
             "args": self.args_str.split(), "crc": self.crc,
             "crc_valid": self.crc_valid, "csp_crc32": self.csp_crc32,
         }
+        if self.args_raw:
+            d["args_raw"] = self.args_raw
+        return d
 
 
 def build_cmd_raw(dest, cmd, args="", echo=0, ptype=1, origin=None):
@@ -407,6 +413,7 @@ class CSPConfig:
         self.dport   = 0     # service port
         self.sport   = 24
         self.flags   = 0x00
+        self.csp_crc = True   # append CRC-32C; set False if AX100 has csp_crc=false
 
     def build_header(self):
         """Pack CSP fields into 4-byte big-endian header."""
@@ -419,20 +426,26 @@ class CSPConfig:
         return h.to_bytes(4, 'big')
 
     def overhead(self):
-        """Number of bytes the CSP header + CRC-32C add to a payload."""
-        return 8 if self.enabled else 0  # 4B header + 4B CRC-32C
+        """Number of bytes the CSP header + optional CRC-32C add to a payload."""
+        if not self.enabled:
+            return 0
+        return 8 if self.csp_crc else 4  # 4B header + optional 4B CRC-32C
 
     def wrap(self, payload):
-        """Prepend CSP header and append CRC-32C if enabled.
+        """Prepend CSP header and optionally append CRC-32C.
 
-        Output: [CSP header 4B] [payload] [CRC-32C 4B BE]
+        Output: [CSP header 4B] [payload] [CRC-32C 4B BE] (if csp_crc)
+                [CSP header 4B] [payload]                  (if not csp_crc)
 
-        The CRC-32C covers the header + payload (everything before the
-        CRC-32C itself), matching observed satellite downlink format."""
+        When csp_crc is False, no CRC-32C is appended — matching AX100
+        config with csp_crc=false.  RS(255,223) still provides error
+        detection/correction on the RF link."""
         if self.enabled:
             packet = self.build_header() + payload
-            checksum = crc32c(packet).to_bytes(4, 'big')
-            return packet + checksum
+            if self.csp_crc:
+                checksum = crc32c(packet).to_bytes(4, 'big')
+                return packet + checksum
+            return packet
         return payload
 
 
@@ -513,7 +526,7 @@ def _parse_arg_list(raw_list):
     for a in (raw_list or []):
         name = a.get("name", f"arg{len(args)}")
         typ = a.get("type", "str")
-        if typ not in _TYPE_PARSERS:
+        if typ not in _TYPE_PARSERS and typ != "blob":
             typ = "str"
         entry = {"name": name, "type": typ}
         if a.get("important"):
@@ -616,6 +629,18 @@ def apply_schema(cmd, cmd_defs):
     sat_time = None
 
     for i, arg_def in enumerate(rx_args):
+        if arg_def["type"] == "blob":
+            # Extract remaining raw bytes after preceding text args
+            args_raw = cmd.get("args_raw", b"")
+            offset = 0
+            for _ in range(i):
+                sp = args_raw.find(0x20, offset)
+                if sp == -1:
+                    break
+                offset = sp + 1
+            value = bytes(args_raw[offset:])
+            typed.append({"name": arg_def["name"], "type": "blob", "value": value})
+            break  # blob consumes everything remaining
         if i < len(raw_args):
             parser = _TYPE_PARSERS.get(arg_def["type"], str)
             try:

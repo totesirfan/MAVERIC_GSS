@@ -296,6 +296,7 @@ class TxState:
     _queue_dirty: bool = False
     _queue_save: bool = False  # trigger persistence from widget delay edits
     _hist_dirty: bool = False
+    _send_thread: threading.Thread = None
 
 # -- Send thread --------------------------------------------------------------
 
@@ -402,7 +403,8 @@ def _start_send(state, sock):
         total = len(state.tx_queue)
         state.sending.update(active=True, total=total, idx=0)
     state.queue_scroll = 0
-    threading.Thread(target=_send_worker, args=(state, total, state.tx_delay_ms, sock), daemon=True).start()
+    state._send_thread = threading.Thread(target=_send_worker, args=(state, total, state.tx_delay_ms, sock), daemon=True)
+    state._send_thread.start()
 
 # -- Command dispatch ---------------------------------------------------------
 
@@ -616,6 +618,19 @@ class MavTxApp(MavAppBase):
 
     def _tick(self):
         s = self.state
+        # Thread watchdog: detect dead send thread with active flag stuck
+        if s._send_thread is not None and not s._send_thread.is_alive():
+            with s.send_lock:
+                if s.sending["active"]:
+                    remaining = len(s.tx_queue)
+                    s.sending.update(active=False, idx=-1, sent_at=0.0, waiting=False, delay_end=0.0, guarding=False)
+                    s.status.set(f"SEND THREAD DIED — {remaining} in queue", STATUS_LONG)
+                    print("WARNING: TX send thread died unexpectedly", file=sys.stderr)
+            s._send_thread = None
+        if s.tx_log and not s.tx_log._writer.is_alive() and not getattr(s, '_log_dead', False):
+            s._log_dead = True
+            s.status.set("TX LOG WRITER DEAD — logging stopped", STATUS_LONG)
+            print("WARNING: TX log writer thread died", file=sys.stderr)
         old_zmq = s.zmq_status
         s.zmq_status = poll_monitor(self._zmq_monitor, PUB_STATUS, s.zmq_status)
         status_dirty = s.status.check_expiry() or (s.zmq_status != old_zmq)
@@ -805,12 +820,14 @@ class MavTxApp(MavAppBase):
     def _cleanup(self):
         s = self.state
         try: s.tx_log.write_summary(s.tx_count, s.session_start); s.tx_log.close()
-        except Exception: pass
+        except Exception as e:
+            print(f"WARNING: failed to close TX session log: {e}", file=sys.stderr)
         try:
             update_cfg_from_state(CFG, s.csp, s.ax25, s.freq, s.zmq_addr_disp, s.tx_delay_ms,
                                  uplink_mode=s.uplink_mode)
             save_gss_config(CFG)
-        except Exception: pass
+        except Exception as e:
+            print(f"WARNING: failed to save config: {e}", file=sys.stderr)
         zmq_cleanup(self._zmq_monitor, PUB_STATUS, s.zmq_status, self._sock, self._zmq_ctx)
 
 

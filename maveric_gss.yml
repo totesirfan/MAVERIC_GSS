@@ -26,6 +26,7 @@ csp:
   dest_port: 24
   src_port: 0
   flags: 0
+  csp_crc: false
 tx:
   zmq_addr: tcp://127.0.0.1:52002
   frequency: 437.25 MHz
@@ -36,7 +37,7 @@ rx:
   zmq_port: 52001
   zmq_addr: tcp://127.0.0.1:52001
 general:
-  version: 4.2.0
+  version: 4.3.0
   log_dir: logs
   command_defs: maveric_commands.yml
   decoder_yml: maveric_decoder.yml
