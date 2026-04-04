@@ -29,7 +29,7 @@ from mav_gss_lib.transport import (init_zmq_pub, send_pdu,
                                    poll_monitor, PUB_STATUS, zmq_cleanup)
 from mav_gss_lib.logging import TXLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
-                                    Hints, HelpPanel, ConfigScreen, ImportScreen, ConfirmScreen,
+                                    Hints, HelpScreen, ConfigScreen, ImportScreen, ConfirmScreen,
                                     MavAppBase, dispatch_common, TS_SHORT,
                                     STATUS_BRIEF, STATUS_NORMAL, STATUS_LONG, STATUS_STARTUP)
 from mav_gss_lib.config import (
@@ -230,7 +230,7 @@ def _perform_undo(state):
         r = state.tx_queue.pop(); _save_queue(state.tx_queue)
         _renumber_queue(state.tx_queue); state._queue_dirty = True
         if state.queue_sel >= len(state.tx_queue): state.queue_sel = len(state.tx_queue) - 1
-        label = r.get("cmd", f"{r['delay_ms']}ms") if r["type"] == "cmd" else f"{r['delay_ms']}ms"
+        label = r["cmd"] if r["type"] == "cmd" else f"{r['delay_ms']}ms"
         state.status.set(f"Removed: {label} ({len(state.tx_queue)} left)", STATUS_BRIEF)
         return True
     state.status.set("Queue is empty", STATUS_BRIEF)
@@ -281,7 +281,6 @@ class TxState:
     cmd_hist_save: str = ""
     queue_scroll: int = 0
     hist_scroll: int = 0
-    help_open: bool = False
     send_abort: threading.Event = field(default_factory=threading.Event)
     send_guard: threading.Event = field(default_factory=threading.Event)      # worker sets: guard reached
     send_guard_ok: threading.Event = field(default_factory=threading.Event)   # UI sets: user confirmed
@@ -552,7 +551,7 @@ class MavTxApp(MavAppBase):
     SentHistory { border-top: solid #555555; border-left: solid black; border-right: solid black; border-bottom: solid black; }
     SentHistory:focus { border: solid #00bfff; }
     """
-    _WIDGET_QUERY = "TxHeader, TxQueue, SentHistory, TxStatusBar, HelpPanel"
+    _WIDGET_QUERY = "TxHeader, TxQueue, SentHistory, TxStatusBar"
     _INPUT_ID = "tx-input"
     BINDINGS = [
         Binding("ctrl+c", "quit_or_close", "Quit", priority=True),
@@ -595,11 +594,10 @@ class MavTxApp(MavAppBase):
             with Vertical(id="content-area"):
                 yield TxQueue(s, id="tx-queue")
                 yield SentHistory(s, id="sent-history")
-            yield HelpPanel(s, HELP_LINES, "Esc: close", tx_help_info, id="help-panel")
         with Vertical(id="bottom-bar"):
             yield TxStatusBar(s, id="status-bar")
             yield Input(id="tx-input")
-            yield Hints(" Tab: focus | Enter: queue | cfg | help | imp | Ctrl+C: quit")
+            yield Hints(self._hint_text)
 
     def on_mount(self):
         if self._show_splash:
@@ -653,12 +651,11 @@ class MavTxApp(MavAppBase):
             else:
                 cmd_name, content = "?", None
             self.push_screen(
-                ConfirmScreen("Send guarded command?", "Send", content=content),
+                ConfirmScreen("Send guarded command?", "Send", caution=True, content=content),
                 self._on_guard_done)
         if not s.send_guard.is_set():
             self._guard_shown = False
         # Selective refresh: only redraw widgets whose data actually changed
-        self.query_one("#help-panel").display = s.help_open
         now_sec = int(time.time())
         zmq_offline = s.zmq_status != "ONLINE"
         if now_sec != self._last_header_sec or status_dirty or zmq_offline:
@@ -674,8 +671,7 @@ class MavTxApp(MavAppBase):
             self.query_one("#sent-history").refresh()
         if status_dirty or send_dirty:
             self.query_one("#status-bar").refresh()
-        if s.help_open and s._queue_dirty:
-            self.query_one("#help-panel").refresh()
+            self.query_one("Hints").refresh()
 
     def _on_guard_done(self, confirmed):
         s = self.state
@@ -690,7 +686,6 @@ class MavTxApp(MavAppBase):
         with s.send_lock:
             active = s.sending["active"]
         if active: s.send_abort.set(); s.status.set("Aborting send...", STATUS_BRIEF); self._act(); return
-        if s.help_open: s.help_open = False; self._act(); return
         self._cleanup(); self.exit()
 
     def action_close_or_cancel(self):
@@ -698,7 +693,6 @@ class MavTxApp(MavAppBase):
         with s.send_lock:
             active = s.sending["active"]
         if active: s.send_abort.set(); s.status.set("Aborting send...", STATUS_BRIEF)
-        elif s.help_open: s.help_open = False
         self._act()
 
     def action_send_queue(self):
@@ -746,6 +740,32 @@ class MavTxApp(MavAppBase):
 
     def action_focus_next_widget(self): self._cycle_focus(1)
 
+    def on_descendant_focus(self, event):
+        self.query_one("Hints").refresh()
+
+    _TAB_LABELS = {"#tx-input": "queue", "#tx-queue": "history", "#sent-history": "input"}
+
+    def _hint_text(self):
+        s = self.state
+        sending = s.sending.get("active", False)
+        f = self.focused
+        if isinstance(f, TxQueue):
+            ctx = [("␣", "guard"), ("w", "delay"), ("⌫", "remove")]
+        elif isinstance(f, SentHistory):
+            ctx = [("↑↓", "scroll")]
+        else:
+            ctx = [("^S", "send"), ("^X", "clear"), ("cfg", "")]
+        # Tab label: show the next widget in the focus cycle
+        tab_next = "next"
+        for sel, label in self._TAB_LABELS.items():
+            if f is self.query_one(sel):
+                idx = self._FOCUS_CYCLE.index(sel)
+                nxt = self._FOCUS_CYCLE[(idx + 1) % len(self._FOCUS_CYCLE)]
+                tab_next = self._TAB_LABELS.get(nxt, "next")
+                break
+        pinned = [("⇥", tab_next), ("?", "help"), ("^C", "abort" if sending else "quit")]
+        return ctx, pinned
+
     def action_history_prev(self):
         # Only recall command history when input is focused
         if not isinstance(self.focused, Input): return
@@ -772,6 +792,11 @@ class MavTxApp(MavAppBase):
 
     def _dispatch(self, line):
         return _dispatch_tx_command(self.state, line, self._sock)
+
+    def _open_help(self):
+        v, sc, sp, lp = tx_help_info(self.state)
+        self.push_screen(HelpScreen(HELP_LINES, version=v,
+                                    schema_count=sc, schema_path=sp, log_path=lp))
 
     def _open_config(self):
         s = self.state

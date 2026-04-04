@@ -36,10 +36,17 @@ S_USC_GOLD     = Style(color="#FFCC00", bold=True)
 # Focus-aware widget title: cyan highlight when focused, white reverse when not
 S_TITLE_FOCUSED  = "bold #000000 on #00bfff"
 S_TITLE_DEFAULT  = "reverse bold #ffffff"
+# Fill styles for full-row title bars
+S_TITLE_FILL_FOCUSED = "on #00bfff"
+S_TITLE_FILL_DEFAULT = "on #ffffff"
 
 def title_style(has_focus):
     """Return the appropriate title style string based on widget focus state."""
     return S_TITLE_FOCUSED if has_focus else S_TITLE_DEFAULT
+
+def title_fill(has_focus):
+    """Return the fill style for the title bar background."""
+    return S_TITLE_FILL_FOCUSED if has_focus else S_TITLE_FILL_DEFAULT
 
 # -- Status duration constants ------------------------------------------------
 
@@ -104,6 +111,61 @@ def hide_echo_if_all_none(col_widths, echo_values):
     """Hide echo column when all visible echoes are NONE (node 0)."""
     if all(protocol.NODE_NAMES.get(e) == "NONE" for e in echo_values):
         col_widths["echo"] = 0
+
+
+def build_col_hdr(col_w, *, has_non_gs_src=False, has_time=False,
+                  has_frame=False, right_text="SIZE "):
+    """Build column header row for packet/command lists.
+    Returns (hdr_left: Text, hdr_right: Text)."""
+    nw, sw, dw = col_w["num"], col_w["src"], col_w["dest"]
+    ew, pw = col_w["echo"], col_w["ptype"]
+    hdr = Text()
+    hdr.append(f" {'#':<{nw}} ", style=S_SEP)
+    if has_time:
+        hdr.append(f" {'TIME':8} ", style=S_SEP)
+    if has_frame:
+        hdr.append(f" {'FRAME':<{col_w.get('frame', 5)}} ", style=S_SEP)
+    if has_non_gs_src:
+        hdr.append(f" {'SRC':>{sw}} {'→':^1} {'DEST':<{dw}} ", style=S_SEP)
+    else:
+        hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
+    if ew:
+        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
+    hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
+    hdr.append(" ID/ARGS", style=S_SEP)
+    return hdr, Text(right_text, style=S_SEP)
+
+
+def _cs(b, color, uniform):
+    """Column style: uniform base or base + color override."""
+    return b if uniform else f"{b} {color}"
+
+
+def build_cmd_columns(left, col_w, *, num_str, dest, echo, ptype_id,
+                      cmd_name, src=None, time_str=None, frame_str=None,
+                      has_non_gs_src=True, b="", uniform=False, colors=None):
+    """Append standard command columns (#NUM [TIME] [FRAME] SRC→DEST [ECHO] TYPE CMD) to a Text.
+    Returns indent position for args wrapping."""
+    c = colors or {}
+    nw, sw, dw = col_w["num"], col_w["src"], col_w["dest"]
+    ew, pw = col_w["echo"], col_w["ptype"]
+    left.append(f" {num_str:<{nw}} ", style=_cs(b, c.get("num", "#ffffff"), uniform))
+    if time_str is not None:
+        left.append(f" {time_str} ", style=_cs(b, c.get("time", "#ffffff"), uniform))
+    if frame_str is not None:
+        fw = col_w.get("frame", 5)
+        left.append(f" {frame_str:<{fw}} ", style=_cs(b, c.get("frame", frame_color(frame_str)), uniform))
+    _nl = protocol.node_label
+    if has_non_gs_src and src is not None:
+        left.append(f" {_nl(src):>{sw}} → {_nl(dest):<{dw}} ", style=_cs(b, c.get("node", "#00bfff"), uniform))
+    else:
+        left.append(f" {_nl(dest):<{dw}} ", style=_cs(b, c.get("node", "#00bfff"), uniform))
+    if ew:
+        left.append(f" E:{_nl(echo):<{ew}} ", style=_cs(b, c.get("echo", node_color(echo)), uniform))
+    pt = protocol.PTYPE_NAMES.get(ptype_id, str(ptype_id))
+    left.append(f" {pt:<{pw}} ", style=_cs(b, c.get("ptype", ptype_color(ptype_id)), uniform))
+    left.append(f" {cmd_name} ", style=_cs(b, c.get("cmd", "bold #ffffff"), uniform))
+    return left.cell_len
 
 
 # -- Shared layout helpers ----------------------------------------------------
@@ -287,8 +349,8 @@ class ScrollableWidget(Widget):
         raise NotImplementedError
 
     def on_click(self, event): self.focus()
-    def on_mouse_scroll_up(self, event): self._scroll_by(-3)
-    def on_mouse_scroll_down(self, event): self._scroll_by(3)
+    def on_mouse_scroll_up(self, event): self._scroll_by(-1)
+    def on_mouse_scroll_down(self, event): self._scroll_by(1)
 
     def on_key(self, event: Key):
         k = event.key
@@ -325,6 +387,7 @@ class MavAppBase(App):
     def _pre_dispatch(self, line): pass
     def _handle_result(self, result): return False
     def _open_config(self): raise NotImplementedError
+    def _open_help(self): pass
     def _cleanup(self): pass
 
     def on_input_submitted(self, event):
@@ -338,6 +401,7 @@ class MavAppBase(App):
         if result == "break": self._cleanup(); self.exit(); return
         if result == "restart": self._cleanup(); self.exit(result="restart"); return
         if result == "open_config": self._open_config(); return
+        if result == "open_help": self._open_help(); return
         if self._handle_result(result): return
         self._act()
 
@@ -346,8 +410,8 @@ def dispatch_common(state, cmd):
     """Handle commands shared between RX and TX.
     Returns 'break', 'open_config', True (handled), or None (not recognized)."""
     if cmd in ('q', 'quit', 'exit'): return "break"
-    if cmd == 'help': state.help_open = not getattr(state, 'help_open', False); return True
-    if cmd in ('cfg', 'config'): state.help_open = False; return "open_config"
+    if cmd in ('help', '?'): return "open_help"
+    if cmd in ('cfg', 'config'): return "open_config"
     if cmd.startswith('tag '): return ("tag", cmd[4:])
     if cmd == 'tag': return ("tag", "")
     if cmd.startswith('log '): return ("log", cmd[4:])
@@ -358,23 +422,111 @@ def dispatch_common(state, cmd):
 
 
 class Hints(Widget):
-    """Single-line hint bar docked at bottom."""
+    """Single-line hint bar: context hints left-aligned, common hints right-aligned.
+    Source callable returns (context_pairs, pinned_pairs) of (key, desc) tuples."""
     DEFAULT_CSS = "Hints { height: 1; width: 100%; }"
-    def __init__(self, text, **kw):
+    def __init__(self, hint_fn, **kw):
         super().__init__(**kw)
-        self._text = text
+        self._fn = hint_fn
+
+    @staticmethod
+    def _build(pairs):
+        t = Text(no_wrap=True, overflow="ellipsis")
+        for i, (key, desc) in enumerate(pairs):
+            if i > 0:
+                t.append(" ", style="")
+            t.append(f" {key} ", style="on #333333 #cccccc")
+            if desc:
+                t.append(f" {desc}", style=S_DIM)
+        return t
+
     def render(self):
-        return Text(self._text, style=S_DIM, no_wrap=True, overflow="ellipsis")
+        ctx, pinned = self._fn()
+        return lr_line(self._build(ctx), self._build(pinned),
+                       self.content_size.width)
 
 
-class HelpPanel(Widget):
-    """Side panel showing help lines. Parameterized with data at construction."""
-    DEFAULT_CSS = "HelpPanel { width: auto; max-width: 50%; dock: right; display: none; border-left: solid #555555; border-top: solid #555555; }"
-    def __init__(self, state, help_lines, hint, get_info, **kw):
-        super().__init__(**kw)
-        self.s, self._lines, self._hint, self._get_info = state, help_lines, hint, get_info
-    def render(self):
-        return render_help_panel(self._lines, self._hint, *self._get_info(self.s))
+class HelpScreen(ModalScreen):
+    """Centered modal help screen with native Textual scrolling."""
+    CSS = """
+    HelpScreen { align: center middle; background: black 50%; }
+    #help-box { width: 90%; height: 85%; border: solid #555555; background: black;
+                padding: 1 2; overflow-y: auto; }
+    #help-box:focus { border: solid #555555; }
+    #help-box > Static { width: 100%; }
+    """
+
+    def __init__(self, help_lines, version="", schema_count=0,
+                 schema_path="", log_path=""):
+        super().__init__()
+        self._lines = help_lines
+        self._version = version
+        self._schema_count = schema_count
+        self._schema_path = schema_path
+        self._log_path = log_path
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import VerticalScroll
+        with VerticalScroll(id="help-box"):
+            yield Static(id="help-content")
+
+    def _build_section_table(self, rows):
+        """Build a Rich Table for a group of (key, description) rows."""
+        tbl = Table(show_header=False, show_edge=False, box=None,
+                    padding=(0, 1, 1, 1), expand=True)
+        tbl.add_column("key", no_wrap=True, style=S_VALUE, min_width=26)
+        tbl.add_column("desc", style=S_DIM, ratio=1)
+        for left, right in rows:
+            tbl.add_row(f" {left}", right)
+        return tbl
+
+    def on_mount(self):
+        # Group help lines into sections: [(header, [(key, desc), ...]), ...]
+        sections = []
+        current_rows = []
+        current_header = None
+        for left, right in self._lines:
+            if right is None:
+                if current_header is not None or current_rows:
+                    sections.append((current_header, current_rows))
+                current_header = left
+                current_rows = []
+            else:
+                current_rows.append((left, right))
+        if current_header is not None or current_rows:
+            sections.append((current_header, current_rows))
+        # Session info section
+        session_rows = []
+        if self._version:
+            session_rows.append(("Version", self._version))
+        if self._schema_count > 0:
+            session_rows.append(("Schema", f"{self._schema_count} cmds ({os.path.basename(self._schema_path)})"))
+        if self._log_path:
+            session_rows.append(("Log", os.path.basename(self._log_path)))
+        if session_rows:
+            sections.append(("SESSION", session_rows))
+        # Build renderable: title + grouped tables
+        parts = []
+        title = Text(" HELP ", style="reverse bold #ffffff")
+        parts.append(title)
+        for header, rows in sections:
+            parts.append(Text())  # blank line separator
+            if header:
+                parts.append(Text(f" {header}", style=S_LABEL))
+            if rows:
+                parts.append(self._build_section_table(rows))
+        parts.append(Text())
+        hint = Text()
+        hint.append(" ↑↓", style=S_VALUE); hint.append(" Scroll  ", style=S_DIM)
+        hint.append("PgUp/PgDn", style=S_VALUE); hint.append(" Page  ", style=S_DIM)
+        hint.append("Esc", style=S_VALUE); hint.append(" Close", style=S_DIM)
+        parts.append(hint)
+        self.query_one("#help-content", Static).update(Group(*parts))
+        self.query_one("#help-box").focus()
+
+    def on_key(self, event):
+        if event.key in ("escape", "enter"):
+            self.dismiss(None); event.stop()
 
 
 class ConfigScreen(ModalScreen):
@@ -540,11 +692,12 @@ class ConfirmScreen(ModalScreen):
                    border: solid #555555; background: black; padding: 1 3; }
     """
 
-    def __init__(self, message, action_label="Confirm", *, destructive=False, details=None, content=None):
+    def __init__(self, message, action_label="Confirm", *, destructive=False, caution=False, details=None, content=None):
         super().__init__()
         self._message = message
         self._action_label = action_label
         self._destructive = destructive
+        self._caution = caution
         self._details = details or []
         self._content = content
 
@@ -560,6 +713,9 @@ class ConfirmScreen(ModalScreen):
         if self._destructive:
             t.append(f"⚠ {self._message}\n", style=S_ERROR)
             box.styles.border = ("solid", "#cc0000")
+        elif self._caution:
+            t.append(f"{self._message}\n", style=S_WARNING)
+            box.styles.border = ("solid", "#ffd700")
         else:
             t.append(f"{self._message}\n", style=S_LABEL)
             box.styles.border = ("solid", "#00bfff")
@@ -575,6 +731,8 @@ class ConfirmScreen(ModalScreen):
         t.append("\n")
         if self._destructive:
             t.append(f" Enter:{self._action_label} ", style="bold #ffffff on #cc0000")
+        elif self._caution:
+            t.append(f" Enter:{self._action_label} ", style="bold #000000 on #ffd700")
         else:
             t.append(f" Enter:{self._action_label} ", style="bold #000000 on #00ff87")
         t.append("  ")
@@ -692,30 +850,5 @@ class SplashScreen(ModalScreen):
 
 # -- Shared panel renderers ---------------------------------------------------
 
-def render_help_panel(help_lines, hint, version="", schema_count=0,
-                      schema_path="", log_path=""):
-    """Render the help panel Rich Text from help_lines data and session info."""
-    t = Text()
-    t.append(" HELP\n", style=S_LABEL)
-    for left, right in help_lines:
-        if right is None:
-            t.append(f" {left}\n", style=S_LABEL)
-        elif left == "":
-            t.append("\n")
-        else:
-            t.append(f"  {left:<20}", style=S_VALUE)
-            t.append(f"{right}\n", style=S_DIM)
-    t.append("\n")
-    if version:
-        t.append(f"  {'Version':<20}", style=S_VALUE)
-        t.append(f"{version}\n", style=S_DIM)
-    if schema_count > 0:
-        t.append(f"  {'Schema':<20}", style=S_VALUE)
-        t.append(f"{schema_count} cmds ({os.path.basename(schema_path)})\n", style=S_DIM)
-    if log_path:
-        t.append(f"  {'Log':<20}", style=S_VALUE)
-        t.append(f"{os.path.basename(log_path)}\n", style=S_DIM)
-    t.append(f"\n {hint}", style=S_DIM)
-    return t
 
 

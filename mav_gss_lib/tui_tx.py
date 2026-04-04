@@ -14,53 +14,24 @@ import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles, append_wrapped_args, build_header, flash_phase,
-    TS_SHORT, ptype_color, node_color, compute_col_widths, title_style,
+    scrollbar_styles, append_wrapped_args, build_header, build_col_hdr,
+    build_cmd_columns, flash_phase,
+    TS_SHORT, ptype_color, node_color, compute_col_widths, title_style, title_fill,
     hide_echo_if_all_none,
 )
 
 
-def _tx_col_widths(cmd_items, scroll_offset):
-    """Compute column widths for TX queue visible command items (dicts)."""
-    nums = {id(row): str(i + 1) for i, row in enumerate(cmd_items)}
-    result = compute_col_widths(cmd_items, {
-        "num": lambda row: [nums[id(row)]],
-        "src": lambda row: [node_label(row["src"])],
+def _cmd_col_widths(items, num_fn):
+    """Compute column widths for command/record rows.
+    num_fn: callable(row) -> display string for the number column (including '#' prefix)."""
+    result = compute_col_widths(items, {
+        "num": lambda row: [f"#{num_fn(row)}"],
+        "src": lambda row: [node_label(row.get("src", protocol.GS_NODE))],
         "dest": lambda row: [node_label(row["dest"])],
         "echo": lambda row: [node_label(row["echo"])],
-        "ptype": lambda row: [protocol.PTYPE_NAMES.get(row["ptype"], str(row["ptype"]))],
+        "ptype": lambda row: [protocol.PTYPE_NAMES.get(row["ptype"], str(row.get("ptype", "?")))],
     }, defaults={"num": 1, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
-    hide_echo_if_all_none(result, [row["echo"] for row in cmd_items])
-    return result
-
-def _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src, has_time=False):
-    """Build column header row shared by TxQueue and SentHistory."""
-    hdr = Text()
-    hdr.append(f" #{'#':<{nw}} ", style=S_SEP)
-    if has_time:
-        hdr.append(f" {'TIME':8} ", style=S_SEP)
-    if has_non_gs_src:
-        hdr.append(f" {'SRC':>{sw}} → {'DEST':<{dw}} ", style=S_SEP)
-    else:
-        hdr.append(f" {'DEST':<{dw}} ", style=S_SEP)
-    if ew:
-        hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
-    hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
-    hdr.append(" ID/ARGS", style=S_SEP)
-    right = Text("SIZE ", style=S_SEP)
-    return hdr, right
-
-
-def _hist_col_widths(visible):
-    """Compute column widths for sent history visible rows."""
-    result = compute_col_widths(visible, {
-        "num": lambda rec: [str(rec['n'])],
-        "src": lambda rec: [node_label(rec.get('src', protocol.GS_NODE))],
-        "dest": lambda rec: [node_label(rec['dest'])],
-        "echo": lambda rec: [node_label(rec['echo'])],
-        "ptype": lambda rec: [protocol.PTYPE_NAMES.get(rec['ptype'], '?')],
-    }, defaults={"num": 1, "src": 3, "dest": 4, "echo": 4, "ptype": 4})
-    hide_echo_if_all_none(result, [rec['echo'] for rec in visible])
+    hide_echo_if_all_none(result, [row["echo"] for row in items])
     return result
 
 
@@ -85,20 +56,19 @@ class TxHeader(Widget):
         zmq_val.append(s.zmq_addr_disp, style=S_VALUE)
         zmq_val.append(" ")
         zmq_val.append(f"[{s.zmq_status}]", style=zmq_style)
-        crc_label = "CRC32" if s.csp.csp_crc else "NO CRC"
-        crc_style = Style(color="#55bb55", bold=True) if s.csp.csp_crc else Style(color="#ff6666", bold=True)
         items = [
             ("ZMQ", zmq_val, None),
             ("Mode", mode_label, mode_style),
-            ("", crc_label, crc_style),
         ]
+        if not s.csp.csp_crc:
+            items.append(("", "NO CRC", Style(color="#ff6666", bold=True)))
         t, _ = build_header("MAVERIC UPLINK", S_LABEL, items, w)
         return t
 
 
 class TxQueue(ScrollableWidget):
     """Scrollable TX queue with typed items (cmd and delay). Each item = one row."""
-    DEFAULT_CSS = "TxQueue { height: 1fr; width: 100%; } TxQueue:focus { border: solid #00bfff; }"
+    DEFAULT_CSS = "TxQueue { height: 2fr; width: 100%; } TxQueue:focus { border: solid #00bfff; }"
 
     def __init__(self, state, **kw):
         super().__init__(**kw)
@@ -184,10 +154,9 @@ class TxQueue(ScrollableWidget):
         # Title
         cmd_count = sum(1 for item in q if item["type"] == "cmd")
         title = Text()
-        title.append(f" TX QUEUE ({cmd_count}) ", style=title_style(self.has_focus))
-        ind = Text(f"[{s.queue_scroll+1}-{min(s.queue_scroll+vis,count)}/{count}] ", style=S_DIM) if count > vis else Text()
-        hints = Text("Ctrl+S: send | Ctrl+X: clear ", style=S_DIM)
-        right = Text(); right.append_text(ind); right.append_text(hints)
+        tf = self.has_focus
+        title.append(f" TX QUEUE ({cmd_count}) ", style=title_style(tf))
+        right = Text(f"[{s.queue_scroll+1}-{min(s.queue_scroll+vis,count)}/{count}] ", style=S_DIM) if count > vis else Text()
         t.append_text(lr_line(title, right, w))
         # Scroll (reversed display: next-to-send at bottom)
         if count > 0:
@@ -199,17 +168,17 @@ class TxQueue(ScrollableWidget):
             s.queue_scroll = max(0, min(s.queue_scroll, max(0, count - vis)))
             visible = q[s.queue_scroll:s.queue_scroll + vis]
             cmd_items = [item for item in visible if item["type"] == "cmd"]
-            col_w = _tx_col_widths(cmd_items, s.queue_scroll)
+            nums = {id(row): i + 1 for i, row in enumerate(cmd_items)}
+            col_w = _cmd_col_widths(cmd_items, lambda r: nums[id(r)])
             has_non_gs_src = any(item.get("src", protocol.GS_NODE) != protocol.GS_NODE for item in cmd_items)
             sb = scrollbar_styles(count, vis, s.queue_scroll, vis) if count > vis else []
             visible = list(reversed(visible))
             if sb: sb = list(reversed(sb))
         else:
-            visible, col_w = [], _tx_col_widths([], 0)
+            visible, col_w = [], _cmd_col_widths([], lambda r: "")
             has_non_gs_src, sb = False, []
-        nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
         row_w = w - 1 if sb else w
-        hdr, hdr_right = _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src)
+        hdr, hdr_right = build_col_hdr(col_w, has_non_gs_src=has_non_gs_src)
         t.append("\n"); t.append_text(lr_line(hdr, hdr_right, row_w))
         if count == 0:
             t.append("\n  (empty — type a command below)", style=S_DIM)
@@ -231,7 +200,7 @@ class TxQueue(ScrollableWidget):
             if item["type"] == "cmd":
                 cmd_num = item.get("num", ai + 1)
                 self._render_cmd(t, item, ai, cmd_num, is_sel, is_next, sending_idx, guarding,
-                                 nw, sw, dw, ew, pw, has_non_gs_src, row_w, sb, i, s)
+                                 col_w, has_non_gs_src, row_w, sb, i, s)
             else:
                 self._render_delay(t, item, ai, is_sel, sending_idx, guarding, row_w, sb, i, s)
         if t_ms > 0:
@@ -240,14 +209,14 @@ class TxQueue(ScrollableWidget):
         return t
 
     def _render_cmd(self, t, item, ai, cmd_num, is_sel, is_next, sending_idx, guarding,
-                    nw, sw, dw, ew, pw, has_non_gs_src, row_w, sb, vi, s):
+                    col_w, has_non_gs_src, row_w, sb, vi, s):
         """Render a command row."""
         sent_at = s.sending.get("sent_at", 0.0)
         is_current = sending_idx >= 0 and ai == sending_idx
         in_flash = is_current and sent_at > 0 and time.time() - sent_at < 1.0
         if is_current and guarding:
             flash = flash_phase()
-            b = "reverse bold #00bfff" if flash else "on #002233 bold #00bfff"
+            b = "reverse bold #ffd700" if flash else "on #332b00 bold #ffd700"
             tag, ts, uniform = " GUARD", b, True
         elif in_flash:
             flash = flash_phase()
@@ -260,25 +229,17 @@ class TxQueue(ScrollableWidget):
         else:
             b, tag, ts, uniform = "", "", "", False
         left = Text(style=b)
-        left.append(f" #{cmd_num:<{nw}} ", style=b if uniform else f"{b} #ffffff")
-        src, dest, echo = item["src"], item["dest"], item["echo"]
-        if has_non_gs_src:
-            left.append(f" {node_label(src):>{sw}} → {node_label(dest):<{dw}} ", style=b if uniform else f"{b} #00bfff")
-        else:
-            left.append(f" {node_label(dest):<{dw}} ", style=b if uniform else f"{b} #00bfff")
-        if ew:
-            left.append(f" E:{node_label(echo):<{ew}} ", style=b if uniform else f"{b} {node_color(echo)}")
-        pt = protocol.PTYPE_NAMES.get(item["ptype"], str(item["ptype"]))
-        left.append(f" {pt:<{pw}} ", style=b if uniform else f"{b} {ptype_color(item['ptype'])}")
-        left.append(f" {item['cmd']} ", style=b if uniform else f"{b} bold #ffffff")
-        args_indent = left.cell_len
+        args_indent = build_cmd_columns(left, col_w, num_str=f"#{cmd_num}",
+            src=item["src"], dest=item["dest"], echo=item["echo"],
+            ptype_id=item["ptype"], cmd_name=item["cmd"],
+            has_non_gs_src=has_non_gs_src, b=b, uniform=uniform)
         args_style = b if uniform else (f"{b} #ffffff" if b != "#888888" else b)
         # Right side
         right_parts = Text()
         if is_next and not tag:
             right_parts.append(" NEXT ", style="bold #000000 on #ffffff")
         if item.get("guard") and "SENT" not in tag and "GUARD" not in tag:
-            right_parts.append(" GUARDED ", style="bold #000000 on #00bfff")
+            right_parts.append(" GUARDED ", style="bold #000000 on #ffd700")
         if tag:
             right_parts.append(f"{tag}  ", style=ts)
         size_style = ts if tag else (f"{b} #555555" if is_sel else f"{b} #999999")
@@ -353,7 +314,8 @@ class SentHistory(ScrollableWidget):
         hist, count = s.history, len(s.history)
         t = Text(no_wrap=True, overflow="crop")
         title = Text()
-        title.append(f" SENT HISTORY ({count}) ", style=title_style(self.has_focus))
+        tf = self.has_focus
+        title.append(f" SENT HISTORY ({count}) ", style=title_style(tf))
         data_rows = h - 1
         # Compute visible slice first so header and data share same col widths
         data_rows -= 2  # col header + blank line between title and data
@@ -363,20 +325,19 @@ class SentHistory(ScrollableWidget):
             end = min(s.hist_scroll + 1, count)
             start = max(0, end - data_rows)
             visible = hist[start:end]
-            col_w = _hist_col_widths(visible)
+            col_w = _cmd_col_widths(visible, lambda r: r['n'])
             has_non_gs_src = any(rec.get('src', protocol.GS_NODE) != protocol.GS_NODE for rec in visible)
             sb = scrollbar_styles(count, data_rows, start, data_rows) if count > data_rows else []
         else:
             visible, start, end = [], 0, 0
-            col_w = _hist_col_widths([])
+            col_w = _cmd_col_widths([], lambda r: "")
             has_non_gs_src = False
             sb = []
-        nw, sw, dw, ew, pw = col_w["num"], col_w["src"], col_w["dest"], col_w["echo"], col_w["ptype"]
         row_w = w - 1 if sb else w
         # Title line
         ind = Text(f"[{start+1}-{end}/{count}] ", style=S_DIM) if count > data_rows else Text()
         t.append_text(lr_line(title, ind, w))
-        hdr, hdr_right = _build_col_hdr(nw, sw, dw, ew, pw, has_non_gs_src, has_time=True)
+        hdr, hdr_right = build_col_hdr(col_w, has_non_gs_src=has_non_gs_src, has_time=True)
         t.append("\n")
         t.append_text(lr_line(hdr, hdr_right, row_w))
         if count == 0:
@@ -387,26 +348,18 @@ class SentHistory(ScrollableWidget):
         for i, rec in enumerate(visible):
             src = rec.get('src', protocol.GS_NODE)
             is_last = (start + i == count - 1)
-            if is_last and sending_active:
-                b = "on #1a1a2e bold"
-            else:
-                b = ""
+            b = "on #1a1a2e bold" if is_last and sending_active else ""
             h_node = f"{b} #778899"
             h_val  = f"{b} #8899aa"
             left = Text(style=b)
-            left.append(f" #{rec['n']:<{nw}} ", style=h_val)
-            left.append(f" {rec['ts']} ", style=h_val)
-            if has_non_gs_src:
-                left.append(f" {node_label(src):>{sw}} → {node_label(rec['dest']):<{dw}} ", style=h_node)
-            else:
-                left.append(f" {node_label(rec['dest']):<{dw}} ", style=h_node)
-            if ew:
-                echo_c = f"{b} #888888" if protocol.NODE_NAMES.get(rec['echo']) == "NONE" else h_node
-                left.append(f" E:{node_label(rec['echo']):<{ew}} ", style=echo_c)
-            pt = protocol.PTYPE_NAMES.get(rec['ptype'], '?')
-            left.append(f" {pt:<{pw}} ", style=h_node)
-            left.append(f"{rec['cmd']} ", style=f"{b} bold #8899aa" if not b else b)
-            args_indent = left.cell_len
+            hist_colors = {"num": "#8899aa", "time": "#8899aa", "node": "#778899",
+                           "echo": "#888888" if protocol.NODE_NAMES.get(rec['echo']) == "NONE" else "#778899",
+                           "ptype": "#778899", "cmd": "bold #8899aa" if not b else ""}
+            args_indent = build_cmd_columns(left, col_w, num_str=f"#{rec['n']}",
+                src=src, dest=rec["dest"], echo=rec["echo"],
+                ptype_id=rec["ptype"], cmd_name=rec["cmd"],
+                time_str=rec["ts"], has_non_gs_src=has_non_gs_src,
+                b=b, colors=hist_colors)
             pending_args = None
             right = Text(f" {rec['payload_len']}B ", style=f"{b} #999999" if not b else b)
             if rec["args"]:
@@ -450,30 +403,31 @@ class TxStatusBar(Widget):
 # -- Help / Config data -------------------------------------------------------
 
 HELP_LINES = [
+    ("SENDING", None),
+    ("Ctrl+S", "Send all queued commands"),
+    ("Ctrl+C / Esc", "Abort send in progress"),
+    ("Enter", "Confirm guarded command"),
+    ("QUEUE", None),
+    ("CMD [ARGS]", "Queue using schema defaults"),
+    ("[SRC] DEST ECHO TYPE CMD", "Queue with explicit routing"),
+    ("Ctrl+Z", "Remove last item"),
+    ("Ctrl+X", "Clear entire queue"),
+    ("Space", "Toggle guard (queue focus)"),
+    ("wait [ms]", "Queue a delay between commands"),
+    ("imp [file]", "Import from generated_commands/"),
     ("COMMAND FORMAT", None),
-    ("CMD [ARGS]", "Uses schema defaults (if dest defined)"),
-    ("[SRC] DEST ECHO TYPE CMD [ARGS]", "Full form (always works)"),
-    ("  SRC/DEST/ECHO", "Node name or ID"), ("  TYPE", "CMD|RES|ACK|TLM|FILE"),
-    ("SRC defaults to GS (6)", ""),
-    ("e.g.", "set_voltage 3.3"), ("e.g.", "EPS NONE CMD ping hello"),
-    ("KEYS", None), ("Ctrl+S / Ctrl+X", "Send / clear queue"),
-    ("Ctrl+Z", "Remove last queued"), ("Up / Down", "History / scroll (focus)"),
-    ("Tab / Shift+Tab", "Cycle focus: input/queue/history"),
-    ("Mouse wheel", "Scroll focused widget"),
-    ("Ctrl+A / Ctrl+E", "Cursor start / end"),
-    ("Ctrl+W / Ctrl+U", "Del word / clear input"),
-    ("QUEUE FOCUS", None), ("Up / Down", "Navigate items"),
-    ("Enter (on delay)", "Edit delay value"),
-    ("Space (on cmd)", "Toggle guard"),
-    ("w", "Insert delay after selected"),
-    ("Delete / Backspace", "Remove selected item"),
-    ("COMMANDS", None), ("send", "Send all queued"), ("undo / pop", "Remove last queued"),
-    ("clear / hclear", "Clear queue / history"), ("cfg / help / nodes", "Panels & info"),
+    ("e.g.", "set_voltage 3.3"),
+    ("e.g.", "EPS NONE CMD ping hello"),
+    ("SRC / DEST / ECHO", "Node name or ID"),
+    ("TYPE", "CMD | RES | ACK | TLM | FILE"),
+    ("COMMANDS", None),
     ("mode [AX.25|ASM+GOLAY]", "Switch uplink encoding"),
-    ("wait [ms]", "Queue a delay item"),
-    ("imp [file]", "Import from generated_commands/"), ("raw <hex>", "Send raw bytes"),
-    ("tag <name>", "Tag log file for easy ID"),
-    ("log [name]", "Start new log session"), ("q", "Exit"),
+    ("raw <hex>", "Send raw hex bytes"),
+    ("nodes", "List all node IDs"),
+    ("cfg / help", "Open config / help"),
+    ("tag <name>", "Tag log file"),
+    ("log [name]", "Start new log session"),
+    ("q", "Exit"),
 ]
 
 def _is_golay(v): return v.get("uplink_mode") == "ASM+Golay"

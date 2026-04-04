@@ -42,7 +42,7 @@ mav_gss_lib/
     logging.py            Session logging — JSONL + formatted text, background writer thread
     golay.py              ASM+Golay encoder: Golay(24,12), RS FEC (cached), CCSDS scrambler, frame assembly
     ax25.py               AX.25 HDLC encoder: fused HDLC+G3RUH+NRZI+pack single-pass pipeline
-    tui_common.py         Shared Textual UI: ConfigScreen, ConfirmScreen, HelpPanel, SplashScreen, flash_phase, styles
+    tui_common.py         Shared Textual UI: ConfigScreen, ConfirmScreen, HelpScreen, SplashScreen, Hints, column builders, styles
     tui_rx.py             RX widgets: header, packet list (cached filter), packet detail
     tui_tx.py             TX widgets: header, queue, sent history, config fields
 
@@ -98,7 +98,7 @@ Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread re
 │ ─────────────────────────────────────────────── │
 │ ZMQ: tcp://... [ONLINE]  HEX:OFF  UL:HIDE  Q:0 │
 ├─────────────────────────────────────────────────┤
-│ PACKETS (5)   Auto Scroll: ON                   │
+│ PACKETS (5)                                     │
 │  #  TIME      FRAME  SRC → DEST  E:ECHO  TYPE  │
 │  #1 12:00:00  AX.25  GS → EPS   E:UPPM  REQ   │
 │  #2 12:00:01  AX.25  GS → EPS   E:UPPM  REQ   │
@@ -112,21 +112,23 @@ Subscribes to ZMQ where GNU Radio publishes decoded PDUs. A background thread re
 │ CRC-16      0xc315 [OK]                         │
 ├─────────────────────────────────────────────────┤
 │ > _                                             │
-│ Tab: focus | ↑↓: select | Enter: detail | help  │
+│ ↑↓ select  ⏎ detail       ⇥ input  ? help  ^C │
 └─────────────────────────────────────────────────┘
 ```
 
-**Commands**: `help`, `cfg`, `hex`, `ul`, `wrapper`, `detail`, `live`, `hclear`, `tag <name>`, `log [name]`, `restart`, `q`
+**Commands**: `help` / `?`, `cfg`, `hex`, `ul`, `wrapper`, `detail`, `live`, `hclear`, `tag <name>`, `log [name]`, `restart`, `q`
 
-**Keys**: Up/Down (select packet), PgUp/PgDn (scroll), Shift+Down (jump to live), Enter (toggle detail), Tab (toggle focus), Ctrl+C (quit)
+**Keys**: Up/Down (select packet), PgUp/PgDn (scroll page), Shift+Down (jump to live), Enter (toggle detail), Tab (cycle focus), Ctrl+C (quit)
 
 **Features**:
-- Auto Scroll follows newest packets; selecting a packet exits auto mode
+- Auto-follow newest packets; selecting a packet unlocks scroll (`SCROLL UNLOCKED` badge)
 - Uplink echoes tagged `UL` (src=GS or dest/echo not addressed to GS)
 - Duplicate detection via CRC-16 + CRC-32C fingerprint (tagged `DUP`)
 - Unparseable signals shown as `UNKNOWN` with separate numbering
 - Uplink echoes excluded from pkt/min rate
 - Hex/ASCII display toggleable; ASCII always shown in detail
+- Context-aware hint bar shows relevant keys for the focused widget
+- Help opens as a scrollable modal screen (`?` or `help`)
 - `tag` renames current log files; `log` starts a new log session
 
 ## MAV_TX — Uplink Dashboard
@@ -153,7 +155,7 @@ Publishes command PDUs via ZMQ to the GNU Radio flowgraph. Commands are queued w
 ├─────────────────────────────────────────────────┤
 │ SENT 1/2                                        │
 │ > _                                             │
-│ Tab: focus | Enter: queue | cfg | help | Ctrl+C │
+│ ^S send  ^X clear  cfg        ⇥ queue  ? help  ^C │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -171,13 +173,15 @@ EPS 2 3 1 set_voltage 3.3     # Full form with numeric IDs
 
 **Queue Focus Keys**: Up/Down (navigate items), Space (toggle guard on command), Enter (edit delay value), W (insert delay after selected), Delete/Backspace (remove selected item)
 
-**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `wait [ms]`, `cfg`, `help`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+GOLAY]`, `imp [file]`, `raw <hex>`, `tag <name>`, `log [name]`, `restart`, `q`
+**Commands**: `send`, `undo`/`pop`, `clear`, `hclear`, `wait [ms]`, `cfg`, `help` / `?`, `nodes`, `csp`, `ax25`, `mode [AX.25|ASM+GOLAY]`, `imp [file]`, `raw <hex>`, `tag <name>`, `log [name]`, `restart`, `q`
 
 **Features**:
 - **Dual uplink mode**: AX.25 HDLC (Mode 6) or ASM+Golay (Mode 5), switchable via `mode` command or cfg panel — both verified against live AX100 hardware
-- **Typed queue items**: commands and delay separators, with optional guard flag for per-command confirmation during send
+- **Typed queue items**: commands and delay separators, with optional guard flag (amber badge) for per-command confirmation during send
 - **Reversed queue display**: next-to-send at bottom with `NEXT` pill flag, new items added above
 - **Interactive queue editing**: navigate, delete, insert delays, toggle guards, edit delay values — all from keyboard
+- Context-aware hint bar shows relevant keys for the focused widget (input, queue, or history)
+- Help opens as a scrollable modal screen (`?` or `help`)
 - Queue persisted to `.pending_queue.jsonl`, restored on startup
 - Import supports JSONL with `//` comments and hybrid array+dict format
 - Async send with instant abort (Ctrl+C/Esc), uniform SENT/GUARD flash
@@ -213,6 +217,7 @@ csp:
   dest_port: 24
   src_port: 0
   flags: 0
+  csp_crc: true               # CRC-32C in CSP packets
 
 tx:
   zmq_addr: tcp://127.0.0.1:52002

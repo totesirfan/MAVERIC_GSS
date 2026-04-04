@@ -25,7 +25,7 @@ from mav_gss_lib.transport import (init_zmq_sub, receive_pdu,
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.logging import SessionLog
 from mav_gss_lib.tui_common import (StatusMessage, SplashScreen,
-                                    Hints, HelpPanel, ConfigScreen, MavAppBase,
+                                    Hints, HelpScreen, ConfigScreen, MavAppBase,
                                     dispatch_common, TS_FULL,
                                     STATUS_BRIEF, STATUS_NORMAL, STATUS_LONG, STATUS_STARTUP)
 from mav_gss_lib.config import load_gss_config
@@ -88,7 +88,6 @@ class RxState:
     selected_idx: int = -1
     scroll_offset: int = 0
     detail_open: bool = True
-    help_open: bool = False
     show_hex: bool = False
     show_wrapper: bool = False
     hide_uplink: bool = True
@@ -298,7 +297,7 @@ class MavRxApp(MavAppBase):
     #rx-input { height: 1; border: none; padding: 0; }
     #rx-input:focus .input--cursor { background: #00bfff; color: #000000; }
     """
-    _WIDGET_QUERY = "RxHeader, PacketList, PacketDetail, HelpPanel"
+    _WIDGET_QUERY = "RxHeader, PacketList, PacketDetail"
     _INPUT_ID = "rx-input"
     BINDINGS = [
         Binding("ctrl+c", "quit_or_close", "Quit", priority=True),
@@ -340,10 +339,9 @@ class MavRxApp(MavAppBase):
             with Vertical(id="content-area"):
                 yield PacketList(s, id="packet-list")
                 yield PacketDetail(s, id="packet-detail")
-            yield HelpPanel(s, RX_HELP_LINES, "Esc: close", rx_help_info, id="help-panel")
         with Vertical(id="bottom-bar"):
             yield Input(id="rx-input")
-            yield Hints(" Tab: focus | ↑↓: select | Enter: detail | cfg | help | Ctrl+C: quit")
+            yield Hints(self._hint_text)
 
     def on_mount(self):
         if self._show_splash:
@@ -400,7 +398,6 @@ class MavRxApp(MavAppBase):
         if s.selected_idx == -1:
             s.scroll_offset = 0
         self.query_one("#packet-detail").display = s.detail_open
-        self.query_one("#help-panel").display = s.help_open
         # Selective refresh: only redraw widgets whose data actually changed
         if pkt_dirty or spin_dirty or status_dirty or silence_dirty:
             self.query_one("#packet-list").refresh()
@@ -411,18 +408,13 @@ class MavRxApp(MavAppBase):
         if now_sec != self._last_header_sec or zmq_offline:
             self._last_header_sec = now_sec
             self.query_one("#rx-header").refresh()
-        if pkt_dirty and s.help_open:
-            self.query_one("#help-panel").refresh()
 
     def action_quit_or_close(self):
-        s = self.state
-        if s.help_open: s.help_open = False; self._act(); return
         self._cleanup(); self.exit()
 
     def action_close_panel(self):
         s = self.state
-        if s.help_open: s.help_open = False
-        elif s.detail_open: s.detail_open = False
+        if s.detail_open: s.detail_open = False
         self._act()
 
     @property
@@ -435,50 +427,50 @@ class MavRxApp(MavAppBase):
         else:
             self.query_one("#rx-input", Input).focus()
 
-    def action_select_prev(self):
+    def on_descendant_focus(self, event):
+        self.query_one("Hints").refresh()
+
+    def _hint_text(self):
+        if isinstance(self.focused, PacketList):
+            ctx = [("↑↓", "select"), ("⏎", "detail"), ("⇧↓", "live")]
+            tab_next = "input"
+        else:
+            ctx = [("cfg", "")]
+            tab_next = "packets"
+        pinned = [("⇥", tab_next), ("?", "help"), ("^C", "quit")]
+        return ctx, pinned
+
+    def _navigate(self, delta):
+        """Move selection by one step (negative=up, positive=down)."""
         if isinstance(self.focused, Input): return
-        s = self.state
-        pl = self._plist
-        if s.selected_idx == -1:
-            if s.packets:
-                s.selected_idx = pl._find_last_visible()
-            else:
-                s.selected_idx = 0
-        elif s.selected_idx > 0:
-            s.selected_idx = pl._find_prev_visible(s.selected_idx)
+        s, pl = self.state, self._plist
+        if delta < 0:
+            if s.selected_idx == -1:
+                s.selected_idx = pl._find_last_visible() if s.packets else 0
+            elif s.selected_idx > 0:
+                s.selected_idx = pl._find_prev_visible(s.selected_idx)
+        elif s.selected_idx != -1:
+            s.selected_idx = pl._find_next_visible(s.selected_idx)
         self._act()
 
-    def action_select_next(self):
+    def _navigate_page(self, delta):
+        """Move selection by a page (negative=up, positive=down)."""
         if isinstance(self.focused, Input): return
-        s = self.state
-        if s.selected_idx != -1:
-            s.selected_idx = self._plist._find_next_visible(s.selected_idx)
-        self._act()
-
-    def action_page_up(self):
-        if isinstance(self.focused, Input): return
-        s = self.state
-        pl = self._plist
-        if s.selected_idx == -1:
+        s, pl = self.state, self._plist
+        if delta < 0 and s.selected_idx == -1:
             s.selected_idx = pl._find_last_visible() if s.packets else 0
-        steps = max(1, self.size.height - 10)
-        for _ in range(steps):
-            prev = pl._find_prev_visible(s.selected_idx)
-            if prev == s.selected_idx: break
-            s.selected_idx = prev
+        if s.selected_idx == -1: self._act(); return
+        for _ in range(max(1, self.size.height - 10)):
+            nxt = pl._find_prev_visible(s.selected_idx) if delta < 0 else pl._find_next_visible(s.selected_idx)
+            if delta < 0 and nxt == s.selected_idx: break
+            if delta > 0 and nxt == -1: s.selected_idx = -1; break
+            s.selected_idx = nxt
         self._act()
 
-    def action_page_down(self):
-        if isinstance(self.focused, Input): return
-        s = self.state
-        if s.selected_idx != -1:
-            pl = self._plist
-            steps = max(1, self.size.height - 10)
-            for _ in range(steps):
-                nxt = pl._find_next_visible(s.selected_idx)
-                if nxt == -1: s.selected_idx = -1; break
-                s.selected_idx = nxt
-        self._act()
+    def action_select_prev(self): self._navigate(-1)
+    def action_select_next(self): self._navigate(1)
+    def action_page_up(self): self._navigate_page(-1)
+    def action_page_down(self): self._navigate_page(1)
 
     def action_jump_bottom(self):
         if isinstance(self.focused, Input): return
@@ -487,6 +479,11 @@ class MavRxApp(MavAppBase):
 
     def _dispatch(self, line):
         return _dispatch_rx_command(self.state, line)
+
+    def _open_help(self):
+        v, sc, sp, lp = rx_help_info(self.state)
+        self.push_screen(HelpScreen(RX_HELP_LINES, version=v,
+                                    schema_count=sc, schema_path=sp, log_path=lp))
 
     def _open_config(self):
         s = self.state
@@ -499,9 +496,8 @@ class MavRxApp(MavAppBase):
             if new != getattr(s, attr):
                 setattr(s, attr, new)
                 s.status.set(f"{label} {'ON' if new else 'OFF'}", STATUS_BRIEF)
-        _apply("show_hex", "show_hex", "HEX")
-        _apply("show_wrapper", "show_wrapper", "Wrapper")
-        _apply("hide_uplink", "hide_uplink", "Hide Uplink")
+        for label, key, _ in RX_CONFIG_FIELDS:
+            _apply(key, key, label)
         self._act()
 
     # -- Cleanup --------------------------------------------------------------

@@ -62,9 +62,8 @@ def _lookup_name(id_val, names):
     return names.get(id_val, str(id_val))
 
 def _format_label(id_val, names):
-    """Format ID for display: '2 (EPS)' or '99' if unknown."""
-    name = names.get(id_val)
-    return f"{id_val} ({name})" if name else str(id_val)
+    """Format ID for display: 'EPS' or '99' if unknown."""
+    return names.get(id_val, str(id_val))
 
 def _resolve_id(s, name_to_id, id_to_name):
     """Resolve a name ('EPS') or numeric string ('2') to an int ID.

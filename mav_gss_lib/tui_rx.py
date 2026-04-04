@@ -14,10 +14,19 @@ import mav_gss_lib.protocol as protocol
 from mav_gss_lib.protocol import node_label, ptype_label, format_arg_value
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
-    scrollbar_styles, append_wrapped_args, build_header, flash_phase,
-    TS_SHORT, frame_color, ptype_color, node_color, compute_col_widths, title_style,
+    scrollbar_styles, append_wrapped_args, build_header, build_col_hdr,
+    build_cmd_columns, flash_phase,
+    TS_SHORT, frame_color, ptype_color, node_color, compute_col_widths, title_style, title_fill,
     hide_echo_if_all_none,
 )
+
+# Spinner flash styles: (receiving_unknown, flash_phase) -> (text_style, fill_style)
+_RECV_STYLES = {
+    (True, True):   ("reverse bold #ffd700", "reverse #ffd700"),
+    (True, False):  ("on #332b00 bold #ffd700", "on #332b00"),
+    (False, True):  ("reverse bold #00ff87", "reverse #00ff87"),
+    (False, False): ("on #003300 bold #00ff87", "on #003300"),
+}
 
 class RxHeader(Widget):
     """Header bar showing ZMQ status, frequency, toggle states, queue depth, and clocks.
@@ -126,9 +135,8 @@ class PacketList(Widget):
             lh = self.content_size.height - 4
             if lh > 0:
                 s.scroll_offset = max(0, len(s.packets) - lh)
-        for _ in range(3):
-            prev = self._find_prev_visible(s.selected_idx)
-            if prev == s.selected_idx: break
+        prev = self._find_prev_visible(s.selected_idx)
+        if prev != s.selected_idx:
             s.selected_idx = prev
         self.refresh()
 
@@ -136,10 +144,9 @@ class PacketList(Widget):
         s = self.s
         if not s.packets: return
         if s.selected_idx != -1:
-            for _ in range(3):
-                nxt = self._find_next_visible(s.selected_idx)
-                if nxt == -1: s.selected_idx = -1; break
-                s.selected_idx = nxt
+            nxt = self._find_next_visible(s.selected_idx)
+            if nxt == -1: s.selected_idx = -1
+            else: s.selected_idx = nxt
         self.refresh()
 
     # -- Render ----------------------------------------------------------------
@@ -152,11 +159,10 @@ class PacketList(Widget):
         auto = (s.selected_idx == -1)
         t = Text(no_wrap=True, overflow="crop")
         title = Text()
-        title.append(f" PACKETS ({count}) ", style=title_style(self.has_focus))
-        title.append("  Auto Scroll:", style=S_DIM if auto else S_LABEL)
-        title.append("ON" if auto else "OFF", style=S_DIM if auto else S_WARNING)
+        tf = self.has_focus
+        title.append(f" PACKETS ({count}) ", style=title_style(tf))
         if not auto:
-            title.append("  Shift+↓: live", style=S_DIM)
+            title.append(" SCROLL UNLOCKED ", style="bold #000000 on #ffd700")
         data_rows = h - 4  # title + col header + separator + spinner
         # Compute visible slice first so header and data share same col widths
         if data_rows >= 1 and count > 0:
@@ -177,23 +183,13 @@ class PacketList(Widget):
             vis_slice, start, end = [], 0, 0
             col_w = self._compute_col_widths([])
             sb = []
-        nw, fw, sw, dw, ew, pw = (col_w["num"], col_w["frame"], col_w["src"],
-                                    col_w["dest"], col_w["echo"], col_w["ptype"])
         row_w = w - 1 if sb else w
         # Title line
         ind = Text(f"[{start+1}-{end}/{count}] ", style=S_DIM) if count > data_rows else Text()
         t.append_text(lr_line(title, ind, w))
         # Sticky column header row — always visible, aligned with data
-        hdr = Text()
-        hdr.append(f" {'#':<{nw}} ", style=S_SEP)
-        hdr.append(f" {'TIME':8} ", style=S_SEP)
-        hdr.append(f" {'FRAME':<{fw}} ", style=S_SEP)
-        hdr.append(f" {'SRC':>{sw}} {'→':^1} {'DEST':<{dw}} ", style=S_SEP)
-        if ew:
-            hdr.append(f" E:{'ECHO':<{ew}} ", style=S_SEP)
-        hdr.append(f" {'TYPE':<{pw}} ", style=S_SEP)
-        hdr.append(" ID/ARGS", style=S_SEP)
-        hdr_right = Text("FLAGS  SIZE ", style=S_SEP)
+        hdr, hdr_right = build_col_hdr(col_w, has_non_gs_src=True, has_time=True,
+                                       has_frame=True, right_text="FLAGS  SIZE ")
         t.append("\n")
         t.append_text(lr_line(hdr, hdr_right, row_w))
         if data_rows < 1 or count == 0:
@@ -271,17 +267,7 @@ class PacketList(Widget):
         else:
             spin_char = s.spinner[s.spin_idx] if s.spinner else "▸"
             if s.receiving:
-                flash = flash_phase()
-                if s.receiving_unknown:
-                    if flash:
-                        rs, fill = "reverse bold #ffd700", "reverse #ffd700"
-                    else:
-                        rs, fill = "on #332b00 bold #ffd700", "on #332b00"
-                else:
-                    if flash:
-                        rs, fill = "reverse bold #00ff87", "reverse #00ff87"
-                    else:
-                        rs, fill = "on #003300 bold #00ff87", "on #003300"
+                rs, fill = _RECV_STYLES[(s.receiving_unknown, flash_phase())]
                 t.append(f" {spin_char:<5}", style=rs)
                 t.append("  Received", style=rs)
                 remaining = w - t.cell_len
@@ -303,33 +289,38 @@ class PacketList(Widget):
         """Render one packet as a single-line Text with dynamic column alignment."""
         b = "reverse bold" if is_sel else ""
         cmd = pkt.get("cmd")
-        nw, fw, sw, dw, ew, pw = (col_w["num"], col_w["frame"], col_w["src"],
-                                    col_w["dest"], col_w["echo"], col_w["ptype"])
         left = Text(style=b)
-        if pkt.get("is_unknown") and pkt.get("unknown_num") is not None:
-            left.append(f" {'U-' + str(pkt['unknown_num']):<{nw}} ", style=f"{b} #ffd700")
-        else:
-            left.append(f" {'#' + str(pkt.get('pkt_num',0)):<{nw}} ", style=f"{b} #ffffff")
-        left.append(f" {pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
         pending_args = None
-        if pkt.get("is_unknown"):
-            left.append(f" {'UNKNOWN':<{fw}} ", style=f"{b} bold #ffd700")
+        is_unk = pkt.get("is_unknown")
+        if is_unk and pkt.get("unknown_num") is not None:
+            num_str = "U-" + str(pkt["unknown_num"])
         else:
+            num_str = "#" + str(pkt.get("pkt_num", 0))
+        if is_unk:
+            # Unknown: just num + time + "UNKNOWN" frame label
+            fw = col_w.get("frame", 5)
+            left.append(f" {num_str:<{col_w['num']}} ", style=f"{b} #ffd700")
+            left.append(f" {pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
+            left.append(f" {'UNKNOWN':<{fw}} ", style=f"{b} bold #ffd700")
+        elif cmd:
+            build_cmd_columns(left, col_w, num_str=num_str,
+                src=cmd["src"], dest=cmd["dest"], echo=cmd["echo"],
+                ptype_id=cmd["pkt_type"], cmd_name=cmd["cmd_id"][:14],
+                time_str=pkt.get("gs_ts_short", "??:??:??"),
+                frame_str=pkt.get("frame_type", "???"), b=b)
+            args = (" ".join(format_arg_value(ta) for ta in cmd.get("typed_args",[])
+                             if ta.get("important"))
+                    if cmd.get("schema_match")
+                    else " ".join(str(a) for a in cmd.get("args",[])))
+            if args:
+                pending_args = (" " + args + " ", left.cell_len, f"{b} #ffffff")
+        else:
+            # Known frame but no parsed command — just num + time + frame
             ft = pkt.get("frame_type", "???")
+            fw = col_w.get("frame", 5)
+            left.append(f" {num_str:<{col_w['num']}} ", style=f"{b} #ffffff")
+            left.append(f" {pkt.get('gs_ts_short','??:??:??')} ", style=f"{b} #ffffff")
             left.append(f" {ft:<{fw}} ", style=f"{b} {frame_color(ft)}")
-            if cmd:
-                left.append(f" {node_label(cmd['src']):>{sw}} → {node_label(cmd['dest']):<{dw}} ", style=f"{b} #00bfff")
-                if ew:
-                    left.append(f" E:{node_label(cmd['echo']):<{ew}} ", style=f"{b} {node_color(cmd['echo'])}")
-                pt = cmd['pkt_type']
-                left.append(f" {protocol.PTYPE_NAMES.get(cmd['pkt_type'],'?'):<{pw}} ", style=f"{b} {ptype_color(pt)}")
-                left.append(f"{cmd['cmd_id'][:14]} ", style=f"{b} bold #ffffff")
-                args = (" ".join(format_arg_value(ta) for ta in cmd.get("typed_args",[])
-                                 if ta.get("important"))
-                        if cmd.get("schema_match")
-                        else " ".join(str(a) for a in cmd.get("args",[])))
-                if args:
-                    pending_args = (" " + args + " ", left.cell_len, f"{b} #ffffff")
         right = Text(style=b)
         crc_v = pkt.get("crc_status",{}).get("csp_crc32_valid")
         if crc_v is None and cmd:
@@ -389,13 +380,13 @@ def _build_detail_lines(pkt, is_unk, show_hex, show_wrapper):
             if cmd.get("schema_warning"): lines.append(("⚠", cmd["schema_warning"], S_WARNING))
             for i, a in enumerate(cmd.get("args", [])): f(f"ARG {i}", str(a))
     # CRC: always show if FAIL, otherwise only with wrapper
-    if cmd and cmd.get("crc") is not None:
-        v = cmd.get("crc_valid")
-        if show_wrapper or not v: f("CRC-16", f"0x{cmd['crc']:04x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
     crc_st = pkt.get("crc_status", {})
-    if crc_st.get("csp_crc32_valid") is not None:
-        v = crc_st["csp_crc32_valid"]
-        if show_wrapper or not v: f("CRC-32C", f"0x{crc_st['csp_crc32_rx']:08x}  [{'OK' if v else 'FAIL'}]", S_SUCCESS if v else S_ERROR)
+    for label, val, valid, fmt in [
+        ("CRC-16", cmd.get("crc") if cmd else None, cmd.get("crc_valid") if cmd else None, "04x"),
+        ("CRC-32C", crc_st.get("csp_crc32_rx"), crc_st.get("csp_crc32_valid"), "08x"),
+    ]:
+        if val is not None and (show_wrapper or not valid):
+            f(label, f"0x{val:{fmt}}  [{'OK' if valid else 'FAIL'}]", S_SUCCESS if valid else S_ERROR)
     if show_hex:
         raw = pkt.get("raw", b"")
         if raw: f("HEX", raw.hex(" "), S_DIM)
@@ -478,19 +469,25 @@ class PacketDetail(Widget):
 # -- Help / Config data -------------------------------------------------------
 
 RX_HELP_LINES = [
-    ("KEYS", None), ("Up / Down", "Select packet"), ("PgUp / PgDn", "Scroll page"),
-    ("Mouse wheel", "Scroll packet list"),
-    ("Enter (on list)", "Toggle detail"), ("Ctrl+A / Ctrl+E", "Cursor start / end"),
-    ("Ctrl+W / Ctrl+U", "Del word / clear input"), ("Ctrl+C", "Quit"),
-    ("COMMANDS", None), ("cfg / help", "Toggle panels"), ("hclear", "Clear history"),
-    ("hex / ul / wrapper", "Toggle hex / uplink / wrapper"),
-    ("wrapper", "Toggle AX.25/CSP/CRC detail"),
-    ("detail / live", "Toggle detail / follow"),
-    ("tag <name>", "Tag log file for easy ID"),
+    ("MONITORING", None),
+    ("Enter", "Toggle detail panel"),
+    ("Shift+Down", "Jump to live (auto-follow)"),
+    ("Up / Down", "Select packet"),
+    ("PgUp / PgDn", "Scroll by page"),
+    ("DISPLAY", None),
+    ("hex", "Toggle hex dump"),
+    ("ul", "Toggle uplink echo visibility"),
+    ("wrapper", "Toggle AX.25/CSP/CRC fields"),
+    ("INDICATORS", None),
+    ("UL", "Uplink echo"),
+    ("DUP", "Duplicate packet"),
+    ("CRC:OK / CRC:FAIL", "Integrity check result"),
+    ("COMMANDS", None),
+    ("hclear", "Clear packet history"),
+    ("cfg / help", "Open config / help"),
+    ("tag <name>", "Tag log file"),
     ("log [name]", "Start new log session"),
     ("q", "Exit"),
-    ("INDICATORS", None), ("[LIVE]", "Auto-follow newest"), ("UL", "Uplink echo"),
-    ("DUP", "Duplicate packet"), ("CRC:OK/FAIL", "Integrity check"),
 ]
 
 RX_CONFIG_FIELDS = [("Hex Display", "show_hex", "toggle"), ("Wrapper", "show_wrapper", "toggle"), ("Hide Uplink", "hide_uplink", "toggle")]
