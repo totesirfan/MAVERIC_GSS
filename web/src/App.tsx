@@ -6,6 +6,8 @@ import { useTxSocket } from '@/hooks/useTxSocket'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
 import { ConfigSidebar } from '@/components/config/ConfigSidebar'
+import { LogViewer } from '@/components/logs/LogViewer'
+import { HelpModal } from '@/components/shared/HelpModal'
 import type { GssConfig } from '@/lib/types'
 
 export default function App() {
@@ -17,8 +19,7 @@ export default function App() {
   const [showConfig, setShowConfig] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
-  // suppress unused warnings until later tasks wire these up
-  void showLogs; void showHelp
+  // all modal states now wired up
 
   useEffect(() => {
     fetch('/api/config')
@@ -73,6 +74,8 @@ export default function App() {
         }
       />
       <ConfigSidebar open={showConfig} onClose={() => { setShowConfig(false); fetch('/api/config').then(r => r.json()).then(setConfig) }} />
+      <LogViewer open={showLogs} onClose={() => setShowLogs(false)} />
+      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
     </div>
   )
 }
