@@ -5,6 +5,7 @@ import { useRxSocket } from '@/hooks/useRxSocket'
 import { useTxSocket } from '@/hooks/useTxSocket'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
+import { ConfigSidebar } from '@/components/config/ConfigSidebar'
 import type { GssConfig } from '@/lib/types'
 
 export default function App() {
@@ -17,7 +18,7 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false)
 
   // suppress unused warnings until later tasks wire these up
-  void showLogs; void showConfig; void showHelp
+  void showLogs; void showHelp
 
   useEffect(() => {
     fetch('/api/config')
@@ -71,6 +72,7 @@ export default function App() {
           <RxPanel packets={rx.packets} status={rx.status} />
         }
       />
+      <ConfigSidebar open={showConfig} onClose={() => { setShowConfig(false); fetch('/api/config').then(r => r.json()).then(setConfig) }} />
     </div>
   )
 }
