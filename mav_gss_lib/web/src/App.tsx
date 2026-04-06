@@ -116,6 +116,7 @@ function getPanelMode(): 'tx' | 'rx' | null {
 export default function App() {
   const panelMode = useMemo(() => getPanelMode(), [])
   const rx = useRxSocket()
+  const columns = rx.columns
   const tx = useTxSocket()
 
   const [config, setConfig] = useState<GssConfig | null>(null)
@@ -235,6 +236,7 @@ export default function App() {
           config={config}
           packets={rx.packets} status={rx.status}
           packetStats={rx.stats}
+          columns={columns}
           replayMode={rx.replayMode}
           replaySession={replaySession}
           replacePackets={rx.replacePackets}
@@ -279,6 +281,7 @@ export default function App() {
           config={config}
           packets={rx.packets} status={rx.status}
           packetStats={rx.stats}
+          columns={columns}
               replayMode={rx.replayMode}
               replaySession={replaySession}
               replacePackets={rx.replacePackets}

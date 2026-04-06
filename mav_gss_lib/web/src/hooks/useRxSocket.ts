@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createSocket } from '@/lib/ws'
-import type { RxPacket, RxStatus } from '@/lib/types'
+import type { ColumnDef, RxPacket, RxStatus } from '@/lib/types'
 
 const MAX_PACKETS = 5000
 const FLUSH_INTERVAL_MS = 50
@@ -33,6 +33,7 @@ export function useRxSocket() {
   const [connected, setConnected] = useState(false)
   const [replayMode, setReplayMode] = useState(false)
   const [stats, setStats] = useState<RxPacketStats>(() => createEmptyStats())
+  const [columns, setColumns] = useState<ColumnDef[]>([])
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null)
   const livePacketsRef = useRef<RxPacket[]>([])
   const replayRef = useRef(false)
@@ -66,7 +67,9 @@ export function useRxSocket() {
       '/ws/rx',
       (data) => {
         const msg = data as Record<string, unknown>
-        if (msg.type === 'packet' && msg.data) {
+        if (msg.type === 'columns' && msg.data) {
+          setColumns(msg.data as ColumnDef[])
+        } else if (msg.type === 'packet' && msg.data) {
           const pkt = msg.data as unknown as RxPacket
           livePacketsRef.current.push(pkt)
           const nextStats = statsRef.current
@@ -128,5 +131,5 @@ export function useRxSocket() {
     syncVisiblePackets()
   }, [syncVisiblePackets])
 
-  return { packets, status, connected, stats, clearPackets, replayMode, replacePackets, enterReplay, exitReplay }
+  return { packets, status, connected, stats, columns, clearPackets, replayMode, replacePackets, enterReplay, exitReplay }
 }

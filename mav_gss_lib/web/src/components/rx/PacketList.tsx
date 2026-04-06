@@ -2,11 +2,11 @@ import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { PacketRow } from './PacketRow'
 import { colors } from '@/lib/colors'
-import { col } from '@/lib/columns'
-import type { GssConfig, RxPacket } from '@/lib/types'
+import type { ColumnDef, GssConfig, RxPacket } from '@/lib/types'
 
 interface PacketListProps {
   packets: RxPacket[]
+  columns?: ColumnDef[]
   nodeDescriptions?: GssConfig['node_descriptions']
   showFrame: boolean
   showEcho: boolean
@@ -25,7 +25,7 @@ const BOTTOM_SCROLL_GUTTER_PX = 8
 const BOTTOM_UNLOCK_THRESHOLD_PX = BOTTOM_SCROLL_GUTTER_PX + 8
 
 export function PacketList({
-  packets, nodeDescriptions, showFrame, showEcho, flashPacketNum, selectedNum, onSelect,
+  packets, columns, nodeDescriptions, showFrame, showEcho, flashPacketNum, selectedNum, onSelect,
   autoScroll, onScrolledUp, zmqStatus, scrollSignal,
 }: PacketListProps) {
   const isStale = zmqStatus ? ['DOWN', 'OFFLINE'].includes(zmqStatus.toUpperCase()) : false
@@ -118,16 +118,33 @@ export function PacketList({
 
       {filtered.length > 0 && (
         <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
-          <span className={`${col.chevron} px-1`} />
-          <span className={`${col.num} px-2 text-right`}>#</span>
-          <span className={`${col.time} px-2`}>time</span>
-          {showFrame && <span className={`${col.frame} px-2`}>frame</span>}
-          <span className={`${col.node} px-2`}>src</span>
-          {showEcho && <span className={`${col.node} px-2`}>echo</span>}
-          <span className={`${col.ptype} px-1`}>type</span>
-          <span className="flex-1 px-2">cmd / args</span>
-          <span className={`${col.flags} px-2 text-right`}>flags</span>
-          <span className={`${col.size} px-2 text-right`}>size</span>
+          <span className="w-5 px-1" />
+          {(columns ?? []).length > 0 ? (
+            columns!.map(c => {
+              if (c.toggle === 'showFrame' && !showFrame) return null
+              if (c.toggle === 'showEcho' && !showEcho) return null
+              return (
+                <span
+                  key={c.id}
+                  className={`px-2 shrink-0 ${c.flex ? 'flex-1' : ''} ${c.align === 'right' ? 'text-right' : ''} ${c.width ?? ''}`}
+                >
+                  {c.label}
+                </span>
+              )
+            })
+          ) : (
+            <>
+              <span className="w-10 px-2 text-right">#</span>
+              <span className="w-[72px] px-2">time</span>
+              {showFrame && <span className="w-[76px] px-2">frame</span>}
+              <span className="w-[84px] px-2">src</span>
+              {showEcho && <span className="w-[84px] px-2">echo</span>}
+              <span className="w-[52px] px-1">type</span>
+              <span className="flex-1 px-2">cmd / args</span>
+              <span className="w-[76px] px-2 text-right"></span>
+              <span className="w-12 px-2 text-right">size</span>
+            </>
+          )}
         </div>
       )}
 
@@ -154,6 +171,7 @@ export function PacketList({
                 <div className={`pkt-row-wrap ${pkt.num === flashPacketNum ? 'pkt-flash' : ''} ${isActive ? 'pkt-border-active' : 'pkt-border-inactive'}`}>
                   <PacketRow
                     packet={pkt}
+                    columns={columns}
                     nodeDescriptions={nodeDescriptions}
                     selected={isActive}
                     showFrame={showFrame}

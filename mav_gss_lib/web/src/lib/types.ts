@@ -25,6 +25,61 @@ export interface RxPacket {
   sat_time_utc?: string | null
   sat_time_local?: string | null
   sat_time_ms?: number | null
+  _rendering?: RenderingData
+}
+
+// ---- Rendering Slots (architecture spec §4) ----
+
+export interface ColumnDef {
+  id: string
+  label: string
+  width?: string
+  align?: 'left' | 'right'
+  flex?: boolean
+  badge?: boolean
+  toggle?: string
+}
+
+export interface RenderingFlag {
+  tag: string
+  tone: string
+}
+
+export interface RenderingMeta {
+  opacity?: number
+}
+
+/** Column values keyed by column ID, plus optional presentation metadata. */
+export interface RenderingRow {
+  values: Record<string, string | number | RenderingFlag[]>
+  _meta?: RenderingMeta
+}
+
+export interface BlockField {
+  name: string
+  value: string
+}
+
+export interface DetailBlock {
+  kind: string
+  label: string
+  fields: BlockField[]
+}
+
+export interface IntegrityBlock {
+  kind: string
+  label: string
+  scope: string
+  ok: boolean | null
+  received?: string | null
+  computed?: string | null
+}
+
+export interface RenderingData {
+  row: RenderingRow
+  detail_blocks: DetailBlock[]
+  protocol_blocks: DetailBlock[]
+  integrity_blocks: IntegrityBlock[]
 }
 
 export interface RxStatus {

@@ -264,15 +264,17 @@ class MavericMissionAdapter:
             flags.append({"tag": "UNK", "tone": "danger"})
 
         return {
-            "num": pkt.pkt_num,
-            "time": pkt.gs_ts_short,
-            "frame": pkt.frame_type,
-            "src": node_name(cmd["src"]) if cmd else "",
-            "echo": node_name(cmd["echo"]) if cmd else "",
-            "ptype": ptype_name(cmd["pkt_type"]) if cmd else "",
-            "cmd": ((cmd["cmd_id"] + " " + args_str).strip() if args_str else cmd["cmd_id"]) if cmd else "",
-            "flags": flags,
-            "size": len(pkt.raw),
+            "values": {
+                "num": pkt.pkt_num,
+                "time": pkt.gs_ts_short,
+                "frame": pkt.frame_type,
+                "src": node_name(cmd["src"]) if cmd else "",
+                "echo": node_name(cmd["echo"]) if cmd else "",
+                "ptype": ptype_name(cmd["pkt_type"]) if cmd else "",
+                "cmd": ((cmd["cmd_id"] + " " + args_str).strip() if args_str else cmd["cmd_id"]) if cmd else "",
+                "flags": flags,
+                "size": len(pkt.raw),
+            },
             "_meta": {"opacity": 0.5 if pkt.is_unknown else 1.0},
         }
 

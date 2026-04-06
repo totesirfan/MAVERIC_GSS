@@ -11,7 +11,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
 } from '@/components/shared/ContextMenu'
-import type { GssConfig, RxPacket } from '@/lib/types'
+import type { ColumnDef, GssConfig, RenderingFlag, RxPacket } from '@/lib/types'
 
 interface PacketRowProps {
   packet: RxPacket
@@ -19,6 +19,7 @@ interface PacketRowProps {
   selected: boolean
   showFrame: boolean
   showEcho: boolean
+  columns?: ColumnDef[]
   onClick: () => void
 }
 
@@ -52,7 +53,88 @@ function allArgs(p: RxPacket): string {
   return [...named, ...extra].join(', ')
 }
 
-export function PacketRow({ packet: p, nodeDescriptions, selected, showFrame, showEcho, onClick }: PacketRowProps) {
+function CellValue({ col: c, row, showFrame, showEcho, nodeDescriptions }: {
+  col: ColumnDef
+  row: { values: Record<string, unknown>; _meta?: { opacity?: number } }
+  showFrame: boolean
+  showEcho: boolean
+  nodeDescriptions?: GssConfig['node_descriptions']
+}) {
+  if (c.toggle === 'showFrame' && !showFrame) return null
+  if (c.toggle === 'showEcho' && !showEcho) return null
+
+  const val = row.values[c.id]
+  const width = c.flex ? 'flex-1 min-w-0 truncate' : `${c.width ?? ''} shrink-0`
+  const align = c.align === 'right' ? 'text-right' : ''
+
+  // Badge column (ptype)
+  if (c.badge) {
+    return (
+      <span className={`py-1.5 px-1 ${width}`}>
+        <PtypeBadge ptype={val as string | number} />
+      </span>
+    )
+  }
+
+  // Flags column
+  if (c.id === 'flags' && Array.isArray(val)) {
+    const flags = val as RenderingFlag[]
+    return (
+      <span className={`py-1.5 px-2 ${width} ${align}`}>
+        <span className="flex items-center gap-1 justify-end whitespace-nowrap">
+          {flags.map((f, i) => (
+            <Badge key={i} variant={f.tone === 'danger' ? 'destructive' : 'secondary'} className="text-[11px] px-1 py-0 h-5"
+              style={f.tone !== 'danger' ? { backgroundColor: `${f.tone === 'warning' ? colors.warning : colors.ulColor}22`, color: f.tone === 'warning' ? colors.warning : colors.ulColor } : undefined}>
+              {f.tag}
+            </Badge>
+          ))}
+        </span>
+      </span>
+    )
+  }
+
+  // Node columns (src, echo) — with tooltip
+  if (c.id === 'src' || c.id === 'echo') {
+    const nodeColor = c.id === 'echo' ? colors.warning : colors.label
+    return (
+      <span className={`py-1.5 px-2 ${width} whitespace-nowrap`}>
+        <NodeName name={String(val ?? '')} color={nodeColor} nodeDescriptions={nodeDescriptions} />
+      </span>
+    )
+  }
+
+  // Cmd column — display-ready string from backend, no re-parsing
+  if (c.id === 'cmd') {
+    return (
+      <span className={`py-1.5 px-2 ${width}`} style={{ color: colors.value }}>
+        {String(val ?? '') || '--'}
+      </span>
+    )
+  }
+
+  // Frame column — with color
+  if (c.id === 'frame') {
+    return (
+      <span className={`py-1.5 px-2 ${width} whitespace-nowrap`} style={{ color: frameColor(String(val ?? '')) }}>
+        {String(val ?? '')}
+      </span>
+    )
+  }
+
+  // Num column
+  if (c.id === 'num') {
+    return <span className={`py-1.5 px-2 ${width} tabular-nums ${align}`}>{String(val ?? '')}</span>
+  }
+
+  // Default text cell
+  return (
+    <span className={`py-1.5 px-2 ${width} ${align} whitespace-nowrap`} style={{ color: colors.dim }}>
+      {c.id === 'size' ? `${val}B` : String(val ?? '')}
+    </span>
+  )
+}
+
+export function PacketRow({ packet: p, nodeDescriptions, selected, showFrame, showEcho, columns, onClick }: PacketRowProps) {
   return (
     <ContextMenuRoot>
       <ContextMenuTrigger>
@@ -60,7 +142,8 @@ export function PacketRow({ packet: p, nodeDescriptions, selected, showFrame, sh
           onClick={onClick}
           className="flex items-center text-xs font-mono cursor-pointer hover:bg-white/[0.03] color-transition"
           style={{
-            opacity: p.is_unknown ? 0.5 : (p.ptype === 'NONE' || p.ptype === '0') ? 0.4 : 1,
+            opacity: p._rendering?.row?._meta?.opacity
+              ?? (p.is_unknown ? 0.5 : (p.ptype === 'NONE' || p.ptype === '0') ? 0.4 : 1),
           }}
         >
           {/* Expand indicator */}
@@ -70,33 +153,44 @@ export function PacketRow({ packet: p, nodeDescriptions, selected, showFrame, sh
               style={{ color: selected ? colors.label : colors.textDisabled, transform: selected ? 'rotate(90deg)' : 'rotate(0deg)' }}
             />
           </span>
-          <span className={`py-1.5 px-2 ${col.num} shrink-0 text-right tabular-nums`} style={{ color: selected ? colors.label : colors.dim }}>{p.num}</span>
-          <span className={`py-1.5 px-2 ${col.time} shrink-0 tabular-nums whitespace-nowrap`} style={{ color: colors.dim }}>{p.time}</span>
-          {showFrame && (
-            <span className={`py-1.5 px-2 ${col.frame} shrink-0 whitespace-nowrap`} style={{ color: frameColor(p.frame) }}>{p.frame}</span>
+          {(columns ?? []).length > 0 && p._rendering?.row ? (
+            <>
+              {columns!.map(c => (
+                <CellValue key={c.id} col={c} row={p._rendering!.row}
+                  showFrame={showFrame} showEcho={showEcho} nodeDescriptions={nodeDescriptions} />
+              ))}
+            </>
+          ) : (
+            <>
+              <span className={`py-1.5 px-2 ${col.num} shrink-0 text-right tabular-nums`} style={{ color: selected ? colors.label : colors.dim }}>{p.num}</span>
+              <span className={`py-1.5 px-2 ${col.time} shrink-0 tabular-nums whitespace-nowrap`} style={{ color: colors.dim }}>{p.time}</span>
+              {showFrame && (
+                <span className={`py-1.5 px-2 ${col.frame} shrink-0 whitespace-nowrap`} style={{ color: frameColor(p.frame) }}>{p.frame}</span>
+              )}
+              <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`}>
+                <NodeName name={p.src} color={colors.label} nodeDescriptions={nodeDescriptions} />
+              </span>
+              {showEcho && (
+                <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`}>
+                  <NodeName name={p.echo} color={colors.warning} nodeDescriptions={nodeDescriptions} />
+                </span>
+              )}
+              <span className={`py-1.5 px-1 ${col.ptype} shrink-0`}><PtypeBadge ptype={p.ptype} /></span>
+              <span className="py-1.5 px-2 flex-1 min-w-0 truncate">
+                <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{p.cmd || '--'}</span>
+                {importantArgs(p) && <span className="ml-2" style={{ color: colors.dim }}>{importantArgs(p)}</span>}
+              </span>
+              <span className={`py-1.5 px-2 ${col.flags} shrink-0`}>
+                <span className="flex items-center gap-1 justify-end whitespace-nowrap">
+                  {p.crc16_ok === false && <Badge variant="destructive" className="text-[11px] px-1 py-0 h-5">CRC</Badge>}
+                  {p.is_echo && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.ulColor}22`, color: colors.ulColor }}>UL</Badge>}
+                  {p.is_dup && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
+                  {p.is_unknown && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.error}22`, color: colors.error }}>UNK</Badge>}
+                </span>
+              </span>
+              <span className={`py-1.5 px-2 ${col.size} shrink-0 text-right tabular-nums whitespace-nowrap`} style={{ color: colors.dim }}>{p.size}B</span>
+            </>
           )}
-          <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`}>
-            <NodeName name={p.src} color={colors.label} nodeDescriptions={nodeDescriptions} />
-          </span>
-          {showEcho && (
-            <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`}>
-              <NodeName name={p.echo} color={colors.warning} nodeDescriptions={nodeDescriptions} />
-            </span>
-          )}
-          <span className={`py-1.5 px-1 ${col.ptype} shrink-0`}><PtypeBadge ptype={p.ptype} /></span>
-          <span className="py-1.5 px-2 flex-1 min-w-0 truncate">
-            <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{p.cmd || '--'}</span>
-            {importantArgs(p) && <span className="ml-2" style={{ color: colors.dim }}>{importantArgs(p)}</span>}
-          </span>
-          <span className={`py-1.5 px-2 ${col.flags} shrink-0`}>
-            <span className="flex items-center gap-1 justify-end whitespace-nowrap">
-              {p.crc16_ok === false && <Badge variant="destructive" className="text-[11px] px-1 py-0 h-5">CRC</Badge>}
-              {p.is_echo && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.ulColor}22`, color: colors.ulColor }}>UL</Badge>}
-              {p.is_dup && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
-              {p.is_unknown && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.error}22`, color: colors.error }}>UNK</Badge>}
-            </span>
-          </span>
-          <span className={`py-1.5 px-2 ${col.size} shrink-0 text-right tabular-nums whitespace-nowrap`} style={{ color: colors.dim }}>{p.size}B</span>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>

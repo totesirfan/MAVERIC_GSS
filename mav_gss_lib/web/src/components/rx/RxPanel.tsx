@@ -13,7 +13,7 @@ import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem,
 } from '@/components/shared/ContextMenu'
-import type { GssConfig, RxPacket, RxStatus } from '@/lib/types'
+import type { ColumnDef, GssConfig, RxPacket, RxStatus } from '@/lib/types'
 
 function f(label: string, value: string): string {
   return `  ${label.padEnd(12)}${value}`
@@ -53,6 +53,7 @@ interface RxPanelProps {
     dupCount: number
     hasEcho: boolean
   }
+  columns?: ColumnDef[]
   replayMode?: boolean
   replaySession?: string | null
   replacePackets?: (pkts: RxPacket[]) => void
@@ -71,7 +72,7 @@ function hasEcho(packet: RxPacket): boolean {
   return Boolean(packet.echo && packet.echo !== 'NONE' && packet.echo !== '0')
 }
 
-export function RxPanel({ config, packets, status, packetStats, replayMode, replaySession, replacePackets, onStopReplay }: RxPanelProps) {
+export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay }: RxPanelProps) {
   const [showHex, setShowHex] = useState(false)
   const [showFrame, setShowFrame] = useState(false)
   const [showWrapper, setShowWrapper] = useState(false)
@@ -242,6 +243,7 @@ export function RxPanel({ config, packets, status, packetStats, replayMode, repl
 
         <PacketList
           packets={filtered}
+          columns={columns}
           nodeDescriptions={nodeDescriptions}
           showFrame={showFrame}
           showEcho={showEcho}
