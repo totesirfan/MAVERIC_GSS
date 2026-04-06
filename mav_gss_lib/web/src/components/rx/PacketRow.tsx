@@ -1,7 +1,9 @@
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ChevronRight, ClipboardCopy, Braces, Binary } from 'lucide-react'
 import { colors, frameColor } from '@/lib/colors'
 import { col } from '@/lib/columns'
+import { nodeFullName } from '@/lib/nodes'
 import { PtypeBadge } from '@/components/shared/PtypeBadge'
 import {
   ContextMenuRoot,
@@ -17,6 +19,21 @@ interface PacketRowProps {
   showFrame: boolean
   showEcho: boolean
   onClick: () => void
+}
+
+function NodeName({ name, color }: { name: string; color: string }) {
+  const full = nodeFullName[name]
+  if (!full) return <span style={{ color }}>{name}</span>
+  return (
+    <TooltipProvider delay={300}>
+      <Tooltip>
+        <TooltipTrigger render={<span />} style={{ color, cursor: 'help' }}>{name}</TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          {full}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
 }
 
 function importantArgs(p: RxPacket): string {
@@ -57,7 +74,9 @@ export function PacketRow({ packet: p, selected, showFrame, showEcho, onClick }:
           {showFrame && (
             <span className={`py-1.5 px-2 ${col.frame} shrink-0 whitespace-nowrap`} style={{ color: frameColor(p.frame) }}>{p.frame}</span>
           )}
-          <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`} style={{ color: colors.label }}>{p.src}</span>
+          <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`}>
+            <NodeName name={p.src} color={colors.label} />
+          </span>
           {showEcho && (
             <span className={`py-1.5 px-2 ${col.node} shrink-0 whitespace-nowrap`} style={{ color: colors.warning }}>{p.echo}</span>
           )}
