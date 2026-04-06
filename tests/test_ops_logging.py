@@ -332,5 +332,117 @@ class TestPlatformLogEnvelope(unittest.TestCase):
         self.assertNotIn("tail_hex", record)
 
 
+class TestUnknownClassification(unittest.TestCase):
+    """Verify adapter-driven unknown packet classification."""
+
+    def test_rx_pipeline_uses_adapter_for_unknown(self):
+        """RxPipeline delegates is_unknown to the adapter."""
+        from mav_gss_lib.parsing import RxPipeline
+        from tests.echo_mission import EchoMissionAdapter
+
+        adapter = EchoMissionAdapter(cmd_defs={})
+        pipeline = RxPipeline(adapter, tx_freq_map={})
+        pkt = pipeline.process({"transmitter": "test"}, b"\x01\x02\x03\x04")
+        # Echo adapter: is_unknown_packet always returns True
+        self.assertTrue(pkt.is_unknown)
+        self.assertEqual(pkt.unknown_num, 1)
+
+    def test_maveric_pipeline_known_command_not_unknown(self):
+        """MAVERIC adapter classifies parsed commands as known."""
+        from mav_gss_lib.parsing import RxPipeline
+        from mav_gss_lib.config import load_gss_config, get_command_defs_path
+        from mav_gss_lib.mission_adapter import load_mission_metadata
+        from mav_gss_lib.protocol import init_nodes, load_command_defs
+        from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
+
+        cfg = load_gss_config()
+        load_mission_metadata(cfg)
+        init_nodes(cfg)
+        cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
+        adapter = MavericMissionAdapter(cmd_defs=cmd_defs)
+
+        pipeline = RxPipeline(adapter, tx_freq_map={})
+        # Process a minimal raw packet with no valid command
+        pkt = pipeline.process({"transmitter": "test"}, b"\x00\x01\x02\x03")
+        # Short payload with no valid command → unknown
+        self.assertTrue(pkt.is_unknown)
+
+
+class TestReplayCompat(unittest.TestCase):
+    """Verify replay reads both new envelope and legacy flat formats."""
+
+    def setUp(self):
+        from mav_gss_lib.config import load_gss_config, get_command_defs_path
+        from mav_gss_lib.mission_adapter import load_mission_metadata
+        from mav_gss_lib.protocol import init_nodes, load_command_defs
+
+        cfg = load_gss_config()
+        load_mission_metadata(cfg)
+        init_nodes(cfg)
+        self.cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
+
+    def test_new_envelope_replay_extracts_cmd_from_mission_block(self):
+        """Replay normalizes new-format RX log with cmd in mission block."""
+        from mav_gss_lib.web_runtime.api import parse_replay_entry
+
+        entry = {
+            "v": "4.3.1", "pkt": 1,
+            "gs_ts": "2026-04-06 10:30:00 PDT",
+            "frame_type": "AX.25", "raw_hex": "deadbeef", "raw_len": 4,
+            "payload_hex": "beef", "payload_len": 2,
+            "duplicate": False, "uplink_echo": False, "unknown": False,
+            "protocol_blocks": [], "integrity_blocks": [],
+            "mission": {
+                "cmd": {
+                    "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
+                    "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
+                    "args": [],
+                },
+            },
+        }
+        result = parse_replay_entry(entry, self.cmd_defs)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["cmd"], "com_ping")
+        self.assertEqual(result["num"], 1)
+        self.assertFalse(result["is_dup"])
+
+    def test_legacy_flat_replay_extracts_cmd_from_top_level(self):
+        """Replay normalizes pre-Phase-9 MAVERIC log with flat cmd dict."""
+        from mav_gss_lib.web_runtime.api import parse_replay_entry
+
+        entry = {
+            "v": "4.3.0", "pkt": 1,
+            "gs_ts": "2026-04-06 10:30:00 PDT",
+            "frame_type": "AX.25", "raw_hex": "deadbeef", "raw_len": 4,
+            "duplicate": False, "uplink_echo": False, "unknown": False,
+            "cmd": {
+                "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
+                "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
+                "args": [],
+            },
+            "csp_candidate": {"prio": 2, "src": 0, "dest": 8},
+        }
+        result = parse_replay_entry(entry, self.cmd_defs)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["cmd"], "com_ping")
+        self.assertEqual(result["csp_header"], {"prio": 2, "src": 0, "dest": 8})
+
+    def test_tx_log_entry_detected_by_missing_pkt_field(self):
+        """TX log entries (no 'pkt' field) are correctly identified."""
+        from mav_gss_lib.web_runtime.api import parse_replay_entry
+
+        entry = {
+            "n": 1, "ts": "2026-04-06T10:30:00",
+            "cmd": "com_ping", "args": "",
+            "src": 6, "dest": 1, "echo": 0, "ptype": 1,
+            "raw_hex": "deadbeef", "len": 4,
+        }
+        result = parse_replay_entry(entry, self.cmd_defs)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["cmd"], "com_ping")
+        self.assertFalse(result["is_dup"])
+        self.assertFalse(result["is_echo"])
+
+
 if __name__ == "__main__":
     unittest.main()

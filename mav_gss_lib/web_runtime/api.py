@@ -26,6 +26,7 @@ from mav_gss_lib.config import (
     apply_csp,
     get_command_defs_path,
     get_generated_commands_dir,
+    load_gss_config,
     save_gss_config,
 )
 from mav_gss_lib.protocol import node_name, ptype_name, resolve_node, resolve_ptype
@@ -91,7 +92,11 @@ async def api_config_put(update: dict, request: Request):
 
     with runtime.cfg_lock:
         deep_merge(runtime.cfg, update)
-        save_gss_config(runtime.cfg)
+        # Save only operator config (platform defaults + YAML), not mission-merged runtime.
+        # This prevents mission.yml defaults from leaking into the operator's maveric_gss.yml.
+        operator_cfg = load_gss_config()
+        deep_merge(operator_cfg, update)
+        save_gss_config(operator_cfg)
         apply_csp(runtime.cfg, runtime.csp)
         apply_ax25(runtime.cfg, runtime.ax25)
         new_rx_addr = runtime.cfg.get("rx", {}).get("zmq_addr", old_rx_addr)
@@ -349,6 +354,132 @@ async def api_logs(request: Request):
     return sessions
 
 
+def parse_replay_entry(entry: dict, cmd_defs: dict) -> dict | None:
+    """Normalize one JSONL log entry for replay.
+
+    Reads the stable platform envelope generically, then checks
+    the mission block (Phase 9+) or legacy flat fields (pre-Phase 9)
+    for mission-specific data.
+    """
+    # Timestamp extraction
+    ts = entry.get("gs_ts", "") or entry.get("ts", "")
+    if "T" in ts and ts.index("T") == 10:
+        ts_time = ts.split("T")[1][:8]
+    elif " " in ts:
+        ts_time = ts.split(" ")[1] if len(ts.split(" ")) > 1 else ""
+    else:
+        ts_time = ts[:8]
+
+    raw_cmd = entry.get("cmd")
+    mission_block = entry.get("mission", {})
+
+    # RX vs TX: RX entries always have "pkt" (packet number)
+    is_rx = "pkt" in entry
+
+    # Extract cmd_id for filtering
+    if is_rx:
+        if mission_block and "cmd" in mission_block:
+            cmd_id = mission_block["cmd"].get("cmd_id", "")
+        elif isinstance(raw_cmd, dict):
+            cmd_id = raw_cmd.get("cmd_id", "")
+        else:
+            cmd_id = ""
+    else:
+        cmd_id = str(raw_cmd) if isinstance(raw_cmd, str) else str(entry.get("cmd", ""))
+
+    if is_rx:
+        # Mission cmd: try mission block first, fall back to legacy flat
+        mission_cmd = mission_block.get("cmd") if mission_block else None
+        if mission_cmd is None:
+            mission_cmd = raw_cmd if isinstance(raw_cmd, dict) else None
+
+        normalized = {
+            "num": entry.get("pkt", 0),
+            "time": ts_time,
+            "time_utc": ts,
+            "frame": entry.get("frame_type", ""),
+            "size": entry.get("raw_len", entry.get("payload_len", 0)),
+            "is_dup": entry.get("duplicate", False),
+            "is_echo": entry.get("uplink_echo", False),
+            "is_unknown": entry.get("unknown", False),
+            "raw_hex": entry.get("raw_hex", ""),
+            "csp_header": (mission_block.get("csp_candidate") if mission_block else None) or entry.get("csp_candidate"),
+            "cmd": mission_cmd.get("cmd_id", "") if mission_cmd else "",
+            "src": node_name(mission_cmd.get("src", 0)) if mission_cmd else "",
+            "dest": node_name(mission_cmd.get("dest", 0)) if mission_cmd else "",
+            "echo": node_name(mission_cmd.get("echo", 0)) if mission_cmd else "",
+            "ptype": ptype_name(mission_cmd.get("pkt_type", 0)) if mission_cmd else "",
+            "crc16_ok": mission_cmd.get("crc_valid") if mission_cmd else None,
+            "warnings": entry.get("warnings", []),
+        }
+        typed = mission_cmd.get("typed_args") if mission_cmd else None
+        raw_args = mission_cmd.get("args", {}) if mission_cmd else {}
+        log_extra = [str(arg) for arg in (mission_cmd.get("extra_args") or [])] if mission_cmd else []
+        if typed and isinstance(typed, list):
+            normalized["args_named"] = [
+                {
+                    "name": ta["name"],
+                    "value": ta.get("value", b"").hex()
+                    if isinstance(ta.get("value"), (bytes, bytearray))
+                    else str(ta.get("value", "")),
+                    "important": bool(ta.get("important")),
+                }
+                for ta in typed
+            ]
+            normalized["args_extra"] = [
+                arg.hex() if isinstance(arg, (bytes, bytearray)) else str(arg)
+                for arg in (mission_cmd.get("extra_args") or [])
+            ]
+        else:
+            all_values = []
+            if isinstance(raw_args, dict) and raw_args:
+                all_values.extend([str(value) for value in raw_args.values()])
+            elif isinstance(raw_args, list):
+                all_values.extend([str(arg) for arg in raw_args])
+            elif raw_args and not isinstance(raw_args, dict):
+                all_values.append(str(raw_args))
+            all_values.extend(log_extra)
+            defn = cmd_defs.get(cmd_id.lower(), {})
+            rx_defs = defn.get("rx_args", [])
+            named = []
+            for index, schema_arg in enumerate(rx_defs):
+                if schema_arg.get("type") == "blob":
+                    blob_val = " ".join(all_values[index:])
+                    named.append({"name": schema_arg["name"], "value": blob_val, "important": bool(schema_arg.get("important"))})
+                    all_values = all_values[:index]
+                    break
+                if index < len(all_values):
+                    named.append({"name": schema_arg["name"], "value": all_values[index], "important": bool(schema_arg.get("important"))})
+            normalized["args_named"] = named
+            normalized["args_extra"] = all_values[len([arg for arg in rx_defs if arg.get("type") != "blob"]):]
+        crc_status = (mission_block.get("csp_crc32") if mission_block else None) or entry.get("csp_crc32")
+        if isinstance(crc_status, dict):
+            normalized["crc32_ok"] = crc_status.get("valid")
+    else:
+        normalized = {
+            "num": entry.get("n", 0),
+            "time": ts_time,
+            "time_utc": ts,
+            "frame": entry.get("uplink_mode", ""),
+            "size": entry.get("raw_len", entry.get("len", 0)),
+            "is_dup": False,
+            "is_echo": False,
+            "is_unknown": False,
+            "raw_hex": entry.get("raw_hex", ""),
+            "csp_header": entry.get("csp"),
+            "cmd": str(entry.get("cmd", "")),
+            "src": str(entry.get("src_lbl", node_name(entry.get("src", 0)))),
+            "dest": str(entry.get("dest_lbl", node_name(entry.get("dest", 0)))),
+            "echo": str(entry.get("echo_lbl", node_name(entry.get("echo", 0)))),
+            "ptype": str(entry.get("ptype_lbl", ptype_name(entry.get("ptype", 0)))),
+            "args_named": [],
+            "args_extra": [],
+            "warnings": [],
+        }
+
+    return normalized
+
+
 @router.get("/api/logs/{session_id}")
 async def api_log_entries(
     session_id: str,
@@ -375,113 +506,26 @@ async def api_log_entries(
                 entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            raw_cmd = entry.get("cmd")
-            is_rx = isinstance(raw_cmd, dict)
-            is_tx = not is_rx and isinstance(raw_cmd, str)
-            if is_rx:
-                cmd_id = raw_cmd.get("cmd_id", "") if raw_cmd else ""
-            elif is_tx:
-                cmd_id = str(raw_cmd)
-            else:
-                cmd_id = str(entry.get("cmd_id", ""))
-            if cmd and cmd.lower() not in cmd_id.lower():
-                continue
-            ts = entry.get("gs_ts", "") or entry.get("ts", "")
-            if "T" in ts and ts.index("T") == 10:
-                ts_time = ts.split("T")[1][:8]
-            elif " " in ts:
-                ts_time = ts.split(" ")[1] if len(ts.split(" ")) > 1 else ""
-            else:
-                ts_time = ts[:8]
-            if time_from is not None and ts_time < str(time_from):
-                continue
-            if time_to is not None and ts_time > str(time_to):
+
+            normalized = parse_replay_entry(entry, runtime.cmd_defs)
+            if normalized is None:
                 continue
 
-            if is_rx:
-                normalized = {
-                    "num": entry.get("pkt", 0),
-                    "time": ts_time,
-                    "time_utc": ts,
-                    "frame": entry.get("frame_type", ""),
-                    "size": entry.get("raw_len", entry.get("payload_len", 0)),
-                    "is_dup": entry.get("duplicate", False),
-                    "is_echo": entry.get("uplink_echo", False),
-                    "is_unknown": entry.get("unknown", False),
-                    "raw_hex": entry.get("raw_hex", ""),
-                    "csp_header": entry.get("csp_candidate"),
-                    "cmd": raw_cmd.get("cmd_id", "") if raw_cmd else "",
-                    "src": node_name(raw_cmd.get("src", 0)) if raw_cmd else "",
-                    "dest": node_name(raw_cmd.get("dest", 0)) if raw_cmd else "",
-                    "echo": node_name(raw_cmd.get("echo", 0)) if raw_cmd else "",
-                    "ptype": ptype_name(raw_cmd.get("pkt_type", 0)) if raw_cmd else "",
-                    "crc16_ok": raw_cmd.get("crc_valid") if raw_cmd else None,
-                    "warnings": entry.get("warnings", []),
-                }
-                typed = raw_cmd.get("typed_args") if raw_cmd else None
-                raw_args = raw_cmd.get("args", {}) if raw_cmd else {}
-                log_extra = [str(arg) for arg in (raw_cmd.get("extra_args") or [])] if raw_cmd else []
-                if typed and isinstance(typed, list):
-                    normalized["args_named"] = [
-                        {
-                            "name": ta["name"],
-                            "value": ta.get("value", b"").hex()
-                            if isinstance(ta.get("value"), (bytes, bytearray))
-                            else str(ta.get("value", "")),
-                            "important": bool(ta.get("important")),
-                        }
-                        for ta in typed
-                    ]
-                    normalized["args_extra"] = [
-                        arg.hex() if isinstance(arg, (bytes, bytearray)) else str(arg)
-                        for arg in (raw_cmd.get("extra_args") or [])
-                    ]
-                else:
-                    all_values = []
-                    if isinstance(raw_args, dict) and raw_args:
-                        all_values.extend([str(value) for value in raw_args.values()])
-                    elif isinstance(raw_args, list):
-                        all_values.extend([str(arg) for arg in raw_args])
-                    elif raw_args and not isinstance(raw_args, dict):
-                        all_values.append(str(raw_args))
-                    all_values.extend(log_extra)
-                    defn = runtime.cmd_defs.get(cmd_id.lower(), {})
-                    rx_defs = defn.get("rx_args", [])
-                    named = []
-                    for index, schema_arg in enumerate(rx_defs):
-                        if schema_arg.get("type") == "blob":
-                            blob_val = " ".join(all_values[index:])
-                            named.append({"name": schema_arg["name"], "value": blob_val, "important": bool(schema_arg.get("important"))})
-                            all_values = all_values[:index]
-                            break
-                        if index < len(all_values):
-                            named.append({"name": schema_arg["name"], "value": all_values[index], "important": bool(schema_arg.get("important"))})
-                    normalized["args_named"] = named
-                    normalized["args_extra"] = all_values[len([arg for arg in rx_defs if arg.get("type") != "blob"]) :]
-                crc_status = entry.get("csp_crc32")
-                if isinstance(crc_status, dict):
-                    normalized["crc32_ok"] = crc_status.get("valid")
-            else:
-                normalized = {
-                    "num": entry.get("n", 0),
-                    "time": ts_time,
-                    "time_utc": ts,
-                    "frame": entry.get("uplink_mode", ""),
-                    "size": entry.get("raw_len", entry.get("len", 0)),
-                    "is_dup": False,
-                    "is_echo": False,
-                    "is_unknown": False,
-                    "raw_hex": entry.get("raw_hex", ""),
-                    "csp_header": entry.get("csp"),
-                    "cmd": str(entry.get("cmd", "")),
-                    "src": str(entry.get("src_lbl", node_name(entry.get("src", 0)))),
-                    "dest": str(entry.get("dest_lbl", node_name(entry.get("dest", 0)))),
-                    "echo": str(entry.get("echo_lbl", node_name(entry.get("echo", 0)))),
-                    "ptype": str(entry.get("ptype_lbl", ptype_name(entry.get("ptype", 0)))),
-                    "args_named": runtime.tx.match_tx_args(str(entry.get("cmd", "")), str(entry.get("args", ""))),
-                    "args_extra": runtime.tx.tx_extra_args(str(entry.get("cmd", "")), str(entry.get("args", ""))),
-                    "warnings": [],
-                }
+            # Apply cmd filter
+            if cmd and cmd.lower() not in normalized["cmd"].lower():
+                continue
+            # Apply time filters
+            if time_from is not None and normalized["time"] < str(time_from):
+                continue
+            if time_to is not None and normalized["time"] > str(time_to):
+                continue
+
+            # For TX entries, fill in args from runtime
+            is_rx = "pkt" in entry
+            if not is_rx:
+                normalized["args_named"] = runtime.tx.match_tx_args(str(entry.get("cmd", "")), str(entry.get("args", "")))
+                normalized["args_extra"] = runtime.tx.tx_extra_args(str(entry.get("cmd", "")), str(entry.get("args", "")))
+
             entries.append(normalized)
     return entries
 
