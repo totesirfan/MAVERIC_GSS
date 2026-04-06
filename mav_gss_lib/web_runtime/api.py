@@ -47,6 +47,7 @@ async def api_status(request: Request):
     runtime = get_runtime(request)
     cmd_path = get_command_defs_path(runtime.cfg)
     return {
+        "mission": runtime.cfg.get("general", {}).get("mission", "maveric"),
         "mission_name": runtime.cfg.get("general", {}).get("mission_name", "MAVERIC"),
         "version": runtime.cfg.get("general", {}).get("version", ""),
         "zmq_rx": runtime.rx.status[0],

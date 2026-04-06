@@ -110,6 +110,43 @@ class MissionAdapter(Protocol):
 
 
 # =============================================================================
+#  PLATFORM CORE -- Adapter Validation
+# =============================================================================
+
+SUPPORTED_API_VERSIONS = {1}
+
+
+def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
+    """Check that a mission adapter has the required methods and API version.
+
+    Uses @runtime_checkable Protocol for structural interface presence
+    (method names only, not signatures). Raises ValueError if validation fails.
+    Called once at startup before the adapter is used.
+    """
+    if not isinstance(adapter, MissionAdapter):
+        missing = []
+        for method_name in (
+            'detect_frame_type', 'normalize_frame', 'parse_packet',
+            'duplicate_fingerprint', 'is_uplink_echo',
+            'build_raw_command', 'validate_tx_args',
+            'packet_list_columns', 'packet_list_row',
+            'packet_detail_blocks', 'protocol_blocks', 'integrity_blocks',
+        ):
+            if not hasattr(adapter, method_name):
+                missing.append(method_name)
+        raise ValueError(
+            f"Mission '{mission_name}' adapter {type(adapter).__name__} "
+            f"does not satisfy MissionAdapter interface. "
+            f"Missing methods: {', '.join(missing) if missing else 'unknown'}"
+        )
+    if api_version not in SUPPORTED_API_VERSIONS:
+        raise ValueError(
+            f"Mission '{mission_name}' declares ADAPTER_API_VERSION={api_version}, "
+            f"but this platform supports: {sorted(SUPPORTED_API_VERSIONS)}"
+        )
+
+
+# =============================================================================
 #  FACADE -- re-export MAVERIC adapter
 # =============================================================================
 
