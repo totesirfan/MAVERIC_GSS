@@ -17,7 +17,8 @@ import threading
 import time
 from datetime import datetime
 
-from mav_gss_lib.protocol import node_label, ptype_label, clean_text, crc16, crc32c
+from mav_gss_lib.protocol import clean_text
+from mav_gss_lib.protocols.crc import crc16, crc32c
 from mav_gss_lib.tui_common import TS_FULL
 
 # Line width for text logs
@@ -129,10 +130,12 @@ class _BaseLog:
         return lines
 
     @staticmethod
-    def _route_line(src, dest, echo, ptype):
+    def _route_line(src, dest, echo, ptype, adapter=None):
         """Format routing fields: Src:x  Dest:x  Echo:x  Type:x"""
-        return (f"Src:{node_label(src)}  Dest:{node_label(dest)}  "
-                f"Echo:{node_label(echo)}  Type:{ptype_label(ptype)}")
+        nl = adapter.node_label if adapter else str
+        pl = adapter.ptype_label if adapter else str
+        return (f"Src:{nl(src)}  Dest:{nl(dest)}  "
+                f"Echo:{nl(echo)}  Type:{pl(ptype)}")
 
     @staticmethod
     def _format_csp(prio, src, dest, dport, sport, flags):
@@ -281,12 +284,14 @@ class TXLog(_BaseLog):
         super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr, mission_name=mission_name)
 
     def write_command(self, n, src, dest, echo, ptype, cmd, args,
-                      raw_cmd, payload, ax25, csp, uplink_mode="AX.25"):
+                      raw_cmd, payload, ax25, csp, uplink_mode="AX.25", adapter=None):
         """Write one TX command entry with full protocol details."""
+        nl = adapter.node_label if adapter else str
+        pl = adapter.ptype_label if adapter else str
         # -- Text entry --
         lines = []
 
-        extras = self._route_line(src, dest, echo, ptype)
+        extras = self._route_line(src, dest, echo, ptype, adapter=adapter)
         lines.append(self._separator(f"#{n}", extras))
 
         lines.append(self._field("MODE", uplink_mode))
@@ -342,10 +347,10 @@ class TXLog(_BaseLog):
         rec = {
             "n": n, "ts": datetime.now().astimezone().isoformat(),
             "uplink_mode": uplink_mode,
-            "src": src, "src_lbl": node_label(src),
-            "dest": dest, "dest_lbl": node_label(dest),
-            "echo": echo, "echo_lbl": node_label(echo),
-            "ptype": ptype, "ptype_lbl": ptype_label(ptype),
+            "src": src, "src_lbl": nl(src),
+            "dest": dest, "dest_lbl": nl(dest),
+            "echo": echo, "echo_lbl": nl(echo),
+            "ptype": ptype, "ptype_lbl": pl(ptype),
             "cmd": cmd, "args": args,
             "raw_hex": raw_cmd.hex(), "raw_len": len(raw_cmd),
             "hex": payload.hex(), "len": len(payload),

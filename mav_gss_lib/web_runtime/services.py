@@ -24,10 +24,8 @@ from collections import deque
 from queue import Empty, Queue
 from typing import TYPE_CHECKING
 
-import mav_gss_lib.protocol as protocol
 from mav_gss_lib.ax25 import build_ax25_gfsk_frame
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
-from mav_gss_lib.protocol import parse_cmd_line, resolve_node, resolve_ptype
 from mav_gss_lib.transport import PUB_STATUS, SUB_STATUS, init_zmq_pub, init_zmq_sub, poll_monitor, receive_pdu, send_pdu, zmq_cleanup
 
 if TYPE_CHECKING:
@@ -416,7 +414,7 @@ class TxService:
                     with self.send_lock:
                         self.sending["guarding"] = True
                     self.guard_ok.clear()
-                    await self.broadcast({"type": "guard_confirm", "index": 0, "cmd": item["cmd"], "args": item.get("args", ""), "dest": protocol.node_name(item["dest"])})
+                    await self.broadcast({"type": "guard_confirm", "index": 0, "cmd": item["cmd"], "args": item.get("args", ""), "dest": self.runtime.adapter.node_name(item["dest"])})
                     while not self.guard_ok.is_set() and not self.abort.is_set():
                         await asyncio.sleep(0.1)
                     with self.send_lock:
@@ -470,7 +468,8 @@ class TxService:
                 if self.log:
                     try:
                         self.log.write_command(
-                            self.count, src, dest, echo, ptype_val, item["cmd"], item["args"], raw_cmd, payload, send_ax25, send_csp, uplink_mode=uplink_mode
+                            self.count, src, dest, echo, ptype_val, item["cmd"], item["args"], raw_cmd, payload, send_ax25, send_csp, uplink_mode=uplink_mode,
+                            adapter=self.runtime.adapter
                         )
                     except Exception as exc:
                         logging.warning("TX log write failed: %s", exc)

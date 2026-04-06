@@ -24,13 +24,10 @@ from fastapi.responses import JSONResponse
 from mav_gss_lib.config import (
     apply_ax25,
     apply_csp,
-    get_command_defs_path,
     get_generated_commands_dir,
     load_gss_config,
     save_gss_config,
 )
-from mav_gss_lib.protocol import node_name, ptype_name, resolve_node, resolve_ptype
-
 from .state import MAX_QUEUE, get_runtime
 from .runtime import deep_merge, make_cmd, make_delay, sanitize_queue_items
 from .security import require_api_token
@@ -46,7 +43,6 @@ router = APIRouter()
 @router.get("/api/status")
 async def api_status(request: Request):
     runtime = get_runtime(request)
-    cmd_path = get_command_defs_path(runtime.cfg)
     return {
         "mission": runtime.cfg.get("general", {}).get("mission", "maveric"),
         "mission_name": runtime.cfg.get("general", {}).get("mission_name", "MAVERIC"),
@@ -55,7 +51,7 @@ async def api_status(request: Request):
         "zmq_tx": runtime.tx.status[0],
         "uplink_mode": runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25"),
         "frequency": runtime.cfg.get("tx", {}).get("frequency", ""),
-        "schema_path": cmd_path,
+        "schema_path": runtime.cfg.get("general", {}).get("command_defs", ""),
         "schema_count": len(runtime.cmd_defs),
         "auth_token": runtime.session_token,
         "log_dir": runtime.cfg.get("general", {}).get("log_dir", "logs"),
@@ -138,6 +134,8 @@ def parse_import_file(filepath, runtime=None):
     """Parse a queue import JSONL file into runtime queue items."""
     import re
 
+    _resolve_node = runtime.adapter.resolve_node if runtime else (lambda x: int(x) if x.isdigit() else None)
+    _resolve_ptype = runtime.adapter.resolve_ptype if runtime else (lambda x: int(x) if x.isdigit() else None)
     items = []
     skipped = 0
     for raw_line in filepath.read_text().strip().split("\n"):
@@ -187,10 +185,10 @@ def parse_import_file(filepath, runtime=None):
             if isinstance(obj, list) and len(obj) >= 5:
                 src_s, dest_s, echo_s, ptype_s, cmd_s = obj[:5]
                 args_s = str(obj[5]) if len(obj) > 5 else ""
-                src = resolve_node(str(src_s))
-                dest = resolve_node(str(dest_s))
-                echo = resolve_node(str(echo_s))
-                ptype_val = resolve_ptype(str(ptype_s))
+                src = _resolve_node(str(src_s))
+                dest = _resolve_node(str(dest_s))
+                echo = _resolve_node(str(echo_s))
+                ptype_val = _resolve_ptype(str(ptype_s))
                 if None in (src, dest, echo, ptype_val):
                     skipped += 1
                     continue
@@ -210,10 +208,10 @@ def parse_import_file(filepath, runtime=None):
                 if obj.get("type") == "delay":
                     items.append(make_delay(max(0, min(300_000, int(obj.get("delay_ms", 0))))))
                 elif obj.get("type") == "cmd" or "cmd" in obj:
-                    src = resolve_node(str(obj.get("src", "GS")))
-                    dest = resolve_node(str(obj.get("dest", "GS")))
-                    echo = resolve_node(str(obj.get("echo", "NONE")))
-                    ptype_val = resolve_ptype(str(obj.get("ptype", "CMD")))
+                    src = _resolve_node(str(obj.get("src", "GS")))
+                    dest = _resolve_node(str(obj.get("dest", "GS")))
+                    echo = _resolve_node(str(obj.get("echo", "NONE")))
+                    ptype_val = _resolve_ptype(str(obj.get("ptype", "CMD")))
                     if None in (src, dest, echo, ptype_val):
                         skipped += 1
                         continue
@@ -258,10 +256,10 @@ async def preview_import(filename: str, request: Request):
         preview.append(
             {
                 "type": "cmd",
-                "src": node_name(item["src"]),
-                "dest": node_name(item["dest"]),
-                "echo": node_name(item["echo"]),
-                "ptype": ptype_name(item["ptype"]),
+                "src": runtime.adapter.node_name(item["src"]),
+                "dest": runtime.adapter.node_name(item["dest"]),
+                "echo": runtime.adapter.node_name(item["echo"]),
+                "ptype": runtime.adapter.ptype_name(item["ptype"]),
                 "cmd": item["cmd"],
                 "args": item["args"],
                 "guard": item.get("guard", False),
@@ -354,7 +352,7 @@ async def api_logs(request: Request):
     return sessions
 
 
-def parse_replay_entry(entry: dict, cmd_defs: dict) -> dict | None:
+def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None:
     """Normalize one JSONL log entry for replay.
 
     Reads the stable platform envelope generically, then checks
@@ -405,10 +403,10 @@ def parse_replay_entry(entry: dict, cmd_defs: dict) -> dict | None:
             "raw_hex": entry.get("raw_hex", ""),
             "csp_header": (mission_block.get("csp_candidate") if mission_block else None) or entry.get("csp_candidate"),
             "cmd": mission_cmd.get("cmd_id", "") if mission_cmd else "",
-            "src": node_name(mission_cmd.get("src", 0)) if mission_cmd else "",
-            "dest": node_name(mission_cmd.get("dest", 0)) if mission_cmd else "",
-            "echo": node_name(mission_cmd.get("echo", 0)) if mission_cmd else "",
-            "ptype": ptype_name(mission_cmd.get("pkt_type", 0)) if mission_cmd else "",
+            "src": (adapter.node_name(mission_cmd.get("src", 0)) if adapter else str(mission_cmd.get("src", 0))) if mission_cmd else "",
+            "dest": (adapter.node_name(mission_cmd.get("dest", 0)) if adapter else str(mission_cmd.get("dest", 0))) if mission_cmd else "",
+            "echo": (adapter.node_name(mission_cmd.get("echo", 0)) if adapter else str(mission_cmd.get("echo", 0))) if mission_cmd else "",
+            "ptype": (adapter.ptype_name(mission_cmd.get("pkt_type", 0)) if adapter else str(mission_cmd.get("pkt_type", 0))) if mission_cmd else "",
             "crc16_ok": mission_cmd.get("crc_valid") if mission_cmd else None,
             "warnings": entry.get("warnings", []),
         }
@@ -477,10 +475,10 @@ def parse_replay_entry(entry: dict, cmd_defs: dict) -> dict | None:
             "raw_hex": entry.get("raw_hex", ""),
             "csp_header": entry.get("csp"),
             "cmd": str(entry.get("cmd", "")),
-            "src": str(entry.get("src_lbl", node_name(entry.get("src", 0)))),
-            "dest": str(entry.get("dest_lbl", node_name(entry.get("dest", 0)))),
-            "echo": str(entry.get("echo_lbl", node_name(entry.get("echo", 0)))),
-            "ptype": str(entry.get("ptype_lbl", ptype_name(entry.get("ptype", 0)))),
+            "src": str(entry.get("src_lbl", adapter.node_name(entry.get("src", 0)) if adapter else str(entry.get("src", 0)))),
+            "dest": str(entry.get("dest_lbl", adapter.node_name(entry.get("dest", 0)) if adapter else str(entry.get("dest", 0)))),
+            "echo": str(entry.get("echo_lbl", adapter.node_name(entry.get("echo", 0)) if adapter else str(entry.get("echo", 0)))),
+            "ptype": str(entry.get("ptype_lbl", adapter.ptype_name(entry.get("ptype", 0)) if adapter else str(entry.get("ptype", 0)))),
             "args_named": [],
             "args_extra": [],
             "warnings": [],
@@ -516,7 +514,7 @@ async def api_log_entries(
             except json.JSONDecodeError:
                 continue
 
-            normalized = parse_replay_entry(entry, runtime.cmd_defs)
+            normalized = parse_replay_entry(entry, runtime.cmd_defs, adapter=runtime.adapter)
             if normalized is None:
                 continue
 

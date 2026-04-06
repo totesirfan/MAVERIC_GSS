@@ -6,9 +6,6 @@ import asyncio
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-import mav_gss_lib.protocol as protocol
-from mav_gss_lib.protocol import parse_cmd_line, resolve_node, resolve_ptype
-
 from .state import MAX_HISTORY, MAX_QUEUE, WebRuntime, get_runtime
 from .runtime import make_delay, schedule_shutdown_check, validate_cmd_item
 from .security import authorize_websocket
@@ -77,10 +74,10 @@ async def ws_tx(websocket: WebSocket):
                     if defn and not defn.get("rx_only") and defn.get("dest") is not None:
                         cmd_id = candidate
                         args = " ".join(parts[1:])
-                        src, dest = protocol.GS_NODE, defn["dest"]
+                        src, dest = runtime.adapter.gs_node, defn["dest"]
                         echo, ptype_val = defn["echo"], defn["ptype"]
                     else:
-                        src, dest, echo, ptype_val, cmd_id, args = parse_cmd_line(line)
+                        src, dest, echo, ptype_val, cmd_id, args = runtime.adapter.parse_cmd_line(line)
                     item = validate_cmd_item(src, dest, echo, ptype_val, cmd_id, args, runtime=runtime)
                     runtime.tx.queue.append(item)
                     runtime.tx.renumber_queue()
@@ -105,10 +102,10 @@ async def ws_tx(websocket: WebSocket):
                         raise ValueError(f"'{cmd_id}' not in schema")
                     if defn.get("rx_only"):
                         raise ValueError(f"{cmd_id} is rx_only (downlink only)")
-                    src = resolve_node(str(msg.get("src", "GS")))
-                    dest = resolve_node(str(msg["dest"]))
-                    echo = resolve_node(str(msg.get("echo", "NONE")))
-                    ptype_val = resolve_ptype(str(msg.get("ptype", "CMD")))
+                    src = runtime.adapter.resolve_node(str(msg.get("src", "GS")))
+                    dest = runtime.adapter.resolve_node(str(msg["dest"]))
+                    echo = runtime.adapter.resolve_node(str(msg.get("echo", "NONE")))
+                    ptype_val = runtime.adapter.resolve_ptype(str(msg.get("ptype", "CMD")))
                     if None in (src, dest, echo, ptype_val):
                         raise ValueError("unresolvable node/ptype")
                     item = validate_cmd_item(
