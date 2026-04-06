@@ -84,6 +84,10 @@ async def api_config_put(update: dict, request: Request):
     if runtime.tx.sending["active"] and (requested_rx_addr != old_rx_addr or requested_tx_addr != old_tx_addr):
         return JSONResponse(status_code=409, content={"error": "cannot change ZMQ addresses during active send"})
 
+    # Mission selection is startup-only — strip it from runtime updates
+    if isinstance(update.get("general"), dict):
+        update["general"].pop("mission", None)
+
     with runtime.cfg_lock:
         deep_merge(runtime.cfg, update)
         save_gss_config(runtime.cfg)

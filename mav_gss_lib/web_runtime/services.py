@@ -21,14 +21,13 @@ import tempfile
 import threading
 import time
 from collections import deque
-from datetime import datetime
 from queue import Empty, Queue
 from typing import TYPE_CHECKING
 
 import mav_gss_lib.protocol as protocol
 from mav_gss_lib.ax25 import build_ax25_gfsk_frame
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
-from mav_gss_lib.protocol import node_name, parse_cmd_line, ptype_name, resolve_node, resolve_ptype
+from mav_gss_lib.protocol import parse_cmd_line, resolve_node, resolve_ptype
 from mav_gss_lib.transport import PUB_STATUS, SUB_STATUS, init_zmq_pub, init_zmq_sub, poll_monitor, receive_pdu, send_pdu, zmq_cleanup
 
 if TYPE_CHECKING:
@@ -97,57 +96,7 @@ class RxService:
         zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)
 
     def packet_to_json(self, pkt) -> dict:
-        cmd = pkt.cmd
-        args_named = []
-        args_extra = []
-        if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
-            for ta in cmd["typed_args"]:
-                val = ta.get("value", "")
-                if ta["type"] == "epoch_ms":
-                    if hasattr(val, "ms"):
-                        val = val.ms
-                    elif isinstance(val, dict) and "ms" in val:
-                        val = val["ms"]
-                if isinstance(val, (bytes, bytearray)):
-                    val = val.hex()
-                args_named.append({"name": ta["name"], "value": str(val), "important": bool(ta.get("important"))})
-            args_extra = [a.hex() if isinstance(a, (bytes, bytearray)) else str(a) for a in cmd.get("extra_args", [])]
-        elif cmd:
-            raw_args = cmd.get("args", [])
-            if isinstance(raw_args, list):
-                args_extra = [str(a) for a in raw_args]
-            else:
-                args_extra = [str(raw_args)] if raw_args else []
-
-        payload = {
-            "num": pkt.pkt_num,
-            "time": pkt.gs_ts_short,
-            "time_utc": pkt.gs_ts,
-            "frame": pkt.frame_type,
-            "src": node_name(cmd["src"]) if cmd else "",
-            "dest": node_name(cmd["dest"]) if cmd else "",
-            "echo": node_name(cmd["echo"]) if cmd else "",
-            "ptype": ptype_name(cmd["pkt_type"]) if cmd else "",
-            "cmd": cmd["cmd_id"] if cmd else "",
-            "args_named": args_named,
-            "args_extra": args_extra,
-            "size": len(pkt.raw),
-            "crc16_ok": cmd.get("crc_valid") if cmd else None,
-            "crc32_ok": pkt.crc_status.get("csp_crc32_valid"),
-            "is_echo": pkt.is_uplink_echo,
-            "is_dup": pkt.is_dup,
-            "is_unknown": pkt.is_unknown,
-            "raw_hex": pkt.raw.hex(),
-            "warnings": pkt.warnings,
-            "csp_header": pkt.csp,
-            "ax25_header": pkt.stripped_hdr,
-        }
-        if pkt.ts_result:
-            dt_utc, dt_local, ms = pkt.ts_result
-            payload["sat_time_utc"] = dt_utc.strftime("%H:%M:%S") + " UTC" if dt_utc else None
-            payload["sat_time_local"] = dt_local.strftime("%H:%M:%S %Z") if dt_local else None
-            payload["sat_time_ms"] = ms
-        return payload
+        return self.runtime.adapter.packet_to_json(pkt)
 
     async def broadcast_loop(self) -> None:
         """Drain received packets and push packet/status updates to clients."""
@@ -364,20 +313,9 @@ class TxService:
                 result.append({"type": "delay", "delay_ms": item["delay_ms"]})
                 continue
             result.append(
-                {
-                    "type": "cmd",
-                    "num": item.get("num", 0),
-                    "src": node_name(item["src"]),
-                    "dest": node_name(item["dest"]),
-                    "echo": node_name(item["echo"]),
-                    "ptype": ptype_name(item["ptype"]),
-                    "cmd": item["cmd"],
-                    "args": item.get("args", ""),
-                    "args_named": self.match_tx_args(item["cmd"], item.get("args", "")),
-                    "args_extra": self.tx_extra_args(item["cmd"], item.get("args", "")),
-                    "guard": item.get("guard", False),
-                    "size": len(item.get("raw_cmd", b"")),
-                }
+                self.runtime.adapter.queue_item_to_json(
+                    item, self.match_tx_args, self.tx_extra_args,
+                )
             )
         return result
 
@@ -466,7 +404,7 @@ class TxService:
                     with self.send_lock:
                         self.sending["guarding"] = True
                     self.guard_ok.clear()
-                    await self.broadcast({"type": "guard_confirm", "index": 0, "cmd": item["cmd"], "args": item.get("args", ""), "dest": node_name(item["dest"])})
+                    await self.broadcast({"type": "guard_confirm", "index": 0, "cmd": item["cmd"], "args": item.get("args", ""), "dest": protocol.node_name(item["dest"])})
                     while not self.guard_ok.is_set() and not self.abort.is_set():
                         await asyncio.sleep(0.1)
                     with self.send_lock:
@@ -525,7 +463,7 @@ class TxService:
                     except Exception as exc:
                         logging.warning("TX log write failed: %s", exc)
 
-                hist_entry = {"n": self.count, "ts": datetime.now().strftime("%H:%M:%S"), "src": node_name(src), "dest": node_name(dest), "echo": node_name(echo), "ptype": ptype_name(ptype_val), "cmd": item["cmd"], "args": item["args"], "size": len(payload)}
+                hist_entry = self.runtime.adapter.history_entry(self.count, item, len(payload))
                 self.history.append(hist_entry)
                 if len(self.history) > self.runtime.max_history:
                     del self.history[: len(self.history) - self.runtime.max_history]

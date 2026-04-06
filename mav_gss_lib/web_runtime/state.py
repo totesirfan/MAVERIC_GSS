@@ -57,7 +57,7 @@ class WebRuntime:
         self.cfg = load_gss_config()
         init_nodes(self.cfg)
         self.cmd_defs, self.cmd_warn = load_command_defs(get_command_defs_path(self.cfg))
-        self.adapter = MavericMissionAdapter(self.cmd_defs)
+        self.adapter = self._load_adapter()
 
         self.rx_status = ["OFFLINE"]
         self.tx_status = ["OFFLINE"]
@@ -72,6 +72,16 @@ class WebRuntime:
         self.cfg_lock = threading.Lock()
         self.rx = RxService(self)
         self.tx = TxService(self)
+
+    def _load_adapter(self):
+        """Instantiate the mission adapter based on config."""
+        mission = self.cfg.get("general", {}).get("mission", "maveric")
+        if mission == "maveric":
+            return MavericMissionAdapter(self.cmd_defs)
+        raise ValueError(
+            f"Unknown mission '{mission}' in general.mission config. "
+            f"Supported: maveric"
+        )
 
     def queue_file(self) -> Path:
         return Path(self.cfg.get("general", {}).get("log_dir", "logs")) / ".pending_queue.jsonl"
