@@ -17,6 +17,7 @@ display raw args with a warning.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+import os
 import warnings
 from datetime import datetime, timezone
 
@@ -86,74 +87,19 @@ def resolve_ptype(s):      return _resolve_id(s, PTYPE_IDS, PTYPE_NAMES)
 
 
 # =============================================================================
-#  KISS FRAMING
-#
-#  Mirrors Commands.py create_cmd() output format exactly.
-#  Satellite's kiss_process_byte() expects: C0 00 [escaped data] C0
+#  KISS & CSP — re-exported from protocols.csp
 # =============================================================================
 
-FEND  = 0xC0
-FESC  = 0xDB
-TFEND = 0xDC
-TFESC = 0xDD
-
-
-def kiss_wrap(raw_cmd):
-    """KISS-wrap a raw command payload.
-    Output: C0 00 [kiss-escaped data] C0
-    Identical to Commands.py create_cmd() KISS section.
-    DB must be escaped before C0 to avoid double-escaping."""
-    escaped = raw_cmd.replace(b'\xDB', b'\xDB\xDD').replace(b'\xC0', b'\xDB\xDC')
-    return b'\xC0\x00' + escaped + b'\xC0'
-
+from mav_gss_lib.protocols.csp import (  # noqa: F401
+    FEND, FESC, TFEND, TFESC, kiss_wrap,
+    try_parse_csp_v1, CSPConfig,
+)
 
 # =============================================================================
-#  CRC-16 XMODEM & CRC-32C (Castagnoli)
-#
-#  CRC-16 uses the 'crc' package when available, pure-Python fallback otherwise.
-#  CRC-32C uses a pure-Python reflected loop — faster than the 'crc'
-#  package's generic Configuration-based calculator for this polynomial.
-#
-#  CRC-32C verified against captured MAVERIC downlink traffic:
-#    Packet 1 (AX.25):  CRC-32C = 0x3AA1DDAB  ✓
-#    Packet 2 (AX100):  CRC-32C = 0xB23EFBC3  ✓
+#  CRC — re-exported from protocols.crc
 # =============================================================================
 
-try:
-    import crcmod.predefined as _crcmod
-except ImportError:
-    raise ImportError(
-        "crcmod is required for CRC computation but not installed. "
-        "Install with: pip install crcmod   (or: conda install crcmod)"
-    ) from None
-
-_crc16_fn = _crcmod.mkCrcFun('xmodem')
-_crc32c_fn = _crcmod.mkCrcFun('crc-32c')
-
-
-def crc16(data):
-    """CRC-16 XMODEM checksum (C-accelerated via crcmod)."""
-    return _crc16_fn(data)
-
-
-def crc32c(data):
-    """CRC-32C (Castagnoli) checksum for CSP v1 packet integrity (C-accelerated via crcmod)."""
-    return _crc32c_fn(data)
-
-
-def verify_csp_crc32(inner_payload):
-    """Verify CRC-32C over a complete CSP packet (header + data + CRC-32C).
-
-    Last 4 bytes are the received CRC-32C (big-endian); computed over
-    everything preceding them.
-
-    Returns (is_valid, received_crc, computed_crc).
-    Returns (None, None, None) if payload is too short to contain a CRC."""
-    if len(inner_payload) < 8:  # need at least 4B CSP header + 4B CRC
-        return None, None, None
-    received = int.from_bytes(inner_payload[-4:], 'big')
-    computed = crc32c(inner_payload[:-4])
-    return received == computed, received, computed
+from mav_gss_lib.protocols.crc import crc16, crc32c, verify_csp_crc32  # noqa: F401
 
 
 # =============================================================================
@@ -240,6 +186,8 @@ class CommandFrame:
             crc_val = payload[tail_start] | (payload[tail_start + 1] << 8)
             crc_valid = crc_val == crc16(payload[:tail_start])
             tail_start += 2
+        else:
+            crc_valid = False  # truncated frame — CRC missing
 
         # CRC-32C (CSP packet integrity) — consume if exactly 4 bytes remain
         csp_crc32 = None
@@ -293,159 +241,10 @@ def try_parse_command(payload):
 
 
 # =============================================================================
-#  CSP V1 HEADER
-#
-#  32-bit big-endian word:
-#    [31:30] priority  [29:25] source  [24:20] destination
-#    [19:14] dest_port [13:8]  src_port [7:0] flags
+#  AX.25 — re-exported from protocols.ax25
 # =============================================================================
 
-def try_parse_csp_v1(payload):
-    """Parse first 4 bytes as CSP v1 header (RX direction).
-    Returns (parsed_dict, is_plausible) or (None, False)."""
-    if len(payload) < 4:
-        return None, False
-
-    h = int.from_bytes(payload[0:4], "big")
-    csp = {
-        "prio":  (h >> 30) & 0x03,
-        "src":   (h >> 25) & 0x1F,
-        "dest":  (h >> 20) & 0x1F,
-        "dport": (h >> 14) & 0x3F,
-        "sport": (h >> 8)  & 0x3F,
-        "flags": h & 0xFF,
-    }
-    plausible = csp["src"] <= 20 and csp["dest"] <= 20
-    return csp, plausible
-
-
-# =============================================================================
-#  AX.25 HEADER
-#
-#  16-byte header for HDLC framing (UI frame, no L3 protocol):
-#    [dest callsign 6B shifted][dest SSID 1B]
-#    [src  callsign 6B shifted][src  SSID 1B]
-#    [control 0x03][PID 0xF0]
-#
-#  Callsign bytes are ASCII shifted left 1 bit, space-padded to 6 chars.
-#  SSID byte: 0b0SSSS0E1 where SSID is 0-15, E is end-of-address flag.
-# =============================================================================
-
-class AX25Config:
-    """Configurable AX.25 header for uplink (TX direction).
-
-    Wraps a payload with a 16-byte AX.25 UI frame header so the PDU
-    is ready for an HDLC framer with no custom GRC blocks needed.
-
-    Default callsigns:
-        dest  WS9XSW-0  (satellite)
-        src   WM2XBB-0  (ground station)
-    """
-
-    HEADER_LEN = 16  # 7 dest + 7 src + 1 control + 1 PID
-
-    def __init__(self):
-        self.enabled   = True
-        self.dest_call = "WS9XSW"
-        self.dest_ssid = 0
-        self.src_call  = "WM2XBB"
-        self.src_ssid  = 0
-
-    @staticmethod
-    def _encode_callsign(call, ssid, last=False):
-        """Encode callsign + SSID into 7 AX.25 address bytes.
-
-        Each character is shifted left 1 bit. Callsign is space-padded
-        to 6 characters. SSID byte: 0b0RR_SSSS_E (E=1 if last address).
-
-        *ssid* accepts either a 0-15 SSID value (standard) or a raw
-        SSID byte (> 0x0F, e.g. 0x60 from GomSpace AX100 config).
-        The extension bit is always managed automatically."""
-        call = call.upper().ljust(6)[:6]
-        addr = bytearray(ord(c) << 1 for c in call)
-        if ssid > 0x0F:
-            # Raw SSID byte — use directly, manage extension bit
-            ssid_byte = ssid & 0xFE
-            if last:
-                ssid_byte |= 0x01
-        else:
-            # Standard 0-15 SSID value
-            ssid_byte = 0x60 | ((ssid & 0x0F) << 1)
-            if last:
-                ssid_byte |= 0x01
-        addr.append(ssid_byte)
-        return bytes(addr)
-
-    def overhead(self):
-        """Number of bytes the AX.25 header adds to a payload."""
-        return self.HEADER_LEN if self.enabled else 0
-
-    def wrap(self, payload):
-        """Prepend 16-byte AX.25 UI frame header if enabled.
-
-        Output: [dest 7B][src 7B][0x03][0xF0][payload]"""
-        if self.enabled:
-            header = (
-                self._encode_callsign(self.dest_call, self.dest_ssid, last=False)
-                + self._encode_callsign(self.src_call, self.src_ssid, last=True)
-                + b'\x03\xF0'
-            )
-            return header + payload
-        return payload
-
-
-class CSPConfig:
-    """Configurable CSP v1 header for uplink (TX direction).
-
-    Defaults derived from observed MAVERIC downlink traffic:
-      Prio:2 Src:8 Dest:0 DPort:24 -- reversed for uplink.
-    These are placeholders until the CSP address plan is confirmed.
-
-    When enabled, wrap() prepends the 4-byte CSP header and appends
-    a 4-byte CRC-32C (Castagnoli) over the entire CSP packet."""
-
-    def __init__(self):
-        self.enabled = True
-        self.prio    = 2
-        self.src     = 0      # GS address
-        self.dest    = 8      # satellite address
-        self.dport   = 0     # service port
-        self.sport   = 24
-        self.flags   = 0x00
-        self.csp_crc = True   # append CRC-32C; set False if AX100 has csp_crc=false
-
-    def build_header(self):
-        """Pack CSP fields into 4-byte big-endian header."""
-        h = ((self.prio  & 0x03) << 30 |
-             (self.src   & 0x1F) << 25 |
-             (self.dest  & 0x1F) << 20 |
-             (self.dport & 0x3F) << 14 |
-             (self.sport & 0x3F) << 8  |
-             (self.flags & 0xFF))
-        return h.to_bytes(4, 'big')
-
-    def overhead(self):
-        """Number of bytes the CSP header + optional CRC-32C add to a payload."""
-        if not self.enabled:
-            return 0
-        return 8 if self.csp_crc else 4  # 4B header + optional 4B CRC-32C
-
-    def wrap(self, payload):
-        """Prepend CSP header and optionally append CRC-32C.
-
-        Output: [CSP header 4B] [payload] [CRC-32C 4B BE] (if csp_crc)
-                [CSP header 4B] [payload]                  (if not csp_crc)
-
-        When csp_crc is False, no CRC-32C is appended — matching AX100
-        config with csp_crc=false.  RS(255,223) still provides error
-        detection/correction on the RF link."""
-        if self.enabled:
-            packet = self.build_header() + payload
-            if self.csp_crc:
-                checksum = crc32c(packet).to_bytes(4, 'big')
-                return packet + checksum
-            return packet
-        return payload
+from mav_gss_lib.protocols.ax25 import AX25Config  # noqa: F401
 
 
 # =============================================================================
@@ -534,7 +333,7 @@ def _parse_arg_list(raw_list):
     return args
 
 
-def load_command_defs(path="maveric_commands.yml"):
+def load_command_defs(path=None):
     """Load command definitions from YAML.
 
     Schema format — per command (all fields optional):
@@ -551,6 +350,12 @@ def load_command_defs(path="maveric_commands.yml"):
                        "dest", "echo", "ptype"}}
       warning: str or None — set when schema could not be loaded.
     Returns (empty dict, warning) on any failure."""
+    from pathlib import Path as _Path
+    _cfg_dir = _Path(__file__).resolve().parent / "config"
+    if path is None:
+        path = str(_cfg_dir / "maveric_commands.yml")
+    elif not os.path.isabs(path):
+        path = str(_cfg_dir / path)
     if not _YAML_OK:
         msg = ("PyYAML not installed -- command schema unavailable. "
                "Install with: pip install pyyaml")
@@ -586,6 +391,7 @@ def load_command_defs(path="maveric_commands.yml"):
                 "rx_args":  rx_args,
                 "variadic": spec.get("variadic", False),
                 "rx_only":  spec.get("rx_only", False),
+                "nodes":    spec.get("nodes", []),
                 "dest":     dest,
                 "echo":     echo if echo is not None else 0,
                 "ptype":    ptype if ptype is not None else 1,
@@ -711,33 +517,10 @@ def validate_args(cmd_id, args_str, cmd_defs):
 
 
 # =============================================================================
-#  FRAME NORMALIZATION (RX direction)
-#
-#  Detect frame type from gr-satellites metadata and strip outer framing
-#  to expose the inner CSP+command payload.
+#  FRAME DETECTION — re-exported from protocols.frame_detect
 # =============================================================================
 
-def detect_frame_type(meta):
-    """Determine frame type from gr-satellites metadata."""
-    tx_info = str(meta.get("transmitter", ""))
-    for keyword, label in (("AX.25", "AX.25"), ("AX100", "ASM+GOLAY")):
-        if keyword in tx_info:
-            return label
-    return "UNKNOWN"
-
-
-def normalize_frame(frame_type, raw):
-    """Strip outer framing, return (inner_payload, stripped_header_hex, warnings)."""
-    warnings = []
-    if frame_type == "AX.25":
-        idx = raw.find(b"\x03\xf0")
-        if idx == -1:
-            warnings.append("AX.25 frame but no 03 f0 delimiter found")
-            return raw, None, warnings
-        return raw[idx + 2:], raw[:idx + 2].hex(" "), warnings
-    if frame_type != "ASM+GOLAY":
-        warnings.append("Unknown frame type -- returning raw")
-    return raw, None, warnings
+from mav_gss_lib.protocols.frame_detect import detect_frame_type, normalize_frame  # noqa: F401
 
 
 # =============================================================================
