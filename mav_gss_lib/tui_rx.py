@@ -1,6 +1,12 @@
 """
 mav_gss_lib.tui_rx -- RX Monitor Widgets (Textual)
 
+STATUS: MAVERIC-only legacy. This module is part of the backup Textual TUI
+and is not on the platform/adapter migration path. It accesses Packet fields
+directly via dict-compat methods (pkt.get(), pkt[key]) and imports from the
+protocol.py compatibility facade. The web UI (MAV_WEB.py) is the primary
+operational interface.
+
 Author:  Irfan Annuar - USC ISI SERC
 """
 

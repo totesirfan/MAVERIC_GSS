@@ -1,6 +1,10 @@
 """
 mav_gss_lib.tui_tx -- TX Dashboard Widgets (Textual)
 
+STATUS: MAVERIC-only legacy. This module is part of the backup Textual TUI
+and is not on the platform/adapter migration path. The web UI (MAV_WEB.py)
+is the primary operational interface.
+
 Author:  Irfan Annuar - USC ISI SERC
 """
 

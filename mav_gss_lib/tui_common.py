@@ -1,6 +1,10 @@
 """
 mav_gss_lib.tui_common -- Shared Textual TUI Utilities
 
+STATUS: MAVERIC-only legacy. Shared widgets and helpers for the backup
+Textual TUI (tui_rx.py, tui_tx.py). Not on the platform/adapter migration
+path. The web UI (MAV_WEB.py) is the primary operational interface.
+
 Author:  Irfan Annuar - USC ISI SERC
 """
 

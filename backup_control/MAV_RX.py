@@ -1,6 +1,10 @@
 """
 MAV_RX -- MAVERIC Ground Station Monitor (Textual Dashboard)
 
+STATUS: MAVERIC-only legacy. Backup Textual TUI for RX monitoring.
+Not on the platform/adapter migration path. The web UI (MAV_WEB.py)
+is the primary operational interface.
+
 Author:  Irfan Annuar - USC ISI SERC
 """
 

@@ -1,6 +1,10 @@
 """
 MAV_TX -- MAVERIC Command Terminal (Textual Dashboard)
 
+STATUS: MAVERIC-only legacy. Backup Textual TUI for TX commanding.
+Not on the platform/adapter migration path. The web UI (MAV_WEB.py)
+is the primary operational interface.
+
 Author:  Irfan Annuar - USC ISI SERC
 """
 
