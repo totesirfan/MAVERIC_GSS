@@ -405,6 +405,10 @@ class TestReplayCompat(unittest.TestCase):
         self.assertEqual(result["cmd"], "com_ping")
         self.assertEqual(result["num"], 1)
         self.assertFalse(result["is_dup"])
+        # New envelope includes _rendering with protocol/integrity blocks
+        self.assertIn("_rendering", result)
+        self.assertIsInstance(result["_rendering"]["protocol_blocks"], list)
+        self.assertIsInstance(result["_rendering"]["integrity_blocks"], list)
 
     def test_legacy_flat_replay_extracts_cmd_from_top_level(self):
         """Replay normalizes pre-Phase-9 MAVERIC log with flat cmd dict."""
@@ -426,6 +430,8 @@ class TestReplayCompat(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["cmd"], "com_ping")
         self.assertEqual(result["csp_header"], {"prio": 2, "src": 0, "dest": 8})
+        # Legacy logs without protocol/integrity blocks don't get _rendering
+        self.assertNotIn("_rendering", result)
 
     def test_tx_log_entry_detected_by_missing_pkt_field(self):
         """TX log entries (no 'pkt' field) are correctly identified."""

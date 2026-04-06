@@ -43,6 +43,10 @@ function entryToPacket(e: LogEntry, index: number): RxPacket {
     sat_time_utc: (e.sat_time_utc as string | null) ?? null,
     sat_time_local: (e.sat_time_local as string | null) ?? null,
     sat_time_ms: (e.sat_time_ms as number | null) ?? null,
+    // Pass through rendering-slot data from platform envelope (Phase 9+)
+    ...(e._rendering && typeof e._rendering === 'object'
+      ? { _rendering: e._rendering as RxPacket['_rendering'] }
+      : {}),
   }
 }
 

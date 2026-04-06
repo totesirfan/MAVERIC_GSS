@@ -108,6 +108,11 @@ class MissionAdapter(Protocol):
     def protocol_blocks(self, pkt) -> list: ...
     def integrity_blocks(self, pkt) -> list: ...
 
+    # -- Logging-slot contract (Phase 9) --
+    def build_log_mission_data(self, pkt) -> dict: ...
+    def format_log_lines(self, pkt) -> list[str]: ...
+    def is_unknown_packet(self, parsed: ParsedPacket) -> bool: ...
+
 
 # =============================================================================
 #  PLATFORM CORE -- Adapter Validation
@@ -131,6 +136,7 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
             'build_raw_command', 'validate_tx_args',
             'packet_list_columns', 'packet_list_row',
             'packet_detail_blocks', 'protocol_blocks', 'integrity_blocks',
+            'build_log_mission_data', 'format_log_lines', 'is_unknown_packet',
         ):
             if not hasattr(adapter, method_name):
                 missing.append(method_name)

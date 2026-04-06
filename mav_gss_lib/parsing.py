@@ -120,7 +120,7 @@ class RxPipeline:
 
         # Classification
         is_dup = self._check_duplicate(parsed, now)
-        is_unknown, unknown_num = self._classify_unknown(cmd)
+        is_unknown, unknown_num = self._classify_unknown(parsed)
         is_uplink_echo = self.adapter.is_uplink_echo(parsed)
 
         # Monotonic packet number — all packets get a unique sequential number
@@ -180,9 +180,10 @@ class RxPipeline:
                 self.seen_fps.popitem(last=False)
         return is_dup
 
-    def _classify_unknown(self, cmd):
-        """Classify packet as unknown or known, update counters."""
-        if cmd is None:
+    def _classify_unknown(self, parsed):
+        """Classify packet as unknown or known using the adapter, update counters."""
+        is_unknown = self.adapter.is_unknown_packet(parsed)
+        if is_unknown:
             self.unknown_count += 1
             return True, self.unknown_count
         self.packet_count += 1

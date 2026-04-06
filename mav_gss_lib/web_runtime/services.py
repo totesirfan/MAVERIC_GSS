@@ -124,7 +124,7 @@ class RxService:
                 try:
                     if self.log:
                         self.log.write_jsonl(build_rx_log_record(pkt, version, meta, self.runtime.adapter))
-                        self.log.write_packet(pkt)
+                        self.log.write_packet(pkt, adapter=self.runtime.adapter)
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)
                 pkt_json = self.packet_to_json(pkt)

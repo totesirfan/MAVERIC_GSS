@@ -77,6 +77,15 @@ class EchoMissionAdapter:
     def integrity_blocks(self, pkt) -> list:
         return []
 
+    def build_log_mission_data(self, pkt) -> dict:
+        return {}
+
+    def format_log_lines(self, pkt) -> list[str]:
+        return []
+
+    def is_unknown_packet(self, parsed) -> bool:
+        return True
+
     # -- Transitional compatibility (Phase 5a) --
 
     def packet_to_json(self, pkt) -> dict:

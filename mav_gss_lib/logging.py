@@ -17,7 +17,7 @@ import threading
 import time
 from datetime import datetime
 
-from mav_gss_lib.protocol import node_label, ptype_label, clean_text, format_arg_value, crc16, crc32c
+from mav_gss_lib.protocol import node_label, ptype_label, clean_text, crc16, crc32c
 from mav_gss_lib.tui_common import TS_FULL
 
 # Line width for text logs
@@ -225,8 +225,13 @@ class SessionLog(_BaseLog):
     def __init__(self, log_dir, zmq_addr, version="", mission_name="MAVERIC"):
         super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr, mission_name=mission_name)
 
-    def write_packet(self, pkt):
-        """Write one RX packet entry. Takes a Packet instance."""
+    def write_packet(self, pkt, adapter=None):
+        """Write one RX packet entry. Takes a Packet instance.
+
+        Platform handles: separator, warnings, hex dump, ASCII.
+        Adapter handles: mission-specific text lines (protocol headers,
+        command details, CRC display) via format_log_lines().
+        """
         lines = []
         label = f"U-{pkt.unknown_num}" if pkt.is_unknown and pkt.unknown_num is not None else f"#{pkt.pkt_num}"
         extras = f"{pkt.frame_type}  {len(pkt.raw)}B \u2192 {len(pkt.inner_payload)}B"
@@ -241,53 +246,9 @@ class SessionLog(_BaseLog):
         for w in pkt.warnings:
             lines.append(self._field("\u26a0 WARNING", w))
 
-        # AX.25 header
-        if pkt.stripped_hdr:
-            lines.append(self._field("AX.25 HDR", pkt.stripped_hdr))
-
-        # CSP header
-        csp = pkt.csp
-        if csp:
-            tag = "CSP V1" if pkt.csp_plausible else "CSP V1 [?]"
-            lines.append(self._field(tag,
-                self._format_csp(csp['prio'], csp['src'], csp['dest'],
-                                 csp['dport'], csp['sport'], csp['flags'])))
-
-        # SAT TIME (only when present)
-        ts_result = pkt.ts_result
-        if ts_result:
-            dt_utc, dt_local, raw_ms = ts_result
-            lines.append(self._field("SAT TIME",
-                f"{dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')} \u2502 "
-                f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}  ({raw_ms})"))
-
-        # Command
-        cmd = pkt.cmd
-        if cmd:
-            lines.append(self._field("CMD",
-                self._route_line(cmd["src"], cmd["dest"], cmd["echo"], cmd["pkt_type"])))
-            lines.append(self._field("CMD ID", cmd["cmd_id"]))
-
-            # Schema-matched args
-            if cmd.get("schema_match"):
-                for ta in cmd.get("typed_args", []):
-                    lines.append(self._field(ta["name"].upper(), format_arg_value(ta)))
-                for i, extra in enumerate(cmd.get("extra_args", [])):
-                    lines.append(self._field(f"ARG +{i}", str(extra)))
-            else:
-                if cmd.get("schema_warning"):
-                    lines.append(self._field("\u26a0 SCHEMA", cmd["schema_warning"]))
-                for i, arg in enumerate(cmd.get("args", [])):
-                    lines.append(self._field(f"ARG {i}", str(arg)))
-
-        # CRC (before hex)
-        if cmd and cmd.get("crc") is not None:
-            tag = "OK" if cmd.get("crc_valid") else "FAIL"
-            lines.append(self._field("CRC-16", f"0x{cmd['crc']:04x} [{tag}]"))
-        crc_status = pkt.crc_status
-        if crc_status.get("csp_crc32_valid") is not None:
-            tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
-            lines.append(self._field("CRC-32C", f"0x{crc_status['csp_crc32_rx']:08x} [{tag}]"))
+        # Mission-specific lines (adapter-driven)
+        if adapter is not None:
+            lines.extend(adapter.format_log_lines(pkt))
 
         lines.extend(self._hex_lines(pkt.raw, "HEX"))
         if pkt.text:
