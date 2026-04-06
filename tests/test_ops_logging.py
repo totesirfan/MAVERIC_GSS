@@ -221,5 +221,116 @@ class TestMavericLoggingMethods(unittest.TestCase):
         self.assertTrue(self.adapter.is_unknown_packet(parsed))
 
 
+class TestPlatformLogEnvelope(unittest.TestCase):
+    """Verify the platform log envelope structure."""
+
+    def setUp(self):
+        from mav_gss_lib.config import load_gss_config, get_command_defs_path
+        from mav_gss_lib.mission_adapter import load_mission_metadata
+        from mav_gss_lib.protocol import init_nodes, load_command_defs
+        from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
+
+        cfg = load_gss_config()
+        load_mission_metadata(cfg)
+        init_nodes(cfg)
+        cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
+        self.adapter = MavericMissionAdapter(cmd_defs=cmd_defs)
+
+    def _make_pkt(self):
+        class MockPkt:
+            pass
+        pkt = MockPkt()
+        pkt.pkt_num = 42
+        pkt.gs_ts = "2026-04-06 10:30:00 PDT"
+        pkt.gs_ts_short = "10:30:00"
+        pkt.frame_type = "AX.25"
+        pkt.raw = b"\xDE\xAD\xBE\xEF"
+        pkt.inner_payload = b"\xBE\xEF"
+        pkt.delta_t = 1.5
+        pkt.stripped_hdr = None
+        pkt.csp = None
+        pkt.csp_plausible = False
+        pkt.cmd = None
+        pkt.cmd_tail = None
+        pkt.ts_result = None
+        pkt.crc_status = {"csp_crc32_valid": None, "csp_crc32_rx": None, "csp_crc32_comp": None}
+        pkt.text = ""
+        pkt.warnings = []
+        pkt.is_dup = False
+        pkt.is_uplink_echo = False
+        pkt.is_unknown = True
+        pkt.unknown_num = 1
+        return pkt
+
+    def test_envelope_has_stable_platform_fields(self):
+        """Platform envelope contains all stable fields."""
+        from mav_gss_lib.parsing import build_rx_log_record
+        pkt = self._make_pkt()
+        record = build_rx_log_record(pkt, "4.3.1", {"transmitter": "UHF"}, self.adapter)
+        self.assertEqual(record["v"], "4.3.1")
+        self.assertEqual(record["pkt"], 42)
+        self.assertEqual(record["gs_ts"], "2026-04-06 10:30:00 PDT")
+        self.assertEqual(record["frame_type"], "AX.25")
+        self.assertEqual(record["raw_hex"], "deadbeef")
+        self.assertEqual(record["payload_hex"], "beef")
+        self.assertEqual(record["raw_len"], 4)
+        self.assertEqual(record["payload_len"], 2)
+        self.assertAlmostEqual(record["delta_t"], 1.5)
+        self.assertFalse(record["duplicate"])
+        self.assertFalse(record["uplink_echo"])
+        self.assertTrue(record["unknown"])
+
+    def test_envelope_has_protocol_and_integrity_blocks(self):
+        """Platform envelope includes serialized protocol/integrity blocks."""
+        from mav_gss_lib.parsing import build_rx_log_record
+        pkt = self._make_pkt()
+        pkt.csp = {"prio": 2, "src": 0, "dest": 8, "dport": 24, "sport": 0, "flags": 0}
+        pkt.csp_plausible = True
+        pkt.is_unknown = False
+        pkt.cmd = {
+            "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
+            "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
+            "args": [], "schema_match": False,
+        }
+        record = build_rx_log_record(pkt, "4.3.1", {"transmitter": "UHF"}, self.adapter)
+        self.assertIn("protocol_blocks", record)
+        self.assertIn("integrity_blocks", record)
+        self.assertIsInstance(record["protocol_blocks"], list)
+        self.assertIsInstance(record["integrity_blocks"], list)
+
+    def test_envelope_has_mission_block(self):
+        """Platform envelope contains adapter-provided mission block."""
+        from mav_gss_lib.parsing import build_rx_log_record
+        pkt = self._make_pkt()
+        pkt.cmd = {
+            "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
+            "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
+            "args": [], "schema_match": False,
+        }
+        pkt.is_unknown = False
+        record = build_rx_log_record(pkt, "4.3.1", {"transmitter": "UHF"}, self.adapter)
+        self.assertIn("mission", record)
+        self.assertIn("cmd", record["mission"])
+        self.assertEqual(record["mission"]["cmd"]["cmd_id"], "com_ping")
+
+    def test_envelope_no_flat_maveric_fields(self):
+        """Platform envelope does not contain flat MAVERIC-specific fields at top level."""
+        from mav_gss_lib.parsing import build_rx_log_record
+        pkt = self._make_pkt()
+        pkt.csp = {"prio": 2, "src": 0, "dest": 8, "dport": 24, "sport": 0, "flags": 0}
+        pkt.cmd = {
+            "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
+            "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
+            "args": [], "schema_match": False,
+        }
+        record = build_rx_log_record(pkt, "4.3.1", {"transmitter": "UHF"}, self.adapter)
+        # These were previously at top level — now inside mission block
+        self.assertNotIn("csp_candidate", record)
+        self.assertNotIn("csp_plausible", record)
+        self.assertNotIn("cmd", record)
+        self.assertNotIn("sat_ts_ms", record)
+        self.assertNotIn("tail_hex", record)
+
+
 if __name__ == "__main__":
     unittest.main()

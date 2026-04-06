@@ -46,11 +46,11 @@ class TestRxPipelineBehavior(unittest.TestCase):
         raw = build_cmd_raw(2, "set_mode", "NOMINAL")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
-        record = build_rx_log_record(pkt, "test-version", META_AX25)
+        record = build_rx_log_record(pkt, "test-version", META_AX25, self.pipeline.adapter)
         self.assertIn("gs_ts", record)
         self.assertIn("frame_type", record)
         self.assertIn("raw_hex", record)
-        self.assertEqual(record["cmd"]["cmd_id"], "set_mode")
+        self.assertEqual(record["mission"]["cmd"]["cmd_id"], "set_mode")
         self.assertEqual(record["frame_type"], "AX.25")
 
     def test_unknown_frame_type_leaves_warning_and_raw_payload(self):

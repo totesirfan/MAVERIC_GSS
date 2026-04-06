@@ -196,13 +196,16 @@ class RxPipeline:
             self.pkt_times.popleft()
 
 
-def build_rx_log_record(pkt, version, meta):
-    """Build a JSONL log record dict from a Packet.
+def build_rx_log_record(pkt, version, meta, adapter):
+    """Build a JSONL log record from a Packet.
 
-    Separates log serialization from packet processing so the main
-    loop doesn't need to know the log schema."""
-    cmd = pkt.cmd
-    log_record = {
+    Platform envelope: stable fields shared by all missions.
+    Mission block: adapter-provided opaque payload.
+    Protocol/integrity blocks: serialized from adapter rendering slots.
+    """
+    from dataclasses import asdict
+
+    record = {
         "v": version, "pkt": pkt.pkt_num, "gs_ts": pkt.gs_ts,
         "frame_type": pkt.frame_type,
         "tx_meta": str(meta.get("transmitter", "")),
@@ -213,43 +216,15 @@ def build_rx_log_record(pkt, version, meta):
         "unknown": pkt.is_unknown,
     }
     if pkt.delta_t is not None:
-        log_record["delta_t"] = round(pkt.delta_t, 4)
-    if pkt.csp:
-        log_record["csp_candidate"] = pkt.csp
-        log_record["csp_plausible"] = pkt.csp_plausible
-    if pkt.ts_result:
-        log_record["sat_ts_ms"] = pkt.ts_result[2]
-    crc_status = pkt.crc_status
-    if crc_status["csp_crc32_valid"] is not None:
-        log_record["csp_crc32"] = {
-            "valid": crc_status["csp_crc32_valid"],
-            "received": f"0x{crc_status['csp_crc32_rx']:08x}",
-        }
-    if cmd:
-        cmd_log = {
-            "src": cmd["src"], "dest": cmd["dest"],
-            "echo": cmd["echo"], "pkt_type": cmd["pkt_type"],
-            "cmd_id": cmd["cmd_id"], "crc": cmd["crc"],
-            "crc_valid": cmd.get("crc_valid"),
-        }
-        if cmd.get("schema_match"):
-            typed_log = {}
-            for ta in cmd["typed_args"]:
-                if ta["type"] == "epoch_ms" and "ms" in ta["value"]:
-                    typed_log[ta["name"]] = ta["value"]["ms"]
-                elif ta["type"] == "blob" and isinstance(ta["value"], (bytes, bytearray)):
-                    typed_log[ta["name"]] = ta["value"].hex()
-                else:
-                    typed_log[ta["name"]] = ta["value"]
-            cmd_log["args"] = typed_log
-            if cmd["extra_args"]:
-                cmd_log["extra_args"] = cmd["extra_args"]
-        else:
-            cmd_log["args"] = cmd["args"]
-            if cmd.get("schema_warning"):
-                cmd_log["schema_warning"] = cmd["schema_warning"]
-        log_record["cmd"] = cmd_log
-        if pkt.cmd_tail:
-            log_record["tail_hex"] = pkt.cmd_tail.hex()
+        record["delta_t"] = round(pkt.delta_t, 4)
 
-    return log_record
+    # Protocol and integrity blocks — serialized from adapter rendering slots
+    record["protocol_blocks"] = [asdict(b) for b in adapter.protocol_blocks(pkt)]
+    record["integrity_blocks"] = [asdict(b) for b in adapter.integrity_blocks(pkt)]
+
+    # Mission-specific payload — opaque to platform
+    mission_data = adapter.build_log_mission_data(pkt)
+    if mission_data:
+        record["mission"] = mission_data
+
+    return record

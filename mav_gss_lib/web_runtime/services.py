@@ -123,7 +123,7 @@ class RxService:
                 pkt = self.pipeline.process(meta, raw)
                 try:
                     if self.log:
-                        self.log.write_jsonl(build_rx_log_record(pkt, version, meta))
+                        self.log.write_jsonl(build_rx_log_record(pkt, version, meta, self.runtime.adapter))
                         self.log.write_packet(pkt)
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)

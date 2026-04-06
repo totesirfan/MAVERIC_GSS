@@ -47,10 +47,10 @@ class TestAX25Path(unittest.TestCase):
         raw = build_cmd_raw(2, "set_mode", "NOMINAL")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
-        record = build_rx_log_record(pkt, "test", META_AX25)
+        record = build_rx_log_record(pkt, "test", META_AX25, self.pipeline.adapter)
         self.assertEqual(record["raw_hex"], payload.hex())
         self.assertEqual(record["frame_type"], "AX.25")
-        self.assertEqual(record["cmd"]["cmd_id"], "set_mode")
+        self.assertEqual(record["mission"]["cmd"]["cmd_id"], "set_mode")
 
 
 if __name__ == "__main__":
