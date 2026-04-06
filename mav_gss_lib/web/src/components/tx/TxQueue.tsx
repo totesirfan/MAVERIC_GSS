@@ -175,7 +175,7 @@ export function TxQueue({
       )}
       <ContextMenuRoot>
       <ContextMenuTrigger>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 flex flex-col justify-end">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 flex flex-col">
         {uidItems.length === 0 ? (
           <div className="flex items-center justify-center h-full text-xs" style={{ color: colors.dim }}>
             Queue empty — type a command below
@@ -183,6 +183,7 @@ export function TxQueue({
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={[...uidItems].reverse().map(u => `uid-${u.uid}`)} strategy={verticalListSortingStrategy}>
+              <div className="mt-auto" />
               <AnimatePresence initial={false}>
               {[...uidItems].reverse().map(({ item, uid }) => {
                 const realIdx = uidItems.findIndex(u => u.uid === uid)

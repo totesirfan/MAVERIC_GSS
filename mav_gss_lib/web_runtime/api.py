@@ -455,6 +455,15 @@ def parse_replay_entry(entry: dict, cmd_defs: dict) -> dict | None:
         crc_status = (mission_block.get("csp_crc32") if mission_block else None) or entry.get("csp_crc32")
         if isinstance(crc_status, dict):
             normalized["crc32_ok"] = crc_status.get("valid")
+
+        # Pass through rendering-slot data from the platform envelope so replay
+        # packets get the same _rendering shape as live packets.  Legacy logs
+        # without these fields will use the frontend's MAVERIC fallback path.
+        if "protocol_blocks" in entry or "integrity_blocks" in entry:
+            normalized["_rendering"] = {
+                "protocol_blocks": entry.get("protocol_blocks", []),
+                "integrity_blocks": entry.get("integrity_blocks", []),
+            }
     else:
         normalized = {
             "num": entry.get("n", 0),
