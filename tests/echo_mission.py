@@ -137,3 +137,8 @@ class EchoMissionAdapter:
 
 # Explicit entry point for shared mission loader
 ADAPTER_CLASS = EchoMissionAdapter
+
+
+def init_mission(cfg: dict) -> dict:
+    """Echo mission has no initialization requirements."""
+    return {"cmd_defs": {}, "cmd_warn": None}

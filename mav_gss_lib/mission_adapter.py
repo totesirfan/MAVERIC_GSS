@@ -241,20 +241,20 @@ def load_mission_metadata(cfg: dict) -> dict:
     return mission_meta
 
 
-def load_mission_adapter(cfg: dict, cmd_defs: dict):
+def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     """Load, instantiate, and validate a mission adapter from config.
 
-    Reads general.mission from cfg (default: "maveric"), imports the
-    corresponding mission package, and returns a validated adapter.
+    This is the single shared mission-loading path. It owns:
+      1. load_mission_metadata(cfg) — merge mission.yml
+      2. mission_pkg.init_mission(cfg) — mission-specific init
+      3. ADAPTER_CLASS(cmd_defs=...) — adapter construction
+      4. validate_adapter() — interface validation
 
-    This is the single shared mission-loading path used by all runtime
-    construction flows.
+    The cmd_defs parameter is deprecated and ignored when the mission
+    package provides init_mission(). It exists only for backward
+    compatibility with callers that haven't been updated yet.
 
-    Raises ValueError with a clear message if:
-      - mission ID is not in the registry
-      - mission package has no ADAPTER_API_VERSION or ADAPTER_CLASS
-      - adapter does not satisfy MissionAdapter interface
-      - ADAPTER_API_VERSION is unsupported
+    Returns a validated adapter with cmd_defs populated.
     """
     import importlib
     import logging
@@ -291,8 +291,20 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict):
             f"Mission '{mission}' package '{module_path}' has no ADAPTER_CLASS"
         )
 
-    adapter = adapter_cls(cmd_defs=cmd_defs)
+    # Call mission init hook if available
+    init_fn = getattr(mission_pkg, "init_mission", None)
+    if init_fn is not None:
+        resources = init_fn(cfg)
+        resolved_cmd_defs = resources.get("cmd_defs", {})
+    elif cmd_defs is not None:
+        # Backward compat: caller provided cmd_defs directly
+        resolved_cmd_defs = cmd_defs
+    else:
+        resolved_cmd_defs = {}
+
+    adapter = adapter_cls(cmd_defs=resolved_cmd_defs)
     validate_adapter(adapter, api_version, mission_name)
+
     cmd_path = cfg.get("general", {}).get("command_defs", "")
     logging.info(
         "Mission loaded: %s [id=%s, adapter API v%d, schema=%s]",
