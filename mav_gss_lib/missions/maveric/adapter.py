@@ -366,3 +366,119 @@ class MavericMissionAdapter:
                 blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
 
         return blocks
+
+    # -- Logging-slot contract (Phase 9) --
+
+    def build_log_mission_data(self, pkt) -> dict:
+        """Return MAVERIC-specific fields for the JSONL log mission block.
+
+        This produces the same fields that were previously inlined in
+        build_rx_log_record(), but scoped under a 'mission' key in the
+        platform envelope.
+        """
+        data = {}
+        if pkt.csp:
+            data["csp_candidate"] = pkt.csp
+            data["csp_plausible"] = pkt.csp_plausible
+        if pkt.ts_result:
+            data["sat_ts_ms"] = pkt.ts_result[2]
+        crc_status = pkt.crc_status
+        if crc_status.get("csp_crc32_valid") is not None:
+            data["csp_crc32"] = {
+                "valid": crc_status["csp_crc32_valid"],
+                "received": f"0x{crc_status['csp_crc32_rx']:08x}",
+            }
+        cmd = pkt.cmd
+        if cmd:
+            cmd_log = {
+                "src": cmd["src"], "dest": cmd["dest"],
+                "echo": cmd["echo"], "pkt_type": cmd["pkt_type"],
+                "cmd_id": cmd["cmd_id"], "crc": cmd["crc"],
+                "crc_valid": cmd.get("crc_valid"),
+            }
+            if cmd.get("schema_match"):
+                typed_log = {}
+                for ta in cmd["typed_args"]:
+                    if ta["type"] == "epoch_ms" and "ms" in ta["value"]:
+                        typed_log[ta["name"]] = ta["value"]["ms"]
+                    elif ta["type"] == "blob" and isinstance(ta["value"], (bytes, bytearray)):
+                        typed_log[ta["name"]] = ta["value"].hex()
+                    else:
+                        typed_log[ta["name"]] = ta["value"]
+                cmd_log["args"] = typed_log
+                if cmd["extra_args"]:
+                    cmd_log["extra_args"] = cmd["extra_args"]
+            else:
+                cmd_log["args"] = cmd["args"]
+                if cmd.get("schema_warning"):
+                    cmd_log["schema_warning"] = cmd["schema_warning"]
+            data["cmd"] = cmd_log
+            if pkt.cmd_tail:
+                data["tail_hex"] = pkt.cmd_tail.hex()
+        return data
+
+    def format_log_lines(self, pkt) -> list[str]:
+        """Return MAVERIC-specific text log lines for one packet.
+
+        Platform handles: separator, warnings, hex dump, ASCII.
+        Adapter handles: AX.25 header, CSP header, satellite time,
+        command routing/args, CRC display.
+        """
+        from mav_gss_lib.protocol import format_arg_value
+
+        lines = []
+
+        # AX.25 header
+        if pkt.stripped_hdr:
+            lines.append(f"  {'AX.25 HDR':<12}{pkt.stripped_hdr}")
+
+        # CSP header
+        csp = pkt.csp
+        if csp:
+            tag = "CSP V1" if pkt.csp_plausible else "CSP V1 [?]"
+            lines.append(f"  {tag:<12}"
+                f"Prio:{csp['prio']}  Src:{csp['src']}  Dest:{csp['dest']}  "
+                f"DPort:{csp['dport']}  SPort:{csp['sport']}  Flags:0x{csp['flags']:02X}")
+
+        # Satellite time
+        ts_result = pkt.ts_result
+        if ts_result:
+            dt_utc, dt_local, raw_ms = ts_result
+            lines.append(f"  {'SAT TIME':<12}"
+                f"{dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC')} \u2502 "
+                f"{dt_local.strftime('%Y-%m-%d %H:%M:%S %Z')}  ({raw_ms})")
+
+        # Command
+        cmd = pkt.cmd
+        if cmd:
+            lines.append(f"  {'CMD':<12}"
+                f"Src:{node_name(cmd['src'])}  Dest:{node_name(cmd['dest'])}  "
+                f"Echo:{node_name(cmd['echo'])}  Type:{ptype_name(cmd['pkt_type'])}")
+            lines.append(f"  {'CMD ID':<12}{cmd['cmd_id']}")
+
+            if cmd.get("schema_match"):
+                for ta in cmd.get("typed_args", []):
+                    lines.append(f"  {ta['name'].upper():<12}{format_arg_value(ta)}")
+                for i, extra in enumerate(cmd.get("extra_args", [])):
+                    lines.append(f"  {f'ARG +{i}':<12}{extra}")
+            else:
+                if cmd.get("schema_warning"):
+                    lines.append(f"  {'\u26a0 SCHEMA':<12}{cmd['schema_warning']}")
+                for i, arg in enumerate(cmd.get("args", [])):
+                    lines.append(f"  {f'ARG {i}':<12}{arg}")
+
+        # CRC
+        if cmd and cmd.get("crc") is not None:
+            tag = "OK" if cmd.get("crc_valid") else "FAIL"
+            lines.append(f"  {'CRC-16':<12}0x{cmd['crc']:04x} [{tag}]")
+        crc_status = pkt.crc_status
+        if crc_status.get("csp_crc32_valid") is not None:
+            tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
+            lines.append(f"  {'CRC-32C':<12}0x{crc_status['csp_crc32_rx']:08x} [{tag}]")
+
+        return lines
+
+    def is_unknown_packet(self, parsed) -> bool:
+        """MAVERIC: a packet is unknown when no command was decoded."""
+        cmd = parsed.cmd if hasattr(parsed, 'cmd') else None
+        return cmd is None
