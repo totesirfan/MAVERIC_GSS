@@ -1,14 +1,15 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Search, Clock, ChevronDown, ChevronRight, ArrowRightLeft, Shield, AlertTriangle, Binary, ArrowDownToLine, ArrowUpFromLine, Play, ClipboardCopy, Braces } from 'lucide-react'
+import { X, Search, Clock, ChevronDown, ChevronRight, AlertTriangle, Binary, ArrowDownToLine, ArrowUpFromLine, Play, ClipboardCopy, Braces } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Separator } from '@/components/ui/separator'
-import { colors, ptypeColor, frameColor } from '@/lib/colors'
+import { colors, frameColor } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import { PtypeBadge } from '@/components/shared/PtypeBadge'
 import { ContextMenuRoot, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@/components/shared/ContextMenu'
+import { CellValue, SemanticBlocks, ProtocolBlocks, IntegritySection, extractFromRendering } from '@/components/shared/RenderingBlocks'
+import type { ColumnDef, RenderingData } from '@/lib/types'
 
 type LogEntry = Record<string, unknown>
 
@@ -47,10 +48,19 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
   const [loading, setLoading] = useState(false)
   const [dateFilter, setDateFilter] = useState('')
   const animateOnMount = hasLoadedLogViewer
+  const [columns, setColumns] = useState<ColumnDef[]>([])
 
   useEffect(() => {
     hasLoadedLogViewer = true
   }, [])
+
+  useEffect(() => {
+    if (!open) return
+    fetch('/api/columns')
+      .then((r) => r.json())
+      .then((data: ColumnDef[]) => setColumns(data))
+      .catch(() => {})
+  }, [open])
 
   // Save / restore focus
   useEffect(() => {
@@ -296,18 +306,17 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
               </div>
 
               {/* Column headers */}
-              {selected && entries.length > 0 && (
-                <div className="flex items-center gap-2 px-3 py-1 text-[11px] uppercase tracking-wider border-b shrink-0" style={{ color: colors.sep, borderColor: colors.borderSubtle }}>
-                  <span className="w-4" />
-                  <span className={`${col.num} text-right`}>#</span>
-                  <span className={col.time}>Time</span>
-                  <span className={col.node}>Src</span>
-                  <span className={col.node}>Dest</span>
-                  <span className={col.frame}>Frame</span>
-                  <span className={col.ptype}>Type</span>
-                  <span className="flex-1">Cmd / Args</span>
-                  <span className={`${col.flags} text-right`}>Flags</span>
-                  <span className={`${col.size} text-right`}>Size</span>
+              {selected && entries.length > 0 && columns.length > 0 && (
+                <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
+                  <span className="w-5 px-1" />
+                  {columns.map(c => (
+                    <span
+                      key={c.id}
+                      className={`px-2 shrink-0 ${c.flex ? 'flex-1' : ''} ${c.align === 'right' ? 'text-right' : ''} ${c.width ?? ''}`}
+                    >
+                      {c.label}
+                    </span>
+                  ))}
                 </div>
               )}
 
@@ -321,29 +330,17 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                   <div className="flex items-center justify-center h-full text-xs" style={{ color: colors.dim }}>No matching entries</div>
                 ) : (
                   entries.map((e, i) => {
-                    // Backend now normalizes log entries to match live packet format
                     const num = (e.num ?? i + 1) as number
                     const timeStr = String(e.time ?? '')
-                    const timeUtc = String(e.time_utc ?? '')
-                    const tz = timeUtc.split(' ').slice(2).join(' ')
-                    const cmdId = String(e.cmd ?? '???')
-                    const src = String(e.src ?? '')
-                    const dest = String(e.dest ?? '')
-                    const echo = String(e.echo ?? '')
-                    const ptype = String(e.ptype ?? '')
                     const frame = String(e.frame ?? '')
                     const size = (e.size ?? 0) as number
                     const isEcho = e.is_echo as boolean
                     const isDup = e.is_dup as boolean
-                    const isExpanded = expandedSet.has(i)
-                    const cspHeader = (typeof e.csp_header === 'object' && e.csp_header !== null)
-                      ? e.csp_header as Record<string, string | number | boolean | null> : null
                     const rawHex = String(e.raw_hex ?? '')
-                    const crc16_ok = e.crc16_ok as boolean | null | undefined
-                    const crc32_ok = e.crc32_ok as boolean | null | undefined
-                    const argsNamed = (Array.isArray(e.args_named) ? e.args_named : []) as { name: string; value: string }[]
-                    const argsExtra = (Array.isArray(e.args_extra) ? e.args_extra : []) as string[]
                     const warnings = (Array.isArray(e.warnings) ? e.warnings : []) as string[]
+                    const isExpanded = expandedSet.has(i)
+                    const rendering = e._rendering as RenderingData | undefined
+                    const row = rendering?.row
 
                     return (
                       <ContextMenuRoot key={i}>
@@ -351,112 +348,70 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                           <div>
                             {/* Row */}
                             <div
-                              className="flex items-center gap-2 px-3 py-1 text-xs cursor-pointer hover:bg-white/[0.03]"
-                              style={{ backgroundColor: isExpanded ? `${colors.label}08` : undefined }}
+                              className="flex items-center px-3 py-1 text-xs font-mono cursor-pointer hover:bg-white/[0.03]"
+                              style={{
+                                backgroundColor: isExpanded ? `${colors.label}08` : undefined,
+                                opacity: row?._meta?.opacity ?? 1,
+                              }}
                               onClick={() => setExpandedSet(prev => { const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next })}
                             >
                               {isExpanded ? <ChevronDown className="size-3 shrink-0" style={{ color: colors.label }} /> : <ChevronRight className="size-3 shrink-0" style={{ color: colors.dim }} />}
-                              <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
-                              <span className={`${col.time} shrink-0 tabular-nums`} style={{ color: colors.dim }}>{timeStr}</span>
-                              <span className={`${col.node} shrink-0 truncate`} style={{ color: colors.label }}>{src || '--'}</span>
-                              <span className={`${col.node} shrink-0 truncate`} style={{ color: colors.label }}>{dest || '--'}</span>
-                              <span className={`${col.frame} shrink-0`} style={{ color: frameColor(frame) }}>{frame || '--'}</span>
-                              <span className={col.ptype}><PtypeBadge ptype={ptype} /></span>
-                              <span className="flex-1 min-w-0 truncate">
-                                <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{cmdId}</span>
-                                {argsNamed.length > 0 && <span className="ml-2" style={{ color: colors.dim }}>{argsNamed.map(a => a.value).join(' ')}</span>}
-                              </span>
-                              <span className={`${col.flags} flex items-center gap-1 justify-end shrink-0`}>
-                                {isEcho && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.label}22`, color: colors.label }}>UL</Badge>}
-                                {isDup && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
-                              </span>
-                              <span className={`${col.size} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{size}B</span>
+                              {row && columns.length > 0 ? (
+                                columns.map(c => (
+                                  <CellValue key={c.id} col={c} row={row} showFrame={true} showEcho={true} />
+                                ))
+                              ) : (
+                                <>
+                                  <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
+                                  <span className={`${col.time} shrink-0 tabular-nums`} style={{ color: colors.dim }}>{timeStr}</span>
+                                  <span className={`${col.frame} shrink-0`} style={{ color: frameColor(frame) }}>{frame || '--'}</span>
+                                  <span className="flex-1 min-w-0 truncate" style={{ color: colors.dim }}>{size}B</span>
+                                  <span className={`${col.flags} flex items-center gap-1 justify-end shrink-0`}>
+                                    {isEcho && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.ulColor}22`, color: colors.ulColor }}>UL</Badge>}
+                                    {isDup && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
+                                  </span>
+                                </>
+                              )}
                             </div>
 
                             {/* Expanded detail */}
                             {isExpanded && (
                               <div className="px-6 py-2 space-y-1.5" style={{ backgroundColor: colors.bgApp }}>
-                                {/* Time */}
-                                <div className="flex items-center gap-1 text-xs">
-                                  <Clock className="size-3" style={{ color: colors.sep }} />
-                                  <span style={{ color: colors.sep }}>Time:</span>
-                                  <span style={{ color: colors.value }}>{timeStr} {tz}</span>
-                                </div>
-
-                                {/* Routing */}
-                                <div className="flex items-center gap-4 text-xs">
-                                  <ArrowRightLeft className="size-3" style={{ color: colors.sep }} />
-                                  <span><span style={{ color: colors.sep }}>Cmd:</span> <span style={{ color: colors.value }}>{cmdId}</span></span>
-                                  <span><span style={{ color: colors.sep }}>Src:</span> <span style={{ color: colors.label }}>{src}</span></span>
-                                  <span><span style={{ color: colors.sep }}>Dest:</span> <span style={{ color: colors.label }}>{dest}</span></span>
-                                  {echo && echo !== 'NONE' && echo !== '0' && (
-                                    <span><span style={{ color: colors.sep }}>Echo:</span> <span style={{ color: colors.warning }}>{echo}</span></span>
-                                  )}
-                                  <span><span style={{ color: colors.sep }}>Type:</span> <span style={{ color: ptypeColor(ptype) }}>{ptype}</span></span>
-                                </div>
-
-                                {/* CRC */}
-                                <div className="flex items-center gap-2 text-xs">
-                                  <Shield className="size-3" style={{ color: colors.sep }} />
-                                  {crc16_ok != null && (
-                                    <Badge variant={crc16_ok ? 'secondary' : 'destructive'} className="text-[11px] h-5">
-                                      CRC-16: {crc16_ok ? 'OK' : 'FAIL'}
-                                    </Badge>
-                                  )}
-                                  {crc32_ok != null && (
-                                    <Badge variant={crc32_ok ? 'secondary' : 'destructive'} className="text-[11px] h-5">
-                                      CRC-32: {crc32_ok ? 'OK' : 'FAIL'}
-                                    </Badge>
-                                  )}
-                                </div>
-
-                                {/* Args -- 1 per row if named, single row if flat */}
-                                {(argsNamed.length > 0 || argsExtra.length > 0) && (
-                                  <div className="text-xs space-y-0.5">
-                                    {argsNamed.map((a, ai) => (
-                                      <div key={ai} className="pl-4">
-                                        <span style={{ color: colors.label }}>{a.name}</span>
-                                        <span style={{ color: colors.sep }}> = </span>
-                                        <span style={{ color: colors.value }}>{a.value}</span>
-                                      </div>
-                                    ))}
-                                    {argsExtra.map((val, ai) => (
-                                      <div key={`x-${ai}`} className="pl-4">
-                                        <span style={{ color: colors.dim }}>arg{argsNamed.length + ai}</span>
-                                        <span style={{ color: colors.sep }}> = </span>
-                                        <span style={{ color: colors.value }}>{val}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* CSP header */}
-                                {cspHeader && (
+                                {rendering ? (
                                   <>
-                                    <Separator style={{ backgroundColor: colors.borderSubtle }} />
-                                    <div className="text-xs">
-                                      <span className="font-medium mr-2" style={{ color: colors.sep }}>CSP</span>
-                                      {Object.entries(cspHeader).map(([k, v]) => (
-                                        <span key={k} className="mr-3">
-                                          <span style={{ color: colors.dim }}>{k}=</span>
-                                          <span style={{ color: colors.value }}>{String(v)}</span>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </>
-                                )}
+                                    <SemanticBlocks blocks={rendering.detail_blocks} />
 
-                                {/* Warnings */}
-                                {warnings.length > 0 && (
-                                  <div className="flex items-center gap-1">
-                                    <AlertTriangle className="size-3" style={{ color: colors.warning }} />
-                                    {warnings.map((w, wi) => (
-                                      <Badge key={wi} className="text-[11px] h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>{w}</Badge>
-                                    ))}
+                                    {warnings.length > 0 && (
+                                      <div className="flex items-center gap-1">
+                                        <AlertTriangle className="size-3" style={{ color: colors.warning }} />
+                                        {warnings.map((w, wi) => (
+                                          <Badge key={wi} className="text-[11px] h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>{w}</Badge>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {rendering.integrity_blocks.length > 0 && (
+                                      <>
+                                        <Separator style={{ backgroundColor: colors.borderSubtle }} />
+                                        <IntegritySection blocks={rendering.integrity_blocks} />
+                                      </>
+                                    )}
+
+                                    {rendering.protocol_blocks.length > 0 && (
+                                      <>
+                                        <Separator style={{ backgroundColor: colors.borderSubtle }} />
+                                        <ProtocolBlocks blocks={rendering.protocol_blocks} />
+                                      </>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="flex items-center gap-1 text-xs">
+                                    <Clock className="size-3" style={{ color: colors.sep }} />
+                                    <span style={{ color: colors.sep }}>Time:</span>
+                                    <span style={{ color: colors.value }}>{timeStr}</span>
                                   </div>
                                 )}
 
-                                {/* Hex */}
                                 {rawHex && (
                                   <>
                                     <Separator style={{ backgroundColor: colors.borderSubtle }} />
@@ -475,19 +430,13 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                         <ContextMenuContent>
                           <ContextMenuItem
                             icon={ClipboardCopy}
-                            onSelect={() => {
-                              const argStr = argsNamed.map(a => a.value).concat(argsExtra).join(' ')
-                              navigator.clipboard.writeText(argStr ? `${cmdId} ${argStr}` : cmdId)
-                            }}
+                            onSelect={() => navigator.clipboard.writeText(extractFromRendering(rendering).cmd)}
                           >
                             Copy Command
                           </ContextMenuItem>
                           <ContextMenuItem
                             icon={Braces}
-                            onSelect={() => {
-                              const pairs = argsNamed.map(a => `${a.name}=${a.value}`).concat(argsExtra.map((v, ai) => `arg${argsNamed.length + ai}=${v}`))
-                              navigator.clipboard.writeText(pairs.join(' '))
-                            }}
+                            onSelect={() => navigator.clipboard.writeText(extractFromRendering(rendering).args)}
                           >
                             Copy Args
                           </ContextMenuItem>
