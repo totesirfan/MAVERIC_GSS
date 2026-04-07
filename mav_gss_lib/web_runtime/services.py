@@ -273,26 +273,26 @@ class TxService:
 
     def json_to_item(self, payload):
         """Convert one persisted JSON payload back into a runtime queue item."""
-        from .runtime import make_delay, validate_cmd_item
+        from .runtime import make_delay, validate_mission_cmd
 
         if payload["type"] == "delay":
             return make_delay(payload.get("delay_ms", 0))
         if payload["type"] == "mission_cmd":
-            from .runtime import validate_mission_cmd
             return validate_mission_cmd(
                 payload.get("payload", {}),
                 runtime=self.runtime,
             )
-        return validate_cmd_item(
-            payload["src"],
-            payload["dest"],
-            payload["echo"],
-            payload["ptype"],
-            payload["cmd"],
-            payload.get("args", ""),
-            bool(payload.get("guard")),
-            runtime=self.runtime,
-        )
+        # Legacy cmd-type migration: convert flat fields to mission payload
+        adapter = self.runtime.adapter
+        mission_payload = {
+            "cmd_id": payload["cmd"],
+            "args": payload.get("args", ""),
+            "dest": adapter.node_name(payload["dest"]),
+            "echo": adapter.node_name(payload["echo"]),
+            "ptype": adapter.ptype_name(payload["ptype"]),
+            "guard": payload.get("guard", False),
+        }
+        return validate_mission_cmd(mission_payload, runtime=self.runtime)
 
     def renumber_queue(self) -> None:
         """Assign sequential display numbers to queued command items."""
@@ -518,7 +518,5 @@ class TxService:
 
 
 def item_to_json(item):
-    payload = {key: value for key, value in item.items() if key != "raw_cmd"}
-    if payload["type"] == "cmd" and not payload.get("guard"):
-        payload.pop("guard", None)
-    return payload
+    """Serialize a queue item for persistence (strips raw_cmd bytes)."""
+    return {key: value for key, value in item.items() if key != "raw_cmd"}
