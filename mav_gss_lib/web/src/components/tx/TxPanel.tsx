@@ -69,7 +69,6 @@ export function TxPanel({
   const sending = sendProgress !== null
   const modeColor = uplinkMode.toLowerCase().includes('golay') ? colors.frameGolay : colors.frameAx25
   const missionName = config?.general?.mission_name ?? 'Mission'
-  const nodeDescriptions = config?.node_descriptions
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -99,7 +98,6 @@ export function TxPanel({
 
         {/* Queue */}
         <TxQueue
-          nodeDescriptions={nodeDescriptions}
           queue={queue} summary={summary} sendProgress={sendProgress} isGuarding={!!guardConfirm}
           onToggleGuard={toggleGuard} onDelete={deleteItem}
           onEditDelay={editDelay} onReorder={reorder} onAddDelay={addDelay}

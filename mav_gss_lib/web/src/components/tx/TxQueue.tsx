@@ -20,10 +20,9 @@ import { QueueItem } from './QueueItem'
 import { DelayItem } from './DelayItem'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import type { GssConfig, TxQueueItem, TxQueueSummary, SendProgress } from '@/lib/types'
+import type { TxQueueItem, TxQueueSummary, SendProgress } from '@/lib/types'
 
 interface TxQueueProps {
-  nodeDescriptions?: GssConfig['node_descriptions']
   queue: TxQueueItem[]
   summary: TxQueueSummary
   sendProgress: SendProgress | null
@@ -49,7 +48,7 @@ function assignUids(items: TxQueueItem[]): { item: TxQueueItem; uid: number }[] 
 }
 
 export function TxQueue({
-  nodeDescriptions, queue, summary, sendProgress, isGuarding,
+  queue, summary, sendProgress, isGuarding,
   onToggleGuard, onDelete, onEditDelay, onReorder, onAddDelay,
   onClear, onSend, onDuplicate, onMoveToTop, onMoveToBottom,
   triggerConfirmSend, triggerConfirmClear,
@@ -163,12 +162,10 @@ export function TxQueue({
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Column headers — fixed above scroll */}
       {uidItems.length > 0 && (
-        <div className="flex items-center gap-1.5 px-3.5 py-0.5 text-xs font-light shrink-0" style={{ color: colors.dim }}>
+        <div className="flex items-center gap-1.5 px-3.5 py-0.5 text-[11px] font-light shrink-0" style={{ color: colors.dim }}>
           <span className={col.grip} />
           <span className={`${col.num} text-right`}>#</span>
-          <span className={col.node}>dest</span>
-          <span className={col.ptype}>type</span>
-          <span className="flex-1">cmd / args</span>
+          <span className="flex-1">command</span>
           <span className={`${col.size} text-right`}>size</span>
           <span className={col.actions} />
         </div>
@@ -204,7 +201,6 @@ export function TxQueue({
                   <motion.div key={uid} exit={{ opacity: 0, x: 30 }} transition={{ duration: 0.15 }}>
                     <QueueItem
                       item={{ ...item, num: realIdx + 1 }}
-                      nodeDescriptions={nodeDescriptions}
                       index={realIdx}
                       sortId={`uid-${uid}`}
                       expanded={selectedIdx === realIdx}
