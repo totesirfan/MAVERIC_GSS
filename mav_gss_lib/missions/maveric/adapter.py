@@ -254,7 +254,7 @@ class MavericMissionAdapter:
     #  without knowing which mission is active.
     #
     #  RX: detect_frame_type → normalize_frame → parse_packet
-    #  TX: build_raw_command, validate_tx_args, parse_cmd_line
+    #  TX: cmd_line_to_payload, build_tx_command, tx_queue_columns
     #  UI: packet_list_columns/row, packet_detail_blocks, protocol/integrity
     #  Log: build_log_mission_data, format_log_lines, is_unknown_packet
     #  Resolution: gs_node, node_name, ptype_name, resolve_node, resolve_ptype
