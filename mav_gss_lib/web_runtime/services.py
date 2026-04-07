@@ -413,16 +413,11 @@ class TxService:
                     with self.send_lock:
                         self.sending["guarding"] = True
                     self.guard_ok.clear()
-                    if item["type"] == "mission_cmd":
-                        display = item.get("display", {})
-                        await self.broadcast({
-                            "type": "guard_confirm", "index": 0,
-                            "cmd": display.get("title", "?"),
-                            "args": "",
-                            "dest": display.get("subtitle", ""),
-                        })
-                    else:
-                        await self.broadcast({"type": "guard_confirm", "index": 0, "cmd": item["cmd"], "args": item.get("args", ""), "dest": self.runtime.adapter.node_name(item["dest"])})
+                    display = item.get("display", {})
+                    await self.broadcast({
+                        "type": "guard_confirm", "index": 0,
+                        "display": display,
+                    })
                     while not self.guard_ok.is_set() and not self.abort.is_set():
                         await asyncio.sleep(0.1)
                     with self.send_lock:
@@ -432,7 +427,7 @@ class TxService:
 
                 raw_cmd = item.get("raw_cmd", b"")
                 if not raw_cmd:
-                    await self.broadcast({"type": "send_error", "error": f"empty raw_cmd for {item.get('cmd', '?')}"})
+                    await self.broadcast({"type": "send_error", "error": f"empty raw_cmd for {item.get('display', {}).get('title', '?')}"})
                     with self.send_lock:
                         if self.queue:
                             self.queue.pop(0)
@@ -472,54 +467,31 @@ class TxService:
                 self.count += 1
                 sent += 1
 
-                if item["type"] != "mission_cmd":
-                    src, dest, echo, ptype_val = item["src"], item["dest"], item["echo"], item["ptype"]
                 if self.log:
                     try:
-                        if item["type"] == "mission_cmd":
-                            self.log.write_mission_command(
-                                self.count,
-                                item.get("display", {}),
-                                item.get("payload", {}),
-                                raw_cmd, payload, send_ax25, send_csp,
-                                uplink_mode=uplink_mode,
-                            )
-                        else:
-                            self.log.write_command(
-                                self.count, src, dest, echo, ptype_val,
-                                item["cmd"], item["args"], raw_cmd, payload,
-                                send_ax25, send_csp, uplink_mode=uplink_mode,
-                                adapter=self.runtime.adapter,
-                            )
+                        self.log.write_mission_command(
+                            self.count,
+                            item.get("display", {}),
+                            item.get("payload", {}),
+                            raw_cmd, payload, send_ax25, send_csp,
+                            uplink_mode=uplink_mode,
+                        )
                     except Exception as exc:
                         logging.warning("TX log write failed: %s", exc)
 
-                if item["type"] == "mission_cmd":
-                    hist_entry = {
-                        "n": self.count,
-                        "ts": datetime.now().strftime("%H:%M:%S"),
-                        "type": "mission_cmd",
-                        "display": item.get("display", {}),
-                        "size": len(payload),
-                    }
-                else:
-                    hist_entry = {
-                        "n": self.count,
-                        "ts": datetime.now().strftime("%H:%M:%S"),
-                        "src": self.runtime.adapter.node_name(item["src"]),
-                        "dest": self.runtime.adapter.node_name(item["dest"]),
-                        "echo": self.runtime.adapter.node_name(item["echo"]),
-                        "ptype": self.runtime.adapter.ptype_name(item["ptype"]),
-                        "cmd": item["cmd"],
-                        "args": item.get("args", ""),
-                        "size": len(payload),
-                    }
+                hist_entry = {
+                    "n": self.count,
+                    "ts": datetime.now().strftime("%H:%M:%S"),
+                    "type": "mission_cmd",
+                    "display": item.get("display", {}),
+                    "size": len(payload),
+                }
                 self.history.append(hist_entry)
                 if len(self.history) > self.runtime.max_history:
                     del self.history[: len(self.history) - self.runtime.max_history]
 
                 await self.broadcast({"type": "sent", "data": hist_entry})
-                current_label = item.get("display", {}).get("title", "?") if item["type"] == "mission_cmd" else item["cmd"]
+                current_label = item.get("display", {}).get("title", "?")
                 await self.broadcast({"type": "send_progress", "sent": sent, "total": total, "current": current_label, "waiting": False})
 
                 await asyncio.sleep(0.5)
