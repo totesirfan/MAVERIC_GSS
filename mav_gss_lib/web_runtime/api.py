@@ -172,6 +172,17 @@ async def api_schema(request: Request):
     return get_runtime(request).cmd_defs
 
 
+@router.get("/api/columns")
+async def api_columns(request: Request):
+    """Return adapter-provided column definitions for packet list rendering.
+
+    Minimal enabler: same data as sent over /ws/rx on connect, exposed via
+    REST so the log viewer can render rows from _rendering.row.
+    """
+    runtime = get_runtime(request)
+    return runtime.adapter.packet_list_columns()
+
+
 # =============================================================================
 #  QUEUE IMPORT / EXPORT
 # =============================================================================
