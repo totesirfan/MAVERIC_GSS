@@ -7,7 +7,7 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .state import MAX_HISTORY, MAX_QUEUE, WebRuntime, get_runtime
-from .runtime import make_delay, schedule_shutdown_check, validate_cmd_item
+from .runtime import make_delay, schedule_shutdown_check
 from .security import authorize_websocket
 from .services import item_to_json
 
@@ -68,22 +68,14 @@ async def ws_tx(websocket: WebSocket):
                     await websocket.send_text(json.dumps({"type": "error", "error": "empty input"}))
                     continue
                 try:
-                    parts = line.split()
-                    candidate = parts[0].lower()
-                    defn = runtime.cmd_defs.get(candidate)
-                    if defn and not defn.get("rx_only") and defn.get("dest") is not None:
-                        cmd_id = candidate
-                        args = " ".join(parts[1:])
-                        src, dest = runtime.adapter.gs_node, defn["dest"]
-                        echo, ptype_val = defn["echo"], defn["ptype"]
-                    else:
-                        src, dest, echo, ptype_val, cmd_id, args = runtime.adapter.parse_cmd_line(line)
-                    item = validate_cmd_item(src, dest, echo, ptype_val, cmd_id, args, runtime=runtime)
+                    from .runtime import validate_mission_cmd
+                    payload = runtime.adapter.cmd_line_to_payload(line)
+                    item = validate_mission_cmd(payload, runtime=runtime)
                     runtime.tx.queue.append(item)
                     runtime.tx.renumber_queue()
                     runtime.tx.save_queue()
                     await runtime.tx.send_queue_update()
-                except ValueError as exc:
+                except (ValueError, KeyError, TypeError, AttributeError) as exc:
                     await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
 
             elif action == "queue_mission_cmd":
