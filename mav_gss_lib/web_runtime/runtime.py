@@ -79,23 +79,6 @@ def build_send_context(runtime: WebRuntime | None = None):
         )
 
 
-def make_cmd(src, dest, echo, ptype, cmd, args, guard=False, runtime: WebRuntime | None = None):
-    """Build one validated command queue item with mission raw bytes attached."""
-    runtime = ensure_runtime(runtime)
-    raw_cmd = runtime.adapter.build_raw_command(src, dest, echo, ptype, cmd, args)
-    return {
-        "type": "cmd",
-        "src": src,
-        "dest": dest,
-        "echo": echo,
-        "ptype": ptype,
-        "cmd": cmd,
-        "args": args,
-        "guard": guard,
-        "raw_cmd": raw_cmd,
-    }
-
-
 def make_delay(delay_ms):
     """Build one delay queue item."""
     return {"type": "delay", "delay_ms": delay_ms}
@@ -144,30 +127,6 @@ def validate_mission_cmd(payload, runtime: WebRuntime | None = None):
     return item
 
 
-def validate_cmd_item(src, dest, echo, ptype_val, cmd_id, args, guard=False, runtime: WebRuntime | None = None):
-    """Validate one TX command item against schema and framing limits."""
-    runtime = ensure_runtime(runtime)
-    defn = runtime.cmd_defs.get(cmd_id.lower())
-    if not defn:
-        raise ValueError(f"'{cmd_id}' not in schema")
-    if defn.get("rx_only"):
-        raise ValueError(f"'{cmd_id}' is receive-only")
-    valid, issues = runtime.adapter.validate_tx_args(cmd_id, args)
-    if not valid:
-        raise ValueError("; ".join(issues))
-
-    item = make_cmd(src, dest, echo, ptype_val, cmd_id, args, guard=guard, runtime=runtime)
-    uplink_mode, send_csp, _send_ax25 = build_send_context(runtime)
-    if uplink_mode == "ASM+Golay":
-        csp_packet = send_csp.wrap(item["raw_cmd"])
-        if len(csp_packet) > GOLAY_MAX_PAYLOAD:
-            raise ValueError(
-                f"command too large for ASM+Golay RS payload "
-                f"({len(csp_packet)}B > {GOLAY_MAX_PAYLOAD}B)"
-            )
-    return item
-
-
 def sanitize_queue_items(items, runtime: WebRuntime | None = None):
     """Filter a queue restore/import set down to valid command/delay items."""
     runtime = ensure_runtime(runtime)
@@ -188,19 +147,20 @@ def sanitize_queue_items(items, runtime: WebRuntime | None = None):
             except ValueError:
                 skipped += 1
             continue
+        # Legacy cmd items — convert to mission payload
         try:
+            adapter = runtime.adapter
+            mission_payload = {
+                "cmd_id": item["cmd"],
+                "args": item.get("args", ""),
+                "dest": adapter.node_name(item["dest"]),
+                "echo": adapter.node_name(item["echo"]),
+                "ptype": adapter.ptype_name(item["ptype"]),
+                "guard": item.get("guard", False),
+            }
             accepted.append(
-                validate_cmd_item(
-                    item["src"],
-                    item["dest"],
-                    item["echo"],
-                    item["ptype"],
-                    item["cmd"],
-                    item.get("args", ""),
-                    bool(item.get("guard", False)),
-                    runtime=runtime,
-                )
+                validate_mission_cmd(mission_payload, runtime=runtime)
             )
-        except ValueError:
+        except (ValueError, KeyError):
             skipped += 1
     return accepted, skipped
