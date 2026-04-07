@@ -30,7 +30,7 @@ from mav_gss_lib.config import (
     save_gss_config,
 )
 from .state import MAX_QUEUE, get_runtime
-from .runtime import deep_merge, make_cmd, make_delay, sanitize_queue_items
+from .runtime import deep_merge, make_delay, sanitize_queue_items, validate_mission_cmd
 from .security import require_api_token
 from .services import item_to_json
 
@@ -262,48 +262,42 @@ def parse_import_file(filepath, runtime=None):
             if isinstance(obj, list) and len(obj) >= 5:
                 src_s, dest_s, echo_s, ptype_s, cmd_s = obj[:5]
                 args_s = str(obj[5]) if len(obj) > 5 else ""
-                src = _resolve_node(str(src_s))
                 dest = _resolve_node(str(dest_s))
                 echo = _resolve_node(str(echo_s))
                 ptype_val = _resolve_ptype(str(ptype_s))
-                if None in (src, dest, echo, ptype_val):
+                if None in (dest, echo, ptype_val):
                     skipped += 1
                     continue
-                items.append(
-                    make_cmd(
-                        src,
-                        dest,
-                        echo,
-                        ptype_val,
-                        cmd_s.lower(),
-                        args_s,
-                        bool(kvs.get("guard", False)),
-                        runtime=runtime,
-                    )
-                )
+                mission_payload = {
+                    "cmd_id": cmd_s.lower(),
+                    "args": args_s,
+                    "dest": runtime.adapter.node_name(dest),
+                    "echo": runtime.adapter.node_name(echo),
+                    "ptype": runtime.adapter.ptype_name(ptype_val),
+                    "guard": bool(kvs.get("guard", False)),
+                }
+                items.append(validate_mission_cmd(mission_payload, runtime=runtime))
             elif isinstance(obj, dict):
                 if obj.get("type") == "delay":
                     items.append(make_delay(max(0, min(300_000, int(obj.get("delay_ms", 0))))))
+                elif obj.get("type") == "mission_cmd" and "payload" in obj:
+                    items.append(validate_mission_cmd(obj["payload"], runtime=runtime))
                 elif obj.get("type") == "cmd" or "cmd" in obj:
-                    src = _resolve_node(str(obj.get("src", "GS")))
                     dest = _resolve_node(str(obj.get("dest", "GS")))
                     echo = _resolve_node(str(obj.get("echo", "NONE")))
                     ptype_val = _resolve_ptype(str(obj.get("ptype", "CMD")))
-                    if None in (src, dest, echo, ptype_val):
+                    if None in (dest, echo, ptype_val):
                         skipped += 1
                         continue
-                    items.append(
-                        make_cmd(
-                            src,
-                            dest,
-                            echo,
-                            ptype_val,
-                            obj["cmd"].lower(),
-                            str(obj.get("args", "")),
-                            bool(obj.get("guard", False)),
-                            runtime=runtime,
-                        )
-                    )
+                    mission_payload = {
+                        "cmd_id": obj["cmd"].lower(),
+                        "args": str(obj.get("args", "")),
+                        "dest": runtime.adapter.node_name(dest),
+                        "echo": runtime.adapter.node_name(echo),
+                        "ptype": runtime.adapter.ptype_name(ptype_val),
+                        "guard": bool(obj.get("guard", False)),
+                    }
+                    items.append(validate_mission_cmd(mission_payload, runtime=runtime))
                 else:
                     skipped += 1
             else:
@@ -330,18 +324,12 @@ async def preview_import(filename: str, request: Request):
         if item["type"] == "delay":
             preview.append({"type": "delay", "delay_ms": item["delay_ms"]})
             continue
-        preview.append(
-            {
-                "type": "cmd",
-                "src": runtime.adapter.node_name(item["src"]),
-                "dest": runtime.adapter.node_name(item["dest"]),
-                "echo": runtime.adapter.node_name(item["echo"]),
-                "ptype": runtime.adapter.ptype_name(item["ptype"]),
-                "cmd": item["cmd"],
-                "args": item["args"],
-                "guard": item.get("guard", False),
-            }
-        )
+        preview.append({
+            "type": "mission_cmd",
+            "display": item.get("display", {}),
+            "guard": item.get("guard", False),
+            "size": len(item.get("raw_cmd", b"")),
+        })
     return {"items": preview, "skipped": skipped}
 
 
