@@ -12,7 +12,7 @@ import { CommandInput } from './CommandInput'
 import { ImportDialog } from './ImportDialog'
 import { getMissionBuilder } from '@/missions/registry'
 import type {
-  TxQueueItem, TxQueueSummary, TxHistoryItem, MissionHistoryItem,
+  TxQueueItem, TxQueueSummary, TxHistoryItem,
   SendProgress, GuardConfirm, GssConfig,
 } from '@/lib/types'
 
@@ -20,7 +20,7 @@ interface TxPanelProps {
   config: GssConfig | null
   queue: TxQueueItem[]
   summary: TxQueueSummary
-  history: (TxHistoryItem | MissionHistoryItem)[]
+  history: TxHistoryItem[]
   sendProgress: SendProgress | null
   guardConfirm: GuardConfirm | null
   uplinkMode: string
@@ -106,8 +106,8 @@ export function TxPanel({
           onClear={clearQueue} onSend={sendAll}
           onDuplicate={(idx) => {
             const item = queue[idx]
-            if (!item || item.type === 'delay' || item.type === 'mission_cmd') return
-            queueCommand(`${item.dest} ${item.echo} ${item.ptype} ${item.cmd} ${item.args}`.trim())
+            if (!item || item.type === 'delay') return
+            queueTemplate(item.payload)
           }}
           onMoveToTop={(idx) => reorder(idx, queue.length - 1)}
           onMoveToBottom={(idx) => reorder(idx, 0)}
@@ -118,9 +118,7 @@ export function TxPanel({
 
       {/* Sent history — separate collapsible block */}
       <SentHistory history={history} onRequeue={(item) => {
-        if ('type' in item && item.type === 'mission_cmd') return
-        const cItem = item as TxHistoryItem
-        queueCommand(`${cItem.dest} NONE ${cItem.ptype} ${cItem.cmd} ${cItem.args}`.trim())
+        queueTemplate(item.payload)
       }} />
 
       {/* Bottom block: guard confirm / send progress / input+builder */}
@@ -213,7 +211,7 @@ function GuardConfirmBlock({ guardConfirm, onApprove, onReject }: {
         <div className="min-w-0">
           <div className="text-xs font-bold" style={{ color: colors.warning }}>GUARD — Confirm to send</div>
           <div className="text-[11px] truncate" style={{ color: colors.value }}>
-            {guardConfirm.cmd} {guardConfirm.args} → {guardConfirm.dest}
+            {guardConfirm.display.title}{guardConfirm.display.subtitle ? ` — ${guardConfirm.display.subtitle}` : ''}
           </div>
         </div>
       </div>

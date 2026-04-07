@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createSocket } from '@/lib/ws'
 import type {
-  TxQueueItem, TxQueueSummary, TxHistoryItem, MissionHistoryItem,
-  SendProgress, GuardConfirm,
+  TxQueueItem, TxQueueSummary, TxHistoryItem,
+  SendProgress, GuardConfirm, CmdDisplay,
 } from '@/lib/types'
-
-type TxHistoryEntry = TxHistoryItem | MissionHistoryItem
 
 interface SendingSnapshot {
   active?: boolean
@@ -18,7 +16,7 @@ interface SendingSnapshot {
 export function useTxSocket() {
   const [queue, setQueue] = useState<TxQueueItem[]>([])
   const [summary, setSummary] = useState<TxQueueSummary>({ cmds: 0, guards: 0, est_time_s: 0 })
-  const [history, setHistory] = useState<TxHistoryEntry[]>([])
+  const [history, setHistory] = useState<TxHistoryItem[]>([])
   const [sendProgress, setSendProgress] = useState<SendProgress | null>(null)
   const [guardConfirm, setGuardConfirm] = useState<GuardConfirm | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -55,10 +53,10 @@ export function useTxSocket() {
             }
             break
           case 'history':
-            if (msg.items) setHistory(msg.items as TxHistoryEntry[])
+            if (msg.items) setHistory(msg.items as TxHistoryItem[])
             break
           case 'sent':
-            if (msg.data) setHistory(prev => [...prev, msg.data as TxHistoryEntry])
+            if (msg.data) setHistory(prev => [...prev, msg.data as TxHistoryItem])
             break
           case 'send_progress':
             setSendProgress({
@@ -76,9 +74,7 @@ export function useTxSocket() {
           case 'guard_confirm':
             setGuardConfirm({
               index: msg.index as number,
-              cmd: msg.cmd as string,
-              args: msg.args as string,
-              dest: msg.dest as string,
+              display: (msg.display ?? { title: '?' }) as CmdDisplay,
             })
             break
           case 'error': {
