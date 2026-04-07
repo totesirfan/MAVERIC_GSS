@@ -325,6 +325,7 @@ class TxService:
                 "display": item.get("display", {}),
                 "guard": item.get("guard", False),
                 "size": len(item.get("raw_cmd", b"")),
+                "payload": item.get("payload", {}),
             })
         return result
 
@@ -484,6 +485,7 @@ class TxService:
                     "ts": datetime.now().strftime("%H:%M:%S"),
                     "type": "mission_cmd",
                     "display": item.get("display", {}),
+                    "payload": item.get("payload", {}),
                     "size": len(payload),
                 }
                 self.history.append(hist_entry)
