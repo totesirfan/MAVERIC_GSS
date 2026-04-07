@@ -139,5 +139,43 @@ class TestMakeMissionCmd(unittest.TestCase):
         self.assertIn("does not support", str(ctx.exception))
 
 
+class TestMissionCmdQueueProjection(unittest.TestCase):
+
+    def _make_item(self):
+        return {
+            "type": "mission_cmd",
+            "raw_cmd": b"\x01\x02\x03\x04",
+            "display": {
+                "title": "PING",
+                "subtitle": "target=obc",
+                "fields": [{"name": "target", "value": "obc"}],
+            },
+            "guard": False,
+            "payload": {"cmd_id": "ping", "target": "obc"},
+        }
+
+    def test_item_to_json_strips_raw_cmd(self):
+        from mav_gss_lib.web_runtime.services import item_to_json
+        item = self._make_item()
+        result = item_to_json(item)
+        self.assertNotIn("raw_cmd", result)
+        self.assertEqual(result["type"], "mission_cmd")
+        self.assertEqual(result["display"]["title"], "PING")
+        self.assertEqual(result["payload"], {"cmd_id": "ping", "target": "obc"})
+
+    def test_renumber_counts_mission_cmds(self):
+        """mission_cmd items should get sequential numbers."""
+        item1 = self._make_item()
+        item2 = self._make_item()
+        queue = [item1, {"type": "delay", "delay_ms": 1000}, item2]
+        count = 0
+        for item in queue:
+            if item["type"] in ("cmd", "mission_cmd"):
+                count += 1
+                item["num"] = count
+        self.assertEqual(item1["num"], 1)
+        self.assertEqual(item2["num"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

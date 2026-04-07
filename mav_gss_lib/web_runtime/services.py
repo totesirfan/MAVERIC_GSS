@@ -21,10 +21,11 @@ import tempfile
 import threading
 import time
 from collections import deque
+from datetime import datetime
 from queue import Empty, Queue
 from typing import TYPE_CHECKING
 
-from mav_gss_lib.ax25 import build_ax25_gfsk_frame
+from mav_gss_lib.protocols.ax25 import build_ax25_gfsk_frame
 from mav_gss_lib.parsing import RxPipeline, build_rx_log_record
 from mav_gss_lib.transport import PUB_STATUS, SUB_STATUS, init_zmq_pub, init_zmq_sub, poll_monitor, receive_pdu, send_pdu, zmq_cleanup
 
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
     from .state import WebRuntime
 
 try:
-    from mav_gss_lib.golay import _GR_RS_OK, build_asm_golay_frame
+    from mav_gss_lib.protocols.golay import _GR_RS_OK, build_asm_golay_frame
 
     GOLAY_OK = _GR_RS_OK
 except ImportError:
@@ -93,9 +94,6 @@ class RxService:
 
         zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)
 
-    def packet_to_json(self, pkt) -> dict:
-        return self.runtime.adapter.packet_to_json(pkt)
-
     def _build_rendering(self, pkt) -> dict:
         """Build structured rendering-slot data for one packet."""
         from dataclasses import asdict
@@ -125,8 +123,19 @@ class RxService:
                         self.log.write_packet(pkt, adapter=self.runtime.adapter)
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)
-                pkt_json = self.packet_to_json(pkt)
-                pkt_json["_rendering"] = self._build_rendering(pkt)
+                pkt_json = {
+                    "num": pkt.pkt_num,
+                    "time": pkt.gs_ts_short,
+                    "time_utc": pkt.gs_ts,
+                    "frame": pkt.frame_type,
+                    "size": len(pkt.raw),
+                    "raw_hex": pkt.raw.hex(),
+                    "warnings": pkt.warnings,
+                    "is_echo": pkt.is_uplink_echo,
+                    "is_dup": pkt.is_dup,
+                    "is_unknown": pkt.is_unknown,
+                    "_rendering": self._build_rendering(pkt),
+                }
                 self.packets.append(pkt_json)
                 msg = json.dumps({"type": "packet", "data": pkt_json})
                 with self.lock:
@@ -268,6 +277,12 @@ class TxService:
 
         if payload["type"] == "delay":
             return make_delay(payload.get("delay_ms", 0))
+        if payload["type"] == "mission_cmd":
+            from .runtime import validate_mission_cmd
+            return validate_mission_cmd(
+                payload.get("payload", {}),
+                runtime=self.runtime,
+            )
         return validate_cmd_item(
             payload["src"],
             payload["dest"],
@@ -283,7 +298,7 @@ class TxService:
         """Assign sequential display numbers to queued command items."""
         count = 0
         for item in self.queue:
-            if item["type"] == "cmd":
+            if item["type"] in ("cmd", "mission_cmd"):
                 count += 1
                 item["num"] = count
 
@@ -307,7 +322,7 @@ class TxService:
 
     def queue_summary(self):
         """Summarize queue size, guard count, and rough execution time."""
-        cmds = sum(1 for item in self.queue if item["type"] == "cmd")
+        cmds = sum(1 for item in self.queue if item["type"] in ("cmd", "mission_cmd"))
         guards = sum(1 for item in self.queue if item.get("guard"))
         delay_total = sum(item.get("delay_ms", 0) for item in self.queue if item["type"] == "delay")
         default_delay = self.runtime.cfg.get("tx", {}).get("delay_ms", 500)
@@ -317,16 +332,35 @@ class TxService:
 
     def queue_items_json(self):
         """Project the current queue into the websocket/API JSON shape."""
+        adapter = self.runtime.adapter
         result = []
         for item in self.queue:
             if item["type"] == "delay":
                 result.append({"type": "delay", "delay_ms": item["delay_ms"]})
                 continue
-            result.append(
-                self.runtime.adapter.queue_item_to_json(
-                    item, self.match_tx_args, self.tx_extra_args,
-                )
-            )
+            if item["type"] == "mission_cmd":
+                result.append({
+                    "type": "mission_cmd",
+                    "num": item.get("num", 0),
+                    "display": item.get("display", {}),
+                    "guard": item.get("guard", False),
+                    "size": len(item.get("raw_cmd", b"")),
+                })
+                continue
+            result.append({
+                "type": "cmd",
+                "num": item.get("num", 0),
+                "src": adapter.node_name(item["src"]),
+                "dest": adapter.node_name(item["dest"]),
+                "echo": adapter.node_name(item["echo"]),
+                "ptype": adapter.ptype_name(item["ptype"]),
+                "cmd": item["cmd"],
+                "args": item.get("args", ""),
+                "args_named": self.match_tx_args(item["cmd"], item.get("args", "")),
+                "args_extra": self.tx_extra_args(item["cmd"], item.get("args", "")),
+                "guard": item.get("guard", False),
+                "size": len(item.get("raw_cmd", b"")),
+            })
         return result
 
     async def broadcast(self, msg):
@@ -414,7 +448,16 @@ class TxService:
                     with self.send_lock:
                         self.sending["guarding"] = True
                     self.guard_ok.clear()
-                    await self.broadcast({"type": "guard_confirm", "index": 0, "cmd": item["cmd"], "args": item.get("args", ""), "dest": self.runtime.adapter.node_name(item["dest"])})
+                    if item["type"] == "mission_cmd":
+                        display = item.get("display", {})
+                        await self.broadcast({
+                            "type": "guard_confirm", "index": 0,
+                            "cmd": display.get("title", "?"),
+                            "args": "",
+                            "dest": display.get("subtitle", ""),
+                        })
+                    else:
+                        await self.broadcast({"type": "guard_confirm", "index": 0, "cmd": item["cmd"], "args": item.get("args", ""), "dest": self.runtime.adapter.node_name(item["dest"])})
                     while not self.guard_ok.is_set() and not self.abort.is_set():
                         await asyncio.sleep(0.1)
                     with self.send_lock:
@@ -464,23 +507,55 @@ class TxService:
                 self.count += 1
                 sent += 1
 
-                src, dest, echo, ptype_val = item["src"], item["dest"], item["echo"], item["ptype"]
+                if item["type"] != "mission_cmd":
+                    src, dest, echo, ptype_val = item["src"], item["dest"], item["echo"], item["ptype"]
                 if self.log:
                     try:
-                        self.log.write_command(
-                            self.count, src, dest, echo, ptype_val, item["cmd"], item["args"], raw_cmd, payload, send_ax25, send_csp, uplink_mode=uplink_mode,
-                            adapter=self.runtime.adapter
-                        )
+                        if item["type"] == "mission_cmd":
+                            self.log.write_mission_command(
+                                self.count,
+                                item.get("display", {}),
+                                item.get("payload", {}),
+                                raw_cmd, payload, send_ax25, send_csp,
+                                uplink_mode=uplink_mode,
+                            )
+                        else:
+                            self.log.write_command(
+                                self.count, src, dest, echo, ptype_val,
+                                item["cmd"], item["args"], raw_cmd, payload,
+                                send_ax25, send_csp, uplink_mode=uplink_mode,
+                                adapter=self.runtime.adapter,
+                            )
                     except Exception as exc:
                         logging.warning("TX log write failed: %s", exc)
 
-                hist_entry = self.runtime.adapter.history_entry(self.count, item, len(payload))
+                if item["type"] == "mission_cmd":
+                    hist_entry = {
+                        "n": self.count,
+                        "ts": datetime.now().strftime("%H:%M:%S"),
+                        "type": "mission_cmd",
+                        "display": item.get("display", {}),
+                        "size": len(payload),
+                    }
+                else:
+                    hist_entry = {
+                        "n": self.count,
+                        "ts": datetime.now().strftime("%H:%M:%S"),
+                        "src": self.runtime.adapter.node_name(item["src"]),
+                        "dest": self.runtime.adapter.node_name(item["dest"]),
+                        "echo": self.runtime.adapter.node_name(item["echo"]),
+                        "ptype": self.runtime.adapter.ptype_name(item["ptype"]),
+                        "cmd": item["cmd"],
+                        "args": item.get("args", ""),
+                        "size": len(payload),
+                    }
                 self.history.append(hist_entry)
                 if len(self.history) > self.runtime.max_history:
                     del self.history[: len(self.history) - self.runtime.max_history]
 
                 await self.broadcast({"type": "sent", "data": hist_entry})
-                await self.broadcast({"type": "send_progress", "sent": sent, "total": total, "current": item["cmd"], "waiting": False})
+                current_label = item.get("display", {}).get("title", "?") if item["type"] == "mission_cmd" else item["cmd"]
+                await self.broadcast({"type": "send_progress", "sent": sent, "total": total, "current": current_label, "waiting": False})
 
                 await asyncio.sleep(0.5)
                 with self.send_lock:

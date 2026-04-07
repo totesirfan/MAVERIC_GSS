@@ -17,9 +17,10 @@ import threading
 import time
 from datetime import datetime
 
-from mav_gss_lib.protocol import clean_text
+from mav_gss_lib.textutil import clean_text
 from mav_gss_lib.protocols.crc import crc16, crc32c
-from mav_gss_lib.tui_common import TS_FULL
+
+TS_FULL = "%Y-%m-%d %H:%M:%S %Z"   # Full timestamp with timezone
 
 # Line width for text logs
 LOG_LINE_WIDTH = 80
@@ -365,6 +366,58 @@ class TXLog(_BaseLog):
             rec["crc16"] = f"0x{cmd_crc16:04x}"
         if csp.enabled:
             rec["crc32c"] = f"0x{csp_crc32:08x}"
+        self.write_jsonl(rec)
+
+    def write_mission_command(self, n, display, mission_payload,
+                              raw_cmd, payload, ax25, csp, uplink_mode="AX.25"):
+        """Write one mission-built TX command entry with protocol details."""
+        title = display.get("title", "?")
+        subtitle = display.get("subtitle", "")
+
+        lines = []
+        lines.append(self._separator(f"#{n}", subtitle))
+        lines.append(self._field("MODE", uplink_mode))
+        lines.append(self._field("COMMAND", title))
+        for field in display.get("fields", []):
+            lines.append(self._field(field["name"].upper(), str(field["value"])))
+
+        if uplink_mode != "ASM+Golay" and ax25.enabled:
+            lines.append(self._field("AX.25",
+                f"Src:{ax25.src_call}-{ax25.src_ssid}  "
+                f"Dest:{ax25.dest_call}-{ax25.dest_ssid}"))
+
+        if csp.enabled:
+            lines.append(self._field("CSP",
+                self._format_csp(csp.prio, csp.src, csp.dest,
+                                 csp.dport, csp.sport, csp.flags)))
+
+        cmd_len = len(raw_cmd)
+        csp_overhead = csp.overhead()
+        if uplink_mode == "ASM+Golay":
+            lines.append(self._field("SIZE",
+                f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B)"))
+        else:
+            ax25_overhead = ax25.overhead()
+            lines.append(self._field("SIZE",
+                f"{len(payload)}B (cmd {cmd_len}B + CSP {csp_overhead}B + AX.25 {ax25_overhead}B)"))
+
+        lines.extend(self._hex_lines(raw_cmd, "RAW CMD"))
+        lines.extend(self._hex_lines(payload, "FULL HEX"))
+        ascii_text = clean_text(raw_cmd)
+        if ascii_text:
+            lines.append(self._field("ASCII", ascii_text))
+
+        self._write_entry(lines)
+
+        rec = {
+            "n": n, "ts": datetime.now().astimezone().isoformat(),
+            "type": "mission_cmd",
+            "uplink_mode": uplink_mode,
+            "display": display,
+            "mission_payload": mission_payload,
+            "raw_hex": raw_cmd.hex(), "raw_len": len(raw_cmd),
+            "hex": payload.hex(), "len": len(payload),
+        }
         self.write_jsonl(rec)
 
     def write_summary(self, tx_count, session_start):
