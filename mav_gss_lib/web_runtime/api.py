@@ -534,11 +534,6 @@ async def api_log_entries(
             if time_to is not None and normalized["time"] > str(time_to):
                 continue
 
-            # For TX entries, fill in args from runtime
-            if not is_rx:
-                normalized["args_named"] = runtime.tx.match_tx_args(str(entry.get("cmd", "")), str(entry.get("args", "")))
-                normalized["args_extra"] = runtime.tx.tx_extra_args(str(entry.get("cmd", "")), str(entry.get("args", "")))
-
             entries.append(normalized)
     return entries
 
