@@ -1,12 +1,11 @@
 """
-mav_gss_lib.mission_adapter -- Mission Adapter Interface + Facade
+mav_gss_lib.mission_adapter -- Mission Adapter Interface and Loader
 
 Platform core:
   - ParsedPacket: normalized packet parse result
   - MissionAdapter: formal Protocol defining the mission boundary
-
-Facade:
-  - MavericMissionAdapter: re-exported from missions.maveric.adapter
+  - load_mission_adapter(cfg): single-entry-point mission loader
+  - load_mission_metadata(cfg): merge mission metadata into runtime config
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -171,19 +170,66 @@ def validate_adapter(adapter, api_version: int, mission_name: str) -> None:
 
 
 # =============================================================================
+#  PLATFORM CORE -- TX Plugin Helpers
+# =============================================================================
+
+
+def has_tx_builder(adapter) -> bool:
+    """Check whether an adapter provides the optional TX builder hook.
+
+    Adapters that implement build_tx_command() can accept mission-specific
+    command payloads and produce raw bytes + display metadata. Adapters
+    without it still work via the existing build_raw_command() path.
+    """
+    return hasattr(adapter, 'build_tx_command') and callable(adapter.build_tx_command)
+
+
+def get_tx_capabilities(adapter) -> dict:
+    """Return TX capabilities for the loaded adapter.
+
+    Adapters may override tx_capabilities() to declare support.
+    Default: raw_send always True, command_builder True if build_tx_command exists.
+    """
+    if hasattr(adapter, 'tx_capabilities') and callable(adapter.tx_capabilities):
+        return adapter.tx_capabilities()
+    return {"raw_send": True, "command_builder": has_tx_builder(adapter)}
+
+
+# =============================================================================
 #  PLATFORM CORE -- Mission Loader
 # =============================================================================
 
-# Registry of known mission packages: mission_id -> module path
-_MISSION_REGISTRY = {
-    "maveric": "mav_gss_lib.missions.maveric",
-}
+def _resolve_mission_module(mission_id: str) -> str:
+    """Resolve a mission ID to its Python module path by convention.
+
+    Looks for an importable package at mav_gss_lib.missions.<mission_id>.
+    Returns the module path string if found.
+
+    Raises ImportError if the package does not exist.
+    Re-raises the original exception if the package exists but fails
+    during import (broken dependency, syntax error, etc.) so that real
+    bugs are not masked as "mission not found."
+
+    This is the single resolution point for mission packages. If external
+    or path-based mission loading is needed later, extend this function.
+    """
+    import importlib
+    import importlib.util
+    module_path = f"mav_gss_lib.missions.{mission_id}"
+    spec = importlib.util.find_spec(module_path)
+    if spec is None:
+        raise ImportError(
+            f"No mission package found at {module_path}. "
+            f"Create mav_gss_lib/missions/{mission_id}/ with __init__.py."
+        )
+    importlib.import_module(module_path)
+    return module_path
 
 
 def _merge_mission_metadata(cfg: dict, mission_meta: dict) -> None:
-    """Merge mission.yml metadata into the runtime config dict in place.
+    """Merge mission metadata into the runtime config dict in place.
 
-    Mission metadata provides defaults. The operator's maveric_gss.yml
+    Mission metadata provides defaults. The operator's gss.yml
     values take precedence (they were already merged into cfg by
     load_gss_config).
     """
@@ -218,41 +264,49 @@ def _merge_mission_metadata(cfg: dict, mission_meta: dict) -> None:
 
 
 def load_mission_metadata(cfg: dict) -> dict:
-    """Read mission.yml and merge metadata into cfg. Returns the raw metadata dict.
+    """Read mission metadata and merge it into cfg.
 
     Must be called BEFORE init_nodes() and load_command_defs() so those
     see mission-provided values (nodes, ptypes, command_defs path).
 
-    If the mission package has no mission.yml, returns empty dict and
-    continues without error.
+    Resolution order:
+      1. mission.yml          -- local/private mission metadata override
+      2. mission.example.yml  -- tracked public-safe baseline
+
+    Returns the raw metadata dict actually loaded. If neither file exists,
+    returns empty dict and continues without error.
     """
     import importlib
+    import importlib.util
     import logging
     import os
 
     mission = cfg.get("general", {}).get("mission", "maveric")
-    module_path = _MISSION_REGISTRY.get(mission)
-    if module_path is None:
+    spec = importlib.util.find_spec(f"mav_gss_lib.missions.{mission}")
+    if spec is None:
         return {}
 
-    try:
-        mission_pkg = importlib.import_module(module_path)
-    except ImportError:
-        return {}
+    module_path = f"mav_gss_lib.missions.{mission}"
+    mission_pkg = importlib.import_module(module_path)
 
     pkg_dir = os.path.dirname(os.path.abspath(mission_pkg.__file__))
-    mission_yml_path = os.path.join(pkg_dir, "mission.yml")
+    metadata_path = ""
+    for candidate in ("mission.yml", "mission.example.yml"):
+        candidate_path = os.path.join(pkg_dir, candidate)
+        if os.path.isfile(candidate_path):
+            metadata_path = candidate_path
+            break
 
-    if not os.path.isfile(mission_yml_path):
-        logging.debug("No mission.yml found for '%s' at %s", mission, mission_yml_path)
+    if not metadata_path:
+        logging.debug("No mission metadata found for '%s' under %s", mission, pkg_dir)
         return {}
 
     try:
         import yaml
-        with open(mission_yml_path) as f:
+        with open(metadata_path) as f:
             mission_meta = yaml.safe_load(f) or {}
     except Exception as exc:
-        logging.warning("Could not read %s: %s", mission_yml_path, exc)
+        logging.warning("Could not read %s: %s", metadata_path, exc)
         return {}
 
     _merge_mission_metadata(cfg, mission_meta)
@@ -263,7 +317,7 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     """Load, instantiate, and validate a mission adapter from config.
 
     This is the single shared mission-loading path. It owns:
-      1. load_mission_metadata(cfg) — merge mission.yml
+      1. load_mission_metadata(cfg) — merge mission metadata
       2. mission_pkg.init_mission(cfg) — mission-specific init
       3. ADAPTER_CLASS(cmd_defs=...) — adapter construction
       4. validate_adapter() — interface validation
@@ -283,19 +337,8 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     # Ensure mission metadata is merged (idempotent — safe if already called)
     load_mission_metadata(cfg)
 
-    module_path = _MISSION_REGISTRY.get(mission)
-    if module_path is None:
-        raise ValueError(
-            f"Unknown mission '{mission}' in general.mission config. "
-            f"Supported: {', '.join(sorted(_MISSION_REGISTRY))}"
-        )
-
-    try:
-        mission_pkg = importlib.import_module(module_path)
-    except ImportError as exc:
-        raise ValueError(
-            f"Mission '{mission}' package '{module_path}' could not be imported: {exc}"
-        ) from exc
+    module_path = _resolve_mission_module(mission)
+    mission_pkg = importlib.import_module(module_path)  # already imported, returns cached
 
     api_version = getattr(mission_pkg, "ADAPTER_API_VERSION", None)
     if api_version is None:
@@ -329,4 +372,3 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
         mission_name, mission, api_version, cmd_path,
     )
     return adapter
-
