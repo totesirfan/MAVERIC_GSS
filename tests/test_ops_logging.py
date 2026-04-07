@@ -433,9 +433,12 @@ class TestReplayCompat(unittest.TestCase):
         self.assertTrue(result["is_tx"])
         self.assertFalse(result["is_dup"])
         self.assertFalse(result["is_echo"])
-        # Rendering uses persisted display directly
+        # Rendering uses persisted display directly + platform-owned values
         row_values = result["_rendering"]["row"]["values"]
         self.assertEqual(row_values["cmd"], "com_ping")
+        self.assertEqual(row_values["num"], 1)
+        self.assertEqual(row_values["time"], "10:30:00")
+        self.assertEqual(row_values["size"], 4)
 
 
 if __name__ == "__main__":

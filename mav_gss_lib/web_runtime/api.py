@@ -472,7 +472,12 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
             "raw_hex": entry.get("raw_hex", ""),
             "warnings": [],
             "_rendering": {
-                "row": {"values": display.get("row", {}), "_meta": {}},
+                "row": {"values": {
+                    "num": entry.get("n", 0),
+                    "time": ts_time,
+                    "size": entry.get("raw_len", entry.get("len", 0)),
+                    **display.get("row", {}),
+                }, "_meta": {}},
                 "detail_blocks": display.get("detail_blocks", []),
                 "protocol_blocks": [],
                 "integrity_blocks": [],

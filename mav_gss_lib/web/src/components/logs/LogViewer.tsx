@@ -62,7 +62,16 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
       .catch(() => {})
     fetch('/api/tx-columns')
       .then((r) => r.json())
-      .then((data: ColumnDef[]) => setTxColumns(data))
+      .then((data: ColumnDef[]) => {
+        // Wrap mission TX columns with platform-owned num/time/size for log viewer
+        const full: ColumnDef[] = [
+          { id: 'num', label: '#', align: 'right', width: 'w-9' },
+          { id: 'time', label: 'time', width: 'w-[68px]' },
+          ...data,
+          { id: 'size', label: 'size', align: 'right', width: 'w-10' },
+        ]
+        setTxColumns(full)
+      })
       .catch(() => {})
   }, [open])
 
