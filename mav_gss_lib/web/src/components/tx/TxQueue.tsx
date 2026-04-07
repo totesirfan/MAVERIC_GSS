@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   DndContext, closestCenter,
@@ -20,13 +20,14 @@ import { QueueItem } from './QueueItem'
 import { DelayItem } from './DelayItem'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import type { TxQueueItem, TxQueueSummary, SendProgress } from '@/lib/types'
+import type { TxQueueItem, TxQueueSummary, SendProgress, TxColumnDef } from '@/lib/types'
 
 interface TxQueueProps {
   queue: TxQueueItem[]
   summary: TxQueueSummary
   sendProgress: SendProgress | null
   isGuarding: boolean
+  txColumns: TxColumnDef[]
   onToggleGuard: (index: number) => void
   onDelete: (index: number) => void
   onEditDelay: (index: number, ms: number) => void
@@ -49,6 +50,7 @@ function assignUids(items: TxQueueItem[]): { item: TxQueueItem; uid: number }[] 
 
 export function TxQueue({
   queue, summary, sendProgress, isGuarding,
+  txColumns,
   onToggleGuard, onDelete, onEditDelay, onReorder, onAddDelay,
   onClear, onSend, onDuplicate, onMoveToTop, onMoveToBottom,
   triggerConfirmSend, triggerConfirmClear,
@@ -156,6 +158,17 @@ export function TxQueue({
     setSelectedIdx(null)
   }
 
+  const visibleColumns = useMemo(() => {
+    return txColumns.filter(col => {
+      if (!col.hide_if_all?.length) return true
+      const suppressSet = new Set(col.hide_if_all)
+      return !queue.every(item => {
+        if (item.type === 'delay') return true
+        return suppressSet.has(String(item.display?.row?.[col.id] ?? ''))
+      })
+    })
+  }, [txColumns, queue])
+
   const estStr = summary.est_time_s > 0 ? `~${summary.est_time_s.toFixed(1)}s` : ''
 
   return (
@@ -165,7 +178,12 @@ export function TxQueue({
         <div className="flex items-center gap-1.5 px-3.5 py-0.5 text-[11px] font-light shrink-0" style={{ color: colors.dim }}>
           <span className={col.grip} />
           <span className={`${col.num} text-right`}>#</span>
-          <span className="flex-1">command</span>
+          {visibleColumns.length > 0
+            ? visibleColumns.map(c => (
+                <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0' : 'shrink-0'} ${c.align === 'right' ? 'text-right' : ''}`}>{c.label}</span>
+              ))
+            : <span className="flex-1">command</span>
+          }
           <span className={`${col.size} text-right`}>size</span>
           <span className={col.actions} />
         </div>
@@ -208,6 +226,7 @@ export function TxQueue({
                       isSending={isSending}
                       isGuarding={itemGuarding}
                       flash={isFlashing}
+                      visibleColumns={visibleColumns}
                       onSelect={() => setSelectedIdx(selectedIdx === realIdx ? null : realIdx)}
                       onToggleGuard={onToggleGuard}
                       onDelete={onDelete}

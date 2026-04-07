@@ -79,7 +79,18 @@ export interface RxStatus {
 export interface CmdDisplay {
   title: string
   subtitle?: string
-  fields?: { name: string; value: string }[]
+  row: Record<string, string | number>
+  detail_blocks: DetailBlock[]
+}
+
+export interface TxColumnDef {
+  id: string
+  label: string
+  width?: string
+  align?: 'left' | 'right'
+  flex?: boolean
+  badge?: boolean
+  hide_if_all?: string[]
 }
 
 export interface TxQueueCmd {

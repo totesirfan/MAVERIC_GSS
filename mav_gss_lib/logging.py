@@ -378,8 +378,9 @@ class TXLog(_BaseLog):
         lines.append(self._separator(f"#{n}", subtitle))
         lines.append(self._field("MODE", uplink_mode))
         lines.append(self._field("COMMAND", title))
-        for field in display.get("fields", []):
-            lines.append(self._field(field["name"].upper(), str(field["value"])))
+        for block in display.get("detail_blocks", []):
+            for field in block.get("fields", []):
+                lines.append(self._field(field["name"].upper(), str(field["value"])))
 
         if uplink_mode != "ASM+Golay" and ax25.enabled:
             lines.append(self._field("AX.25",

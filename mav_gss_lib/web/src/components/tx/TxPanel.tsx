@@ -13,7 +13,7 @@ import { ImportDialog } from './ImportDialog'
 import { getMissionBuilder } from '@/missions/registry'
 import type {
   TxQueueItem, TxQueueSummary, TxHistoryItem,
-  SendProgress, GuardConfirm, GssConfig,
+  SendProgress, GuardConfirm, GssConfig, TxColumnDef,
 } from '@/lib/types'
 
 interface TxPanelProps {
@@ -52,6 +52,7 @@ export function TxPanel({
 }: TxPanelProps) {
   const [showBuilder, setShowBuilder] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [txColumns, setTxColumns] = useState<TxColumnDef[]>([])
 
   const missionId = config?.general?.mission ?? ''
   const MissionBuilder = getMissionBuilder(missionId)
@@ -64,6 +65,10 @@ export function TxPanel({
         setHasCommandBuilder(caps.command_builder ?? false)
       })
       .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/tx-columns').then(r => r.json()).then(setTxColumns).catch(() => {})
   }, [])
 
   const sending = sendProgress !== null
@@ -99,6 +104,7 @@ export function TxPanel({
         {/* Queue */}
         <TxQueue
           queue={queue} summary={summary} sendProgress={sendProgress} isGuarding={!!guardConfirm}
+          txColumns={txColumns}
           onToggleGuard={toggleGuard} onDelete={deleteItem}
           onEditDelay={editDelay} onReorder={reorder} onAddDelay={addDelay}
           onClear={clearQueue} onSend={sendAll}
@@ -115,7 +121,7 @@ export function TxPanel({
       </div>
 
       {/* Sent history — separate collapsible block */}
-      <SentHistory history={history} onRequeue={(item) => {
+      <SentHistory history={history} txColumns={txColumns} onRequeue={(item) => {
         queueTemplate(item.payload)
       }} />
 
@@ -177,7 +183,7 @@ export function TxPanel({
       )}
 
       {/* Dialogs */}
-      <ImportDialog open={showImport} onClose={() => setShowImport(false)} onImported={() => {}} />
+      <ImportDialog open={showImport} onClose={() => setShowImport(false)} onImported={() => {}} txColumns={txColumns} />
     </div>
   )
 }

@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FileUp, FileText, Check, ChevronRight, Shield, Timer } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
+import { PtypeBadge } from '@/components/shared/PtypeBadge'
 import { authFetch } from '@/lib/auth'
+import type { TxColumnDef, DetailBlock } from '@/lib/types'
 
 interface ImportDialogProps {
   open: boolean
   onClose: () => void
   onImported: () => void
+  txColumns: TxColumnDef[]
 }
 
 interface ImportFile {
@@ -22,7 +25,8 @@ interface PreviewItem {
   display?: {
     title: string
     subtitle?: string
-    fields?: { name: string; value: string }[]
+    row?: Record<string, string | number>
+    detail_blocks?: DetailBlock[]
   }
   guard?: boolean
   size?: number
@@ -31,7 +35,7 @@ interface PreviewItem {
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 
-export function ImportDialog({ open, onClose, onImported }: ImportDialogProps) {
+export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDialogProps) {
   const [files, setFiles] = useState<ImportFile[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewItem[]>([])
@@ -48,6 +52,17 @@ export function ImportDialog({ open, onClose, onImported }: ImportDialogProps) {
       fetch('/api/import-files').then(r => r.json()).then(setFiles).catch(() => setFiles([]))
     }
   }, [open])
+
+  const visibleColumns = useMemo(() => {
+    return txColumns.filter(col => {
+      if (!col.hide_if_all?.length) return true
+      const suppressSet = new Set(col.hide_if_all)
+      return !preview.every(item => {
+        if (item.type === 'delay') return true
+        return suppressSet.has(String(item.display?.row?.[col.id] ?? ''))
+      })
+    })
+  }, [txColumns, preview])
 
   async function loadPreview(filename: string) {
     setSelectedFile(filename)
@@ -196,15 +211,26 @@ export function ImportDialog({ open, onClose, onImported }: ImportDialogProps) {
                           <Timer className="size-3 shrink-0" style={{ color: colors.warning }} />
                           <span style={{ color: colors.warning }}>{((item.delay_ms ?? 0) / 1000).toFixed(1)}s delay</span>
                         </>
+                      ) : visibleColumns.length > 0 ? (
+                        <>
+                          {visibleColumns.map(c => {
+                            const val = item.display?.row?.[c.id] ?? ''
+                            return (
+                              <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'}`}>
+                                {c.badge ? <PtypeBadge ptype={val} /> :
+                                 c.id === 'cmd' ? (
+                                   <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>
+                                     {String(val)}
+                                   </span>
+                                 ) : <span style={{ color: colors.dim }}>{val}</span>}
+                              </span>
+                            )
+                          })}
+                          {item.guard && <Shield className="size-3 shrink-0" style={{ color: colors.warning }} />}
+                        </>
                       ) : (
                         <>
                           <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{item.display?.title ?? '?'}</span>
-                          {item.display?.subtitle && (
-                            <span className="shrink-0 truncate text-[11px]" style={{ color: colors.label }}>{item.display.subtitle}</span>
-                          )}
-                          <span className="flex-1 min-w-0 truncate" style={{ color: colors.dim }}>
-                            {item.display?.fields?.map(f => `${f.name}=${f.value}`).join(' ')}
-                          </span>
                           {item.guard && <Shield className="size-3 shrink-0" style={{ color: colors.warning }} />}
                         </>
                       )}

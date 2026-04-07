@@ -480,15 +480,11 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
             "warnings": [],
         }
 
-        # Build _rendering for TX replay entries
-        detail_blocks = []
-        cmd_fields = []
-        if normalized.get("cmd"):
-            cmd_fields.append({"name": "Command", "value": normalized["cmd"]})
-        if cmd_fields:
-            detail_blocks.append({"kind": "command", "label": "Command", "fields": cmd_fields})
+        # TX log entries: consume persisted display from the raw log entry
+        display = entry.get("display", {})
         normalized["_rendering"] = {
-            "detail_blocks": detail_blocks,
+            "row": display.get("row", {}),
+            "detail_blocks": display.get("detail_blocks", []),
             "protocol_blocks": [],
             "integrity_blocks": [],
         }

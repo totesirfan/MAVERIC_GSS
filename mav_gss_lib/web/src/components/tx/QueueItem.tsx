@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
+import { PtypeBadge } from '@/components/shared/PtypeBadge'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
 } from '@/components/shared/ContextMenu'
-import type { TxQueueCmd } from '@/lib/types'
+import type { TxQueueCmd, TxColumnDef } from '@/lib/types'
 
 interface QueueItemProps {
   item: TxQueueCmd
@@ -20,6 +21,7 @@ interface QueueItemProps {
   isSending: boolean
   isGuarding: boolean
   flash?: boolean
+  visibleColumns: TxColumnDef[]
   onSelect: () => void
   onToggleGuard: (index: number) => void
   onDelete: (index: number) => void
@@ -28,7 +30,7 @@ interface QueueItemProps {
   onMoveToBottom: (index: number) => void
 }
 
-export function QueueItem({ item, index, sortId, expanded, isNext, isSending, isGuarding, flash, onSelect, onToggleGuard, onDelete, onDuplicate, onMoveToTop, onMoveToBottom }: QueueItemProps) {
+export function QueueItem({ item, index, sortId, expanded, isNext, isSending, isGuarding, flash, visibleColumns, onSelect, onToggleGuard, onDelete, onDuplicate, onMoveToTop, onMoveToBottom }: QueueItemProps) {
   const {
     attributes,
     listeners,
@@ -38,10 +40,7 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
     isDragging,
   } = useSortable({ id: sortId })
 
-  const display = item.display ?? { title: '?' }
-  const displayCmd = display.title ?? '?'
-  const displaySubtitle = display.subtitle ?? ''
-  const displayArgs = display.fields?.map(f => f.value).join(' ') ?? ''
+  const display = item.display ?? { title: '?', row: {}, detail_blocks: [] }
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -66,11 +65,28 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
               <GripVertical className="size-3.5" style={{ color: colors.dim }} />
             </span>
             <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.num}</span>
-            <span className="flex-1 min-w-0 truncate">
-              <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{displayCmd}</span>
-              {displaySubtitle && <span className="ml-2 text-[11px]" style={{ color: colors.label }}>{displaySubtitle}</span>}
-              {displayArgs && <span className="ml-2" style={{ color: colors.dim }}>{displayArgs}</span>}
-            </span>
+            {visibleColumns.length > 0 ? (
+              visibleColumns.map(c => {
+                const val = display.row?.[c.id] ?? ''
+                return (
+                  <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'}`}>
+                    {c.badge ? <PtypeBadge ptype={val} /> :
+                     c.id === 'cmd' ? (
+                       <>
+                         <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>
+                           {String(val).split(' ')[0]}
+                         </span>
+                         {String(val).includes(' ') && <span className="ml-2" style={{ color: colors.dim }}>{String(val).split(' ').slice(1).join(' ')}</span>}
+                       </>
+                     ) : <span style={{ color: colors.label }}>{val}</span>}
+                  </span>
+                )
+              })
+            ) : (
+              <span className="flex-1 min-w-0 truncate">
+                <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{display.title ?? '?'}</span>
+              </span>
+            )}
             {isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
@@ -102,16 +118,19 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
 
           {/* Expanded detail */}
           {expanded && (
-            <div className="px-3 pb-2 pt-1 ml-6 space-y-1 animate-slide-in" style={{ borderTop: `1px solid ${colors.borderSubtle}` }}>
-              <div className="space-y-0.5">
-                {display.fields?.map((f, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs">
-                    <span style={{ color: colors.label }}>{f.name}</span>
-                    <span style={{ color: colors.sep }}>=</span>
-                    <span style={{ color: colors.value }}>{f.value}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="px-3 pb-2 pt-1 ml-6 space-y-2 animate-slide-in" style={{ borderTop: `1px solid ${colors.borderSubtle}` }}>
+              {display.detail_blocks?.map((block, i) => (
+                <div key={i} className="space-y-0.5">
+                  <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: colors.dim }}>{block.label}</div>
+                  {block.fields.map((f, j) => (
+                    <div key={j} className="flex items-center gap-2 text-xs">
+                      <span style={{ color: colors.label }}>{f.name}</span>
+                      <span style={{ color: colors.sep }}>=</span>
+                      <span style={{ color: colors.value }}>{f.value}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
               <div className="flex items-center gap-2 text-xs">
                 <span style={{ color: colors.sep }}>Size:</span>
                 <span style={{ color: colors.value }}>{item.size}B</span>
