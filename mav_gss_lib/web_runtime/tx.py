@@ -138,7 +138,7 @@ async def ws_tx(websocket: WebSocket):
                 with runtime.tx.send_lock:
                     if isinstance(idx, int) and 0 <= idx < len(runtime.tx.queue):
                         item = runtime.tx.queue[idx]
-                        if item["type"] in ("cmd", "mission_cmd"):
+                        if item["type"] == "mission_cmd":
                             item["guard"] = not item.get("guard", False)
                             runtime.tx.save_queue()
                 await runtime.tx.send_queue_update()

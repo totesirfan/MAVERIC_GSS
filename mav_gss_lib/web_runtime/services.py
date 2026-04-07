@@ -288,13 +288,13 @@ class TxService:
         """Assign sequential display numbers to queued command items."""
         count = 0
         for item in self.queue:
-            if item["type"] in ("cmd", "mission_cmd"):
+            if item["type"] == "mission_cmd":
                 count += 1
                 item["num"] = count
 
     def queue_summary(self):
         """Summarize queue size, guard count, and rough execution time."""
-        cmds = sum(1 for item in self.queue if item["type"] in ("cmd", "mission_cmd"))
+        cmds = sum(1 for item in self.queue if item["type"] == "mission_cmd")
         guards = sum(1 for item in self.queue if item.get("guard"))
         delay_total = sum(item.get("delay_ms", 0) for item in self.queue if item["type"] == "delay")
         default_delay = self.runtime.cfg.get("tx", {}).get("delay_ms", 500)
