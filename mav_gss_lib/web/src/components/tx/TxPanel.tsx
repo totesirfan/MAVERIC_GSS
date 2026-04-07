@@ -57,6 +57,16 @@ export function TxPanel({
 
   const missionId = config?.general?.mission ?? ''
   const MissionBuilder = getMissionBuilder(missionId)
+  const [hasCommandBuilder, setHasCommandBuilder] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/tx/capabilities')
+      .then((r) => r.json())
+      .then((caps: { command_builder?: boolean }) => {
+        setHasCommandBuilder(caps.command_builder ?? false)
+      })
+      .catch(() => {})
+  }, [])
 
   const sending = sendProgress !== null
   const modeColor = uplinkMode.toLowerCase().includes('golay') ? colors.frameGolay : colors.frameAx25
@@ -162,7 +172,7 @@ export function TxPanel({
           animate={{ height: showBuilder ? '50vh' : 62 }}
           transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
         >
-          {showBuilder ? (
+          {showBuilder && hasCommandBuilder ? (
             MissionBuilder ? (
               <Suspense fallback={<div className="p-4 text-xs" style={{ color: colors.dim }}>Loading builder...</div>}>
                 <MissionBuilder onQueue={queueTemplate} onClose={() => setShowBuilder(false)} />
@@ -171,7 +181,7 @@ export function TxPanel({
               <CommandBuilder config={config} onQueue={queueBuilt} onClose={() => setShowBuilder(false)} />
             )
           ) : (
-            <CommandInput onSubmit={queueCommand} onBuilderToggle={() => setShowBuilder(true)} />
+            <CommandInput onSubmit={queueCommand} onBuilderToggle={hasCommandBuilder ? () => setShowBuilder(true) : undefined} />
           )}
         </motion.div>
       )}

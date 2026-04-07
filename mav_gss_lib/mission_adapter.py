@@ -188,11 +188,15 @@ def get_tx_capabilities(adapter) -> dict:
     """Return TX capabilities for the loaded adapter.
 
     Adapters may override tx_capabilities() to declare support.
-    Default: raw_send always True, command_builder True if build_tx_command exists.
+    Default: raw_send always True, command_builder True if either
+    build_tx_command (new plugin) or build_raw_command (legacy) exists.
     """
     if hasattr(adapter, 'tx_capabilities') and callable(adapter.tx_capabilities):
         return adapter.tx_capabilities()
-    return {"raw_send": True, "command_builder": has_tx_builder(adapter)}
+    has_builder = has_tx_builder(adapter) or (
+        hasattr(adapter, 'build_raw_command') and callable(adapter.build_raw_command)
+    )
+    return {"raw_send": True, "command_builder": has_builder}
 
 
 # =============================================================================

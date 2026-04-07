@@ -203,9 +203,11 @@ export function QueueItem({ item, nodeDescriptions, index, sortId, expanded, isN
         <ContextMenuItem icon={item.guard ? Shield : ShieldCheck} onSelect={() => onToggleGuard(index)}>
           {item.guard ? 'Remove Guard' : 'Add Guard'}
         </ContextMenuItem>
-        <ContextMenuItem icon={Copy} onSelect={() => onDuplicate(index)}>
-          Duplicate
-        </ContextMenuItem>
+        {!isMission && (
+          <ContextMenuItem icon={Copy} onSelect={() => onDuplicate(index)}>
+            Duplicate
+          </ContextMenuItem>
+        )}
         <ContextMenuItem icon={ArrowUpToLine} onSelect={() => onMoveToTop(index)}>
           Move to Top
         </ContextMenuItem>

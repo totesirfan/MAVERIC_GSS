@@ -5,7 +5,7 @@ import { colors } from '@/lib/colors'
 
 interface CommandInputProps {
   onSubmit: (line: string) => void
-  onBuilderToggle: () => void
+  onBuilderToggle?: () => void
 }
 
 export function CommandInput({ onSubmit, onBuilderToggle }: CommandInputProps) {
@@ -60,10 +60,12 @@ export function CommandInput({ onSubmit, onBuilderToggle }: CommandInputProps) {
           />
         </div>
         <div className="flex items-center gap-1 px-2 pb-1.5">
-          <Button variant="ghost" size="sm" onClick={onBuilderToggle} className="h-6 px-2 rounded gap-1" title="Command Builder">
-            <Wrench className="size-3" style={{ color: colors.dim }} />
-            <span className="text-[11px]" style={{ color: colors.dim }}>Builder</span>
-          </Button>
+          {onBuilderToggle && (
+            <Button variant="ghost" size="sm" onClick={onBuilderToggle} className="h-6 px-2 rounded gap-1" title="Command Builder">
+              <Wrench className="size-3" style={{ color: colors.dim }} />
+              <span className="text-[11px]" style={{ color: colors.dim }}>Builder</span>
+            </Button>
+          )}
           <span className="text-[11px]" style={{ color: colors.sep }}>↑↓ history</span>
         </div>
       </div>
