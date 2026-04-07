@@ -267,6 +267,38 @@ class TestMavericBuildTxCommand(unittest.TestCase):
         adapter = self._make_adapter()
         self.assertTrue(has_tx_builder(adapter))
 
+    def test_build_tx_command_rejects_invalid_node_for_cmd(self):
+        """com_ping is only valid for LPPM/EPS/UPPM/HLNV/ASTR, not FTDI."""
+        adapter = self._make_adapter()
+        with self.assertRaises(ValueError) as ctx:
+            adapter.build_tx_command({
+                "cmd_id": "com_ping",
+                "args": {},
+                "dest": "FTDI",
+                "echo": "NONE",
+                "ptype": "CMD",
+            })
+        self.assertIn("not valid for node", str(ctx.exception))
+
+    def test_build_tx_command_rejects_non_dict_args(self):
+        """args must be a dict, not a list."""
+        adapter = self._make_adapter()
+        with self.assertRaises(ValueError) as ctx:
+            adapter.build_tx_command({
+                "cmd_id": "com_ping",
+                "args": [],
+                "dest": "LPPM",
+                "echo": "NONE",
+                "ptype": "CMD",
+            })
+        self.assertIn("args must be a dict", str(ctx.exception))
+
+    def test_build_tx_command_rejects_non_dict_payload(self):
+        """payload must be a dict."""
+        adapter = self._make_adapter()
+        with self.assertRaises(ValueError):
+            adapter.build_tx_command([])
+
 
 if __name__ == "__main__":
     unittest.main()

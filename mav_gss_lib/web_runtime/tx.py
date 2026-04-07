@@ -103,7 +103,7 @@ async def ws_tx(websocket: WebSocket):
                     runtime.tx.renumber_queue()
                     runtime.tx.save_queue()
                     await runtime.tx.send_queue_update()
-                except (ValueError, KeyError) as exc:
+                except (ValueError, KeyError, TypeError, AttributeError) as exc:
                     await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
 
             elif action == "delete":

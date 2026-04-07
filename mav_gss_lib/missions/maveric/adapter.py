@@ -117,11 +117,15 @@ class MavericMissionAdapter:
         Returns: {raw_cmd: bytes, display: dict, guard: bool}
         Raises ValueError on validation failure.
         """
-        cmd_id = payload.get("cmd_id", "").lower()
+        if not isinstance(payload, dict):
+            raise ValueError("payload must be a dict")
+        cmd_id = str(payload.get("cmd_id", "")).lower()
         args_dict = payload.get("args", {})
-        dest_name = payload.get("dest", "")
-        echo_name = payload.get("echo", "NONE")
-        ptype_name = payload.get("ptype", "CMD")
+        if not isinstance(args_dict, dict):
+            raise ValueError("args must be a dict")
+        dest_name = str(payload.get("dest", ""))
+        echo_name = str(payload.get("echo", "NONE"))
+        ptype_name = str(payload.get("ptype", "CMD"))
 
         from mav_gss_lib.missions.maveric.wire_format import (
             resolve_node, resolve_ptype,
@@ -143,6 +147,9 @@ class MavericMissionAdapter:
         defn = self.cmd_defs.get(cmd_id, {})
         if defn.get("rx_only"):
             raise ValueError(f"'{cmd_id}' is receive-only")
+        allowed_nodes = defn.get("nodes", [])
+        if allowed_nodes and dest_name not in allowed_nodes:
+            raise ValueError(f"'{cmd_id}' not valid for node '{dest_name}' (allowed: {', '.join(allowed_nodes)})")
 
         tx_args_schema = defn.get("tx_args", [])
         args_parts = []
