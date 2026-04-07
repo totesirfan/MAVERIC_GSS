@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from mav_gss_lib.mission_adapter import load_mission_adapter
-from mav_gss_lib.protocol import clean_text
+from mav_gss_lib.textutil import clean_text
 
 DUP_WINDOW = 1.0  # seconds -- only flag as duplicate if same fingerprint seen within this window
 
@@ -195,7 +195,7 @@ def build_rx_log_record(pkt, version, meta, adapter):
 
     Platform envelope: stable fields shared by all missions.
     Mission block: adapter-provided opaque payload.
-    Protocol/integrity blocks: serialized from adapter rendering slots.
+    Rendering: full _rendering for replay passthrough.
     """
     from dataclasses import asdict
 
@@ -212,9 +212,19 @@ def build_rx_log_record(pkt, version, meta, adapter):
     if pkt.delta_t is not None:
         record["delta_t"] = round(pkt.delta_t, 4)
 
-    # Protocol and integrity blocks — serialized from adapter rendering slots
-    record["protocol_blocks"] = [asdict(b) for b in adapter.protocol_blocks(pkt)]
-    record["integrity_blocks"] = [asdict(b) for b in adapter.integrity_blocks(pkt)]
+    # Full rendering payload for replay passthrough
+    protocol_blocks = [asdict(b) for b in adapter.protocol_blocks(pkt)]
+    integrity_blocks = [asdict(b) for b in adapter.integrity_blocks(pkt)]
+    record["_rendering"] = {
+        "row": adapter.packet_list_row(pkt),
+        "detail_blocks": adapter.packet_detail_blocks(pkt),
+        "protocol_blocks": protocol_blocks,
+        "integrity_blocks": integrity_blocks,
+    }
+
+    # Keep top-level copies for backward compatibility with older replay code
+    record["protocol_blocks"] = protocol_blocks
+    record["integrity_blocks"] = integrity_blocks
 
     # Mission-specific payload — opaque to platform
     mission_data = adapter.build_log_mission_data(pkt)
