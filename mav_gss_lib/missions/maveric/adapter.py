@@ -113,16 +113,17 @@ class MavericMissionAdapter:
     def build_tx_command(self, payload):
         """Build a mission command from structured input.
 
-        Accepts: {cmd_id, args: {name: value, ...}, dest, echo, ptype, guard?}
+        Accepts: {cmd_id, args: str | {name: value, ...}, src?, dest, echo, ptype, guard?}
+        - args as a flat string: CLI path — positional tokens matched to tx_args schema
+        - args as a dict: mission builder path — {name: value} mapping
+        - src (optional): override source node; defaults to GS_NODE
         Returns: {raw_cmd: bytes, display: dict, guard: bool}
         Raises ValueError on validation failure.
         """
         if not isinstance(payload, dict):
             raise ValueError("payload must be a dict")
         cmd_id = str(payload.get("cmd_id", "")).lower()
-        args_dict = payload.get("args", {})
-        if not isinstance(args_dict, dict):
-            raise ValueError("args must be a dict")
+        args_input = payload.get("args", {})
         dest_name = str(payload.get("dest", ""))
         echo_name = str(payload.get("echo", "NONE"))
         ptype_name = str(payload.get("ptype", "CMD"))
@@ -131,7 +132,16 @@ class MavericMissionAdapter:
             resolve_node, resolve_ptype,
             node_name as _node_name, ptype_name as _ptype_name,
         )
-        src = GS_NODE
+
+        # Resolve src: explicit payload value overrides GS_NODE default
+        src_name = str(payload.get("src", ""))
+        if src_name:
+            src = resolve_node(src_name)
+            if src is None:
+                raise ValueError(f"unknown source node '{src_name}'")
+        else:
+            src = GS_NODE
+
         dest = resolve_node(dest_name)
         if dest is None:
             raise ValueError(f"unknown destination node '{dest_name}'")
@@ -152,12 +162,29 @@ class MavericMissionAdapter:
             raise ValueError(f"'{cmd_id}' not valid for node '{dest_name}' (allowed: {', '.join(allowed_nodes)})")
 
         tx_args_schema = defn.get("tx_args", [])
-        args_parts = []
-        for arg_def in tx_args_schema:
-            val = args_dict.get(arg_def["name"], "")
-            if val:
-                args_parts.append(str(val))
-        args_str = " ".join(args_parts)
+
+        # Normalize args_input to args_str (wire) and args_dict (display)
+        if isinstance(args_input, str):
+            # CLI path: flat string goes to wire directly; split for display matching
+            args_str = args_input
+            tokens = args_str.split() if args_str.strip() else []
+            args_dict = {}
+            for i, arg_def in enumerate(tx_args_schema):
+                if i < len(tokens):
+                    args_dict[arg_def["name"]] = tokens[i]
+            extra_tokens = tokens[len(tx_args_schema):]
+        else:
+            # Mission builder path: reconstruct args_str from dict
+            if not isinstance(args_input, dict):
+                raise ValueError("args must be a str or dict")
+            args_dict = args_input
+            args_parts = []
+            for arg_def in tx_args_schema:
+                val = args_dict.get(arg_def["name"], "")
+                if val:
+                    args_parts.append(str(val))
+            args_str = " ".join(args_parts)
+            extra_tokens = []
 
         valid, issues = validate_args(cmd_id, args_str, self.cmd_defs)
         if not valid:
@@ -176,6 +203,8 @@ class MavericMissionAdapter:
             val = args_dict.get(arg_def["name"], "")
             if val:
                 display_fields.append({"name": arg_def["name"], "value": str(val)})
+        for i, extra in enumerate(extra_tokens):
+            display_fields.append({"name": f"arg{len(tx_args_schema) + i}", "value": str(extra)})
 
         display = {
             "title": cmd_id,

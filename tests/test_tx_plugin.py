@@ -281,7 +281,7 @@ class TestMavericBuildTxCommand(unittest.TestCase):
         self.assertIn("not valid for node", str(ctx.exception))
 
     def test_build_tx_command_rejects_non_dict_args(self):
-        """args must be a dict, not a list."""
+        """args must be a str or dict, not a list."""
         adapter = self._make_adapter()
         with self.assertRaises(ValueError) as ctx:
             adapter.build_tx_command({
@@ -291,13 +291,143 @@ class TestMavericBuildTxCommand(unittest.TestCase):
                 "echo": "NONE",
                 "ptype": "CMD",
             })
-        self.assertIn("args must be a dict", str(ctx.exception))
+        self.assertIn("args must be a str or dict", str(ctx.exception))
 
     def test_build_tx_command_rejects_non_dict_payload(self):
         """payload must be a dict."""
         adapter = self._make_adapter()
         with self.assertRaises(ValueError):
             adapter.build_tx_command([])
+
+
+def _make_maveric_adapter():
+    """Load a fully initialized MAVERIC adapter for testing."""
+    from mav_gss_lib.config import load_gss_config
+    from mav_gss_lib.mission_adapter import load_mission_metadata
+    from mav_gss_lib.missions.maveric import init_mission
+    from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
+
+    cfg = load_gss_config()
+    load_mission_metadata(cfg)
+    resources = init_mission(cfg)
+    return MavericMissionAdapter(cmd_defs=resources["cmd_defs"])
+
+
+class TestBuildTxCommandStringArgs(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.adapter = _make_maveric_adapter()
+        # Pick a command with tx_args and one without for use in tests
+        cmd_defs = cls.adapter.cmd_defs
+        cls.cmd_with_args = None
+        cls.cmd_no_args = None
+        for cmd_id, defn in cmd_defs.items():
+            if defn.get("rx_only"):
+                continue
+            if defn.get("tx_args") and not cls.cmd_with_args:
+                cls.cmd_with_args = (cmd_id, defn)
+            if not defn.get("tx_args") and not cls.cmd_no_args:
+                cls.cmd_no_args = (cmd_id, defn)
+            if cls.cmd_with_args and cls.cmd_no_args:
+                break
+
+    def _routing_for(self, defn):
+        """Return dest/echo/ptype routing from command definition defaults.
+
+        Converts numeric node/ptype IDs to names using the adapter's resolution tables.
+        Falls back to the first allowed node, or to a known valid node name.
+        """
+        from mav_gss_lib.missions.maveric.wire_format import node_name, ptype_name, NODE_NAMES
+
+        # Resolve dest: prefer defn.dest, else first allowed node, else first known node
+        raw_dest = defn.get("dest")
+        if isinstance(raw_dest, int):
+            dest = node_name(raw_dest)
+        elif raw_dest:
+            dest = raw_dest
+        elif defn.get("nodes"):
+            dest = defn["nodes"][0]
+        else:
+            # Fall back to first non-NONE, non-GS node available
+            dest = next((v for k, v in sorted(NODE_NAMES.items()) if k not in (0, 6)), "GS")
+
+        raw_echo = defn.get("echo", 0)
+        echo = node_name(raw_echo) if isinstance(raw_echo, int) else raw_echo
+
+        raw_ptype = defn.get("ptype", 1)
+        ptype = ptype_name(raw_ptype) if isinstance(raw_ptype, int) else raw_ptype
+
+        return {"dest": dest, "echo": echo, "ptype": ptype}
+
+    def test_string_args_accepted(self):
+        """build_tx_command with args as a flat string should return bytes raw_cmd."""
+        cmd_id, defn = self.cmd_with_args
+        tx_args = defn.get("tx_args", [])
+        args_str = " ".join("test" for _ in tx_args)
+        payload = {"cmd_id": cmd_id, "args": args_str, **self._routing_for(defn)}
+        result = self.adapter.build_tx_command(payload)
+        self.assertIsInstance(result["raw_cmd"], bytes)
+        self.assertIn("display", result)
+
+    def test_string_args_display_has_named_fields(self):
+        """Display fields should include Src, Dest, and each tx_arg name."""
+        cmd_id, defn = self.cmd_with_args
+        tx_args = defn.get("tx_args", [])
+        args_str = " ".join("test" for _ in tx_args)
+        payload = {"cmd_id": cmd_id, "args": args_str, **self._routing_for(defn)}
+        result = self.adapter.build_tx_command(payload)
+        field_names = [f["name"] for f in result["display"]["fields"]]
+        self.assertIn("Src", field_names)
+        self.assertIn("Dest", field_names)
+        for arg_def in tx_args:
+            self.assertIn(arg_def["name"], field_names)
+
+    def test_dict_args_still_works(self):
+        """Existing dict args path must still produce valid raw_cmd bytes."""
+        cmd_id, defn = self.cmd_with_args
+        tx_args = defn.get("tx_args", [])
+        args_dict = {arg["name"]: "test" for arg in tx_args}
+        payload = {"cmd_id": cmd_id, "args": args_dict, **self._routing_for(defn)}
+        result = self.adapter.build_tx_command(payload)
+        self.assertIsInstance(result["raw_cmd"], bytes)
+
+    def test_empty_string_args_accepted(self):
+        """Empty string args for a command with no tx_args should succeed."""
+        if self.cmd_no_args is None:
+            self.skipTest("No zero-arg command found in schema")
+        cmd_id, defn = self.cmd_no_args
+        payload = {"cmd_id": cmd_id, "args": "", **self._routing_for(defn)}
+        result = self.adapter.build_tx_command(payload)
+        self.assertIsInstance(result["raw_cmd"], bytes)
+
+    def test_explicit_src_honored(self):
+        """Explicit src in payload should be reflected in the Src display field."""
+        cmd_id, defn = self.cmd_with_args
+        tx_args = defn.get("tx_args", [])
+        args_str = " ".join("test" for _ in tx_args)
+        routing = self._routing_for(defn)
+        src_override = routing["dest"]  # use dest as an explicit src override
+        payload = {
+            "cmd_id": cmd_id,
+            "args": args_str,
+            "src": src_override,
+            **routing,
+        }
+        result = self.adapter.build_tx_command(payload)
+        field_map = {f["name"]: f["value"] for f in result["display"]["fields"]}
+        self.assertEqual(field_map["Src"], src_override)
+
+    def test_default_src_is_gs_node(self):
+        """Omitting src should default to GS_NODE in the Src display field."""
+        from mav_gss_lib.missions.maveric.wire_format import GS_NODE, node_name
+        cmd_id, defn = self.cmd_with_args
+        tx_args = defn.get("tx_args", [])
+        args_str = " ".join("test" for _ in tx_args)
+        payload = {"cmd_id": cmd_id, "args": args_str, **self._routing_for(defn)}
+        result = self.adapter.build_tx_command(payload)
+        field_map = {f["name"]: f["value"] for f in result["display"]["fields"]}
+        self.assertEqual(field_map["Src"], node_name(GS_NODE))
 
 
 if __name__ == "__main__":
