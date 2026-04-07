@@ -210,7 +210,9 @@ class TestMavericBuildTxCommand(unittest.TestCase):
         })
         display = result["display"]
         self.assertIn("title", display)
-        self.assertIn("fields", display)
+        self.assertIn("row", display)
+        self.assertIn("detail_blocks", display)
+        self.assertNotIn("fields", display)
         self.assertEqual(display["title"], "com_ping")
 
     def test_build_tx_command_with_args(self):
@@ -224,9 +226,10 @@ class TestMavericBuildTxCommand(unittest.TestCase):
         })
         self.assertIn("raw_cmd", result)
         display = result["display"]
-        self.assertIn("fields", display)
-        field_names = [f["name"] for f in display["fields"]]
-        self.assertIn("Type", field_names)
+        self.assertIn("detail_blocks", display)
+        self.assertNotIn("fields", display)
+        all_field_names = [f["name"] for b in display["detail_blocks"] for f in b["fields"]]
+        self.assertIn("Type", all_field_names)
 
     def test_build_tx_command_rejects_unknown_cmd(self):
         adapter = self._make_adapter()
@@ -313,6 +316,34 @@ def _make_maveric_adapter():
     return MavericMissionAdapter(cmd_defs=resources["cmd_defs"])
 
 
+class TestTxQueueColumns(unittest.TestCase):
+    def test_maveric_returns_column_defs(self):
+        adapter = _make_maveric_adapter()
+        cols = adapter.tx_queue_columns()
+        self.assertIsInstance(cols, list)
+        self.assertTrue(len(cols) > 0)
+        for col in cols:
+            self.assertIn("id", col)
+            self.assertIn("label", col)
+
+    def test_columns_include_dest_ptype_cmd(self):
+        adapter = _make_maveric_adapter()
+        col_ids = [c["id"] for c in adapter.tx_queue_columns()]
+        self.assertIn("dest", col_ids)
+        self.assertIn("ptype", col_ids)
+        self.assertIn("cmd", col_ids)
+
+    def test_src_column_has_hide_if_all(self):
+        adapter = _make_maveric_adapter()
+        cols = {c["id"]: c for c in adapter.tx_queue_columns()}
+        self.assertIn("GS", cols["src"].get("hide_if_all", []))
+
+    def test_echo_column_has_hide_if_all(self):
+        adapter = _make_maveric_adapter()
+        cols = {c["id"]: c for c in adapter.tx_queue_columns()}
+        self.assertIn("NONE", cols["echo"].get("hide_if_all", []))
+
+
 class TestBuildTxCommandStringArgs(unittest.TestCase):
 
     @classmethod
@@ -371,17 +402,17 @@ class TestBuildTxCommandStringArgs(unittest.TestCase):
         self.assertIn("display", result)
 
     def test_string_args_display_has_named_fields(self):
-        """Display fields should include Src, Dest, and each tx_arg name."""
+        """Display detail_blocks should include routing (Src, Dest) and each tx_arg name."""
         cmd_id, defn = self.cmd_with_args
         tx_args = defn.get("tx_args", [])
         args_str = " ".join("test" for _ in tx_args)
         payload = {"cmd_id": cmd_id, "args": args_str, **self._routing_for(defn)}
         result = self.adapter.build_tx_command(payload)
-        field_names = [f["name"] for f in result["display"]["fields"]]
-        self.assertIn("Src", field_names)
-        self.assertIn("Dest", field_names)
+        all_field_names = [f["name"] for b in result["display"]["detail_blocks"] for f in b["fields"]]
+        self.assertIn("Src", all_field_names)
+        self.assertIn("Dest", all_field_names)
         for arg_def in tx_args:
-            self.assertIn(arg_def["name"], field_names)
+            self.assertIn(arg_def["name"], all_field_names)
 
     def test_dict_args_still_works(self):
         """Existing dict args path must still produce valid raw_cmd bytes."""
@@ -402,7 +433,7 @@ class TestBuildTxCommandStringArgs(unittest.TestCase):
         self.assertIsInstance(result["raw_cmd"], bytes)
 
     def test_explicit_src_honored(self):
-        """Explicit src in payload should be reflected in the Src display field."""
+        """Explicit src in payload should be reflected in the Src routing field."""
         cmd_id, defn = self.cmd_with_args
         tx_args = defn.get("tx_args", [])
         args_str = " ".join("test" for _ in tx_args)
@@ -415,19 +446,81 @@ class TestBuildTxCommandStringArgs(unittest.TestCase):
             **routing,
         }
         result = self.adapter.build_tx_command(payload)
-        field_map = {f["name"]: f["value"] for f in result["display"]["fields"]}
+        routing_block = next(b for b in result["display"]["detail_blocks"] if b["kind"] == "routing")
+        field_map = {f["name"]: f["value"] for f in routing_block["fields"]}
         self.assertEqual(field_map["Src"], src_override)
 
     def test_default_src_is_gs_node(self):
-        """Omitting src should default to GS_NODE in the Src display field."""
+        """Omitting src should default to GS_NODE in the Src routing field."""
         from mav_gss_lib.missions.maveric.wire_format import GS_NODE, node_name
         cmd_id, defn = self.cmd_with_args
         tx_args = defn.get("tx_args", [])
         args_str = " ".join("test" for _ in tx_args)
         payload = {"cmd_id": cmd_id, "args": args_str, **self._routing_for(defn)}
         result = self.adapter.build_tx_command(payload)
-        field_map = {f["name"]: f["value"] for f in result["display"]["fields"]}
+        routing_block = next(b for b in result["display"]["detail_blocks"] if b["kind"] == "routing")
+        field_map = {f["name"]: f["value"] for f in routing_block["fields"]}
         self.assertEqual(field_map["Src"], node_name(GS_NODE))
+
+
+def _find_cmd_with_defaults(adapter):
+    for cid, defn in adapter.cmd_defs.items():
+        if not defn.get("rx_only") and defn.get("dest") is not None:
+            return cid, defn
+    return None, None
+
+
+class TestTxRendering(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        from mav_gss_lib.missions.maveric.wire_format import node_name
+        cls.adapter = _make_maveric_adapter()
+        # Prefer a zero-args command with dest defaults; fall back to first with defaults
+        cmd_id, defn = None, None
+        for cid, d in cls.adapter.cmd_defs.items():
+            if not d.get("rx_only") and d.get("dest") is not None:
+                if not d.get("tx_args"):
+                    cmd_id, defn = cid, d
+                    break
+        if cmd_id is None:
+            cmd_id, defn = _find_cmd_with_defaults(cls.adapter)
+        dest_raw = defn["dest"]
+        dest_str = node_name(dest_raw) if isinstance(dest_raw, int) else dest_raw
+        cls.payload = {"cmd_id": cmd_id, "args": "", "dest": dest_str}
+        cls.cmd_id = cmd_id
+
+    def test_display_has_row(self):
+        result = self.adapter.build_tx_command(self.payload)
+        self.assertIn("row", result["display"])
+        self.assertIsInstance(result["display"]["row"], dict)
+
+    def test_row_has_column_values(self):
+        result = self.adapter.build_tx_command(self.payload)
+        row = result["display"]["row"]
+        col_ids = [c["id"] for c in self.adapter.tx_queue_columns()]
+        for cid in col_ids:
+            self.assertIn(cid, row)
+
+    def test_display_has_detail_blocks(self):
+        result = self.adapter.build_tx_command(self.payload)
+        blocks = result["display"]["detail_blocks"]
+        self.assertIsInstance(blocks, list)
+        self.assertTrue(len(blocks) > 0)
+        for block in blocks:
+            self.assertIn("kind", block)
+            self.assertIn("label", block)
+            self.assertIn("fields", block)
+
+    def test_display_no_fields(self):
+        """display.fields should not exist — clean cut."""
+        result = self.adapter.build_tx_command(self.payload)
+        self.assertNotIn("fields", result["display"])
+
+    def test_title_and_subtitle_preserved(self):
+        result = self.adapter.build_tx_command(self.payload)
+        self.assertEqual(result["display"]["title"], self.cmd_id)
+        self.assertIn("\u2192", result["display"]["subtitle"])
 
 
 class TestCmdLineToPayload(unittest.TestCase):

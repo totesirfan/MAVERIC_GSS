@@ -191,6 +191,13 @@ async def api_tx_capabilities(request: Request):
     return get_tx_capabilities(runtime.adapter)
 
 
+@router.get("/api/tx-columns")
+async def api_tx_columns(request: Request):
+    """Return adapter-provided column definitions for TX queue/history rendering."""
+    runtime = get_runtime(request)
+    return runtime.adapter.tx_queue_columns()
+
+
 # =============================================================================
 #  QUEUE IMPORT / EXPORT
 # =============================================================================

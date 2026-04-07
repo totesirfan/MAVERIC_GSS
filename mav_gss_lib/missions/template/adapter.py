@@ -72,6 +72,10 @@ class TemplateMissionAdapter:
         args = " ".join(parts[1:])
         return {"cmd_id": cmd, "args": args, "dest": "", "echo": "", "ptype": ""}
 
+    def tx_queue_columns(self) -> list[dict]:
+        """Return column definitions for the TX queue/history list."""
+        return []
+
     # -- Rendering slots (UI) --
 
     def packet_list_columns(self) -> list[dict]:

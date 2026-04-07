@@ -131,6 +131,10 @@ class EchoMissionAdapter:
         args = " ".join(parts[1:])
         return {"cmd_id": cmd, "args": args, "dest": "", "echo": "", "ptype": ""}
 
+    def tx_queue_columns(self) -> list[dict]:
+        """Return column definitions for the TX queue/history list."""
+        return []
+
 
 # Explicit entry point for shared mission loader
 ADAPTER_CLASS = EchoMissionAdapter
