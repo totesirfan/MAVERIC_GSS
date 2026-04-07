@@ -417,15 +417,25 @@ class TestReplayCompat(unittest.TestCase):
 
         entry = {
             "n": 1, "ts": "2026-04-06T10:30:00",
-            "cmd": "com_ping", "args": "",
-            "src": 6, "dest": 1, "echo": 0, "ptype": 1,
-            "raw_hex": "deadbeef", "len": 4,
+            "type": "mission_cmd",
+            "display": {
+                "title": "com_ping",
+                "subtitle": "GS \u2192 LPPM",
+                "row": {"src": "GS", "dest": "LPPM", "echo": "NONE", "ptype": "REQ", "cmd": "com_ping"},
+                "detail_blocks": [{"kind": "routing", "label": "Routing", "fields": [
+                    {"name": "Src", "value": "GS"}, {"name": "Dest", "value": "LPPM"},
+                ]}],
+            },
+            "raw_hex": "deadbeef", "raw_len": 4, "len": 4,
         }
         result = parse_replay_entry(entry, self.cmd_defs)
         self.assertIsNotNone(result)
-        self.assertEqual(result["cmd"], "com_ping")
+        self.assertTrue(result["is_tx"])
         self.assertFalse(result["is_dup"])
         self.assertFalse(result["is_echo"])
+        # Rendering uses persisted display directly
+        row_values = result["_rendering"]["row"]["values"]
+        self.assertEqual(row_values["cmd"], "com_ping")
 
 
 if __name__ == "__main__":

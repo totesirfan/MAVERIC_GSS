@@ -457,8 +457,8 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
             "_rendering": entry.get("_rendering", {}),
         }
     else:
-        # TX replay normalization — unchanged in this phase
-        raw_cmd = entry.get("cmd")
+        # TX log entry normalization — consumes persisted display directly
+        display = entry.get("display", {})
         normalized = {
             "num": entry.get("n", 0),
             "time": ts_time,
@@ -468,28 +468,15 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
             "is_dup": False,
             "is_echo": False,
             "is_unknown": False,
+            "is_tx": True,
             "raw_hex": entry.get("raw_hex", ""),
-            "csp_header": entry.get("csp"),
-            "cmd": str(entry.get("cmd", "")),
-            "src": str(entry.get("src_lbl", adapter.node_name(entry.get("src", 0)) if adapter else str(entry.get("src", 0)))),
-            "dest": str(entry.get("dest_lbl", adapter.node_name(entry.get("dest", 0)) if adapter else str(entry.get("dest", 0)))),
-            "echo": str(entry.get("echo_lbl", adapter.node_name(entry.get("echo", 0)) if adapter else str(entry.get("echo", 0)))),
-            "ptype": str(entry.get("ptype_lbl", adapter.ptype_name(entry.get("ptype", 0)) if adapter else str(entry.get("ptype", 0)))),
-            "args_named": [],
-            "args_extra": [],
             "warnings": [],
-        }
-
-        normalized["is_tx"] = True
-
-        # TX log entries: consume persisted display from the raw log entry
-        # Wrap row in {values: ...} to match the RenderingRow shape used by CellValue
-        display = entry.get("display", {})
-        normalized["_rendering"] = {
-            "row": {"values": display.get("row", {}), "_meta": {}},
-            "detail_blocks": display.get("detail_blocks", []),
-            "protocol_blocks": [],
-            "integrity_blocks": [],
+            "_rendering": {
+                "row": {"values": display.get("row", {}), "_meta": {}},
+                "detail_blocks": display.get("detail_blocks", []),
+                "protocol_blocks": [],
+                "integrity_blocks": [],
+            },
         }
 
     return normalized

@@ -5,8 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Separator } from '@/components/ui/separator'
-import { colors, frameColor } from '@/lib/colors'
-import { col } from '@/lib/columns'
+import { colors } from '@/lib/colors'
 import { ContextMenuRoot, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@/components/shared/ContextMenu'
 import { CellValue, SemanticBlocks, ProtocolBlocks, IntegritySection, extractFromRendering } from '@/components/shared/RenderingBlocks'
 import type { ColumnDef, RenderingData } from '@/lib/types'
@@ -339,12 +338,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                   <div className="flex items-center justify-center h-full text-xs" style={{ color: colors.dim }}>No matching entries</div>
                 ) : (
                   entries.map((e, i) => {
-                    const num = (e.num ?? i + 1) as number
                     const timeStr = String(e.time ?? '')
-                    const frame = String(e.frame ?? '')
-                    const size = (e.size ?? 0) as number
-                    const isEcho = e.is_echo as boolean
-                    const isDup = e.is_dup as boolean
                     const rawHex = String(e.raw_hex ?? '')
                     const warnings = (Array.isArray(e.warnings) ? e.warnings : []) as string[]
                     const isExpanded = expandedSet.has(i)
@@ -365,26 +359,12 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                               onClick={() => setExpandedSet(prev => { const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next })}
                             >
                               {isExpanded ? <ChevronDown className="size-3 shrink-0" style={{ color: colors.label }} /> : <ChevronRight className="size-3 shrink-0" style={{ color: colors.dim }} />}
-                              {(() => {
+                              {row && (() => {
                                 const isTx = !!(e.is_tx)
                                 const cols = isTx ? txColumns : rxColumns
-                                if (row && cols.length > 0) {
-                                  return cols.map(c => (
-                                    <CellValue key={c.id} col={c} row={row} showFrame={true} showEcho={true} />
-                                  ))
-                                }
-                                return (
-                                  <>
-                                    <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
-                                    <span className={`${col.time} shrink-0 tabular-nums`} style={{ color: colors.dim }}>{timeStr}</span>
-                                    <span className={`${col.frame} shrink-0`} style={{ color: frameColor(frame) }}>{frame || '--'}</span>
-                                    <span className="flex-1 min-w-0 truncate" style={{ color: colors.dim }}>{size}B</span>
-                                    <span className={`${col.flags} flex items-center gap-1 justify-end shrink-0`}>
-                                      {isEcho && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.ulColor}22`, color: colors.ulColor }}>UL</Badge>}
-                                      {isDup && <Badge className="text-[11px] px-1 py-0 h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
-                                    </span>
-                                  </>
-                                )
+                                return cols.map(c => (
+                                  <CellValue key={c.id} col={c} row={row} showFrame={true} showEcho={true} />
+                                ))
                               })()}
                             </div>
 
