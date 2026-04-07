@@ -125,6 +125,26 @@ async def ws_tx(websocket: WebSocket):
                 except (ValueError, KeyError) as exc:
                     await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
 
+            elif action == "queue_mission_cmd":
+                if sending():
+                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
+                    continue
+                if len(runtime.tx.queue) >= MAX_QUEUE:
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "error": f"queue full ({MAX_QUEUE} items max)"})
+                    )
+                    continue
+                try:
+                    from .runtime import validate_mission_cmd
+                    payload = msg.get("payload", {})
+                    item = validate_mission_cmd(payload, runtime=runtime)
+                    runtime.tx.queue.append(item)
+                    runtime.tx.renumber_queue()
+                    runtime.tx.save_queue()
+                    await runtime.tx.send_queue_update()
+                except (ValueError, KeyError) as exc:
+                    await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
+
             elif action == "delete":
                 if sending():
                     await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))

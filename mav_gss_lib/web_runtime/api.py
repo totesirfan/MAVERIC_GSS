@@ -183,6 +183,14 @@ async def api_columns(request: Request):
     return runtime.adapter.packet_list_columns()
 
 
+@router.get("/api/tx/capabilities")
+async def api_tx_capabilities(request: Request):
+    """Return TX capabilities for the loaded mission adapter."""
+    from mav_gss_lib.mission_adapter import get_tx_capabilities
+    runtime = get_runtime(request)
+    return get_tx_capabilities(runtime.adapter)
+
+
 # =============================================================================
 #  QUEUE IMPORT / EXPORT
 # =============================================================================

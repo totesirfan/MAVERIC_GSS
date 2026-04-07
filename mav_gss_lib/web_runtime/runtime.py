@@ -22,7 +22,7 @@ from typing import Any
 from .state import SHUTDOWN_DELAY, WebRuntime, ensure_runtime
 
 try:
-    from mav_gss_lib.golay import MAX_PAYLOAD as GOLAY_MAX_PAYLOAD
+    from mav_gss_lib.protocols.golay import MAX_PAYLOAD as GOLAY_MAX_PAYLOAD
 except ImportError:
     GOLAY_MAX_PAYLOAD = 223
 
@@ -101,6 +101,49 @@ def make_delay(delay_ms):
     return {"type": "delay", "delay_ms": delay_ms}
 
 
+def make_mission_cmd(payload, adapter=None):
+    """Build one mission-command queue item from a mission-specific payload.
+
+    Calls the adapter's build_tx_command() to validate, encode, and
+    produce display metadata. Does NOT check MTU — use
+    validate_mission_cmd() for full admission.
+
+    The original payload is stored so it can be re-built on queue restore.
+    """
+    result = adapter.build_tx_command(payload)
+    return {
+        "type": "mission_cmd",
+        "raw_cmd": result["raw_cmd"],
+        "display": result.get("display", {}),
+        "guard": result.get("guard", False),
+        "payload": payload,
+    }
+
+
+def validate_mission_cmd(payload, runtime: WebRuntime | None = None):
+    """Validate and build a mission-command queue item.
+
+    Checks: adapter has TX builder, build succeeds, MTU fits.
+    """
+    runtime = ensure_runtime(runtime)
+    from mav_gss_lib.mission_adapter import has_tx_builder
+
+    if not has_tx_builder(runtime.adapter):
+        raise ValueError("mission does not support TX command builder")
+
+    item = make_mission_cmd(payload, adapter=runtime.adapter)
+
+    uplink_mode, send_csp, _send_ax25 = build_send_context(runtime)
+    if uplink_mode == "ASM+Golay":
+        csp_packet = send_csp.wrap(item["raw_cmd"])
+        if len(csp_packet) > GOLAY_MAX_PAYLOAD:
+            raise ValueError(
+                f"command too large for ASM+Golay RS payload "
+                f"({len(csp_packet)}B > {GOLAY_MAX_PAYLOAD}B)"
+            )
+    return item
+
+
 def validate_cmd_item(src, dest, echo, ptype_val, cmd_id, args, guard=False, runtime: WebRuntime | None = None):
     """Validate one TX command item against schema and framing limits."""
     runtime = ensure_runtime(runtime)
@@ -133,6 +176,17 @@ def sanitize_queue_items(items, runtime: WebRuntime | None = None):
     for item in items:
         if item["type"] == "delay":
             accepted.append(item)
+            continue
+        if item["type"] == "mission_cmd":
+            try:
+                accepted.append(
+                    validate_mission_cmd(
+                        item.get("payload", {}),
+                        runtime=runtime,
+                    )
+                )
+            except ValueError:
+                skipped += 1
             continue
         try:
             accepted.append(
