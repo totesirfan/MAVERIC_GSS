@@ -302,24 +302,6 @@ class TxService:
                 count += 1
                 item["num"] = count
 
-    def match_tx_args(self, cmd_id: str, args_str: str) -> list:
-        """Map TX args to schema names for UI/history presentation."""
-        defn = self.runtime.cmd_defs.get(cmd_id.lower(), {})
-        tx_args_schema = defn.get("tx_args", [])
-        parts = args_str.split() if args_str else []
-        named = []
-        for index, schema_arg in enumerate(tx_args_schema):
-            if index < len(parts):
-                named.append({"name": schema_arg["name"], "value": parts[index]})
-        return named
-
-    def tx_extra_args(self, cmd_id: str, args_str: str) -> list:
-        """Return TX args that extend beyond the named schema fields."""
-        defn = self.runtime.cmd_defs.get(cmd_id.lower(), {})
-        tx_args_schema = defn.get("tx_args", [])
-        parts = args_str.split() if args_str else []
-        return parts[len(tx_args_schema) :]
-
     def queue_summary(self):
         """Summarize queue size, guard count, and rough execution time."""
         cmds = sum(1 for item in self.queue if item["type"] in ("cmd", "mission_cmd"))
@@ -332,32 +314,15 @@ class TxService:
 
     def queue_items_json(self):
         """Project the current queue into the websocket/API JSON shape."""
-        adapter = self.runtime.adapter
         result = []
         for item in self.queue:
             if item["type"] == "delay":
                 result.append({"type": "delay", "delay_ms": item["delay_ms"]})
                 continue
-            if item["type"] == "mission_cmd":
-                result.append({
-                    "type": "mission_cmd",
-                    "num": item.get("num", 0),
-                    "display": item.get("display", {}),
-                    "guard": item.get("guard", False),
-                    "size": len(item.get("raw_cmd", b"")),
-                })
-                continue
             result.append({
-                "type": "cmd",
+                "type": "mission_cmd",
                 "num": item.get("num", 0),
-                "src": adapter.node_name(item["src"]),
-                "dest": adapter.node_name(item["dest"]),
-                "echo": adapter.node_name(item["echo"]),
-                "ptype": adapter.ptype_name(item["ptype"]),
-                "cmd": item["cmd"],
-                "args": item.get("args", ""),
-                "args_named": self.match_tx_args(item["cmd"], item.get("args", "")),
-                "args_extra": self.tx_extra_args(item["cmd"], item.get("args", "")),
+                "display": item.get("display", {}),
                 "guard": item.get("guard", False),
                 "size": len(item.get("raw_cmd", b"")),
             })
