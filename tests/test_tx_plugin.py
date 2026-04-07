@@ -524,5 +524,28 @@ class TestCmdLineToPayload(unittest.TestCase):
             self.adapter.cmd_line_to_payload("")
 
 
+class TestQueuePersistence(unittest.TestCase):
+
+    def test_item_to_json_strips_raw_cmd(self):
+        from mav_gss_lib.web_runtime.services import item_to_json
+        item = {
+            "type": "mission_cmd",
+            "raw_cmd": b"\x01\x02",
+            "display": {"title": "ping", "subtitle": "GS -> OBC", "fields": []},
+            "guard": False,
+            "payload": {"cmd_id": "ping", "dest": "OBC"},
+        }
+        result = item_to_json(item)
+        self.assertNotIn("raw_cmd", result)
+        self.assertEqual(result["type"], "mission_cmd")
+        self.assertEqual(result["display"]["title"], "ping")
+
+    def test_item_to_json_delay(self):
+        from mav_gss_lib.web_runtime.services import item_to_json
+        item = {"type": "delay", "delay_ms": 2000}
+        result = item_to_json(item)
+        self.assertEqual(result, {"type": "delay", "delay_ms": 2000})
+
+
 if __name__ == "__main__":
     unittest.main()
