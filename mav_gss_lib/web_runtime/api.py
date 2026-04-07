@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -63,6 +64,57 @@ async def api_status(request: Request):
     }
 
 
+@router.get("/api/selfcheck")
+async def api_selfcheck(request: Request):
+    """Lightweight diagnostic for verifying runtime environment."""
+    runtime = get_runtime(request)
+    general = runtime.cfg.get("general", {})
+
+    # Resolve config file path
+    from mav_gss_lib.config import _DEFAULT_GSS_PATH
+    config_path = str(_DEFAULT_GSS_PATH)
+    config_exists = os.path.isfile(config_path)
+
+    # Resolve command schema path
+    schema_rel = general.get("command_defs", "")
+    schema_resolved = ""
+    schema_exists = False
+    if schema_rel:
+        import importlib
+        mission_id = general.get("mission", "maveric")
+        try:
+            pkg = importlib.import_module(f"mav_gss_lib.missions.{mission_id}")
+            pkg_dir = os.path.dirname(os.path.abspath(pkg.__file__))
+            schema_resolved = os.path.join(pkg_dir, schema_rel)
+            schema_exists = os.path.isfile(schema_resolved)
+        except (ImportError, AttributeError):
+            pass
+
+    # Web build presence
+    from .state import WEB_DIR
+    web_build = (WEB_DIR / "index.html").is_file()
+    asset_dir = (WEB_DIR / "assets").is_dir()
+
+    return {
+        "mission": general.get("mission", "maveric"),
+        "mission_name": general.get("mission_name", ""),
+        "version": general.get("version", ""),
+        "config_path": config_path,
+        "config_exists": config_exists,
+        "schema_path": schema_resolved,
+        "schema_exists": schema_exists,
+        "schema_count": len(runtime.cmd_defs),
+        "web_build": web_build,
+        "web_assets": asset_dir,
+        "zmq_rx_addr": runtime.cfg.get("rx", {}).get("zmq_addr", ""),
+        "zmq_tx_addr": runtime.cfg.get("tx", {}).get("zmq_addr", ""),
+        "zmq_rx_status": runtime.rx.status[0],
+        "zmq_tx_status": runtime.tx.status[0],
+        "log_dir": general.get("log_dir", "logs"),
+        "uplink_mode": runtime.cfg.get("tx", {}).get("uplink_mode", ""),
+    }
+
+
 @router.get("/api/config")
 async def api_config_get(request: Request):
     return get_runtime(request).cfg
@@ -88,11 +140,17 @@ async def api_config_put(update: dict, request: Request):
 
     with runtime.cfg_lock:
         deep_merge(runtime.cfg, update)
-        # Save only operator config (platform defaults + YAML), not mission-merged runtime.
-        # This prevents mission.yml defaults from leaking into the operator's maveric_gss.yml.
-        operator_cfg = load_gss_config()
-        deep_merge(operator_cfg, update)
-        save_gss_config(operator_cfg)
+        # Save only the raw operator YAML + update, not platform defaults or mission data.
+        # This prevents defaults from leaking into the operator's gss.yml.
+        import yaml as _yaml
+        from mav_gss_lib.config import _DEFAULT_GSS_PATH
+        raw_operator = {}
+        gss_path = str(_DEFAULT_GSS_PATH)
+        if os.path.isfile(gss_path):
+            with open(gss_path) as _f:
+                raw_operator = _yaml.safe_load(_f) or {}
+        deep_merge(raw_operator, update)
+        save_gss_config(raw_operator)
         apply_csp(runtime.cfg, runtime.csp)
         apply_ax25(runtime.cfg, runtime.ax25)
         new_rx_addr = runtime.cfg.get("rx", {}).get("zmq_addr", old_rx_addr)
@@ -355,9 +413,8 @@ async def api_logs(request: Request):
 def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None:
     """Normalize one JSONL log entry for replay.
 
-    Reads the stable platform envelope generically, then checks
-    the mission block (Phase 9+) or legacy flat fields (pre-Phase 9)
-    for mission-specific data.
+    RX entries: platform envelope + _rendering passthrough.
+    TX entries: unchanged legacy normalization.
     """
     # Timestamp extraction
     ts = entry.get("gs_ts", "") or entry.get("ts", "")
@@ -368,29 +425,10 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
     else:
         ts_time = ts[:8]
 
-    raw_cmd = entry.get("cmd")
-    mission_block = entry.get("mission", {})
-
     # RX vs TX: RX entries always have "pkt" (packet number)
     is_rx = "pkt" in entry
 
-    # Extract cmd_id for filtering
     if is_rx:
-        if mission_block and "cmd" in mission_block:
-            cmd_id = mission_block["cmd"].get("cmd_id", "")
-        elif isinstance(raw_cmd, dict):
-            cmd_id = raw_cmd.get("cmd_id", "")
-        else:
-            cmd_id = ""
-    else:
-        cmd_id = str(raw_cmd) if isinstance(raw_cmd, str) else str(entry.get("cmd", ""))
-
-    if is_rx:
-        # Mission cmd: try mission block first, fall back to legacy flat
-        mission_cmd = mission_block.get("cmd") if mission_block else None
-        if mission_cmd is None:
-            mission_cmd = raw_cmd if isinstance(raw_cmd, dict) else None
-
         normalized = {
             "num": entry.get("pkt", 0),
             "time": ts_time,
@@ -401,68 +439,12 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
             "is_echo": entry.get("uplink_echo", False),
             "is_unknown": entry.get("unknown", False),
             "raw_hex": entry.get("raw_hex", ""),
-            "csp_header": (mission_block.get("csp_candidate") if mission_block else None) or entry.get("csp_candidate"),
-            "cmd": mission_cmd.get("cmd_id", "") if mission_cmd else "",
-            "src": (adapter.node_name(mission_cmd.get("src", 0)) if adapter else str(mission_cmd.get("src", 0))) if mission_cmd else "",
-            "dest": (adapter.node_name(mission_cmd.get("dest", 0)) if adapter else str(mission_cmd.get("dest", 0))) if mission_cmd else "",
-            "echo": (adapter.node_name(mission_cmd.get("echo", 0)) if adapter else str(mission_cmd.get("echo", 0))) if mission_cmd else "",
-            "ptype": (adapter.ptype_name(mission_cmd.get("pkt_type", 0)) if adapter else str(mission_cmd.get("pkt_type", 0))) if mission_cmd else "",
-            "crc16_ok": mission_cmd.get("crc_valid") if mission_cmd else None,
             "warnings": entry.get("warnings", []),
+            "_rendering": entry.get("_rendering", {}),
         }
-        typed = mission_cmd.get("typed_args") if mission_cmd else None
-        raw_args = mission_cmd.get("args", {}) if mission_cmd else {}
-        log_extra = [str(arg) for arg in (mission_cmd.get("extra_args") or [])] if mission_cmd else []
-        if typed and isinstance(typed, list):
-            normalized["args_named"] = [
-                {
-                    "name": ta["name"],
-                    "value": ta.get("value", b"").hex()
-                    if isinstance(ta.get("value"), (bytes, bytearray))
-                    else str(ta.get("value", "")),
-                    "important": bool(ta.get("important")),
-                }
-                for ta in typed
-            ]
-            normalized["args_extra"] = [
-                arg.hex() if isinstance(arg, (bytes, bytearray)) else str(arg)
-                for arg in (mission_cmd.get("extra_args") or [])
-            ]
-        else:
-            all_values = []
-            if isinstance(raw_args, dict) and raw_args:
-                all_values.extend([str(value) for value in raw_args.values()])
-            elif isinstance(raw_args, list):
-                all_values.extend([str(arg) for arg in raw_args])
-            elif raw_args and not isinstance(raw_args, dict):
-                all_values.append(str(raw_args))
-            all_values.extend(log_extra)
-            defn = cmd_defs.get(cmd_id.lower(), {})
-            rx_defs = defn.get("rx_args", [])
-            named = []
-            for index, schema_arg in enumerate(rx_defs):
-                if schema_arg.get("type") == "blob":
-                    blob_val = " ".join(all_values[index:])
-                    named.append({"name": schema_arg["name"], "value": blob_val, "important": bool(schema_arg.get("important"))})
-                    all_values = all_values[:index]
-                    break
-                if index < len(all_values):
-                    named.append({"name": schema_arg["name"], "value": all_values[index], "important": bool(schema_arg.get("important"))})
-            normalized["args_named"] = named
-            normalized["args_extra"] = all_values[len([arg for arg in rx_defs if arg.get("type") != "blob"]):]
-        crc_status = (mission_block.get("csp_crc32") if mission_block else None) or entry.get("csp_crc32")
-        if isinstance(crc_status, dict):
-            normalized["crc32_ok"] = crc_status.get("valid")
-
-        # Pass through rendering-slot data from the platform envelope so replay
-        # packets get the same _rendering shape as live packets.  Legacy logs
-        # without these fields will use the frontend's MAVERIC fallback path.
-        if "protocol_blocks" in entry or "integrity_blocks" in entry:
-            normalized["_rendering"] = {
-                "protocol_blocks": entry.get("protocol_blocks", []),
-                "integrity_blocks": entry.get("integrity_blocks", []),
-            }
     else:
+        # TX replay normalization — unchanged in this phase
+        raw_cmd = entry.get("cmd")
         normalized = {
             "num": entry.get("n", 0),
             "time": ts_time,
@@ -482,6 +464,19 @@ def parse_replay_entry(entry: dict, cmd_defs: dict, adapter=None) -> dict | None
             "args_named": [],
             "args_extra": [],
             "warnings": [],
+        }
+
+        # Build _rendering for TX replay entries
+        detail_blocks = []
+        cmd_fields = []
+        if normalized.get("cmd"):
+            cmd_fields.append({"name": "Command", "value": normalized["cmd"]})
+        if cmd_fields:
+            detail_blocks.append({"kind": "command", "label": "Command", "fields": cmd_fields})
+        normalized["_rendering"] = {
+            "detail_blocks": detail_blocks,
+            "protocol_blocks": [],
+            "integrity_blocks": [],
         }
 
     return normalized
