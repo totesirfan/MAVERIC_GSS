@@ -44,7 +44,7 @@ csp:
   flags: 0
   csp_crc: true
 
-command_defs: maveric_commands.yml
+command_defs: commands.yml
 
 tx:
   frequency: "437.6 MHz"

@@ -420,7 +420,7 @@ class MavericMissionAdapter:
         Adapter handles: AX.25 header, CSP header, satellite time,
         command routing/args, CRC display.
         """
-        from mav_gss_lib.protocol import format_arg_value
+        from mav_gss_lib.missions.maveric.wire_format import format_arg_value
 
         lines = []
 

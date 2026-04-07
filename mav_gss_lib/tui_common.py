@@ -23,7 +23,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Static
 
-import mav_gss_lib.protocol as protocol
+import mav_gss_lib.missions.maveric.wire_format as protocol
 
 # -- Styles -------------------------------------------------------------------
 

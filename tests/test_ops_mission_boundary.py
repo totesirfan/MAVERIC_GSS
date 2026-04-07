@@ -153,13 +153,10 @@ class TestMissionBoundary(unittest.TestCase):
     def test_shared_loader_loads_maveric(self):
         """load_mission_adapter() loads MAVERIC by default config."""
         from mav_gss_lib.mission_adapter import load_mission_adapter
-        from mav_gss_lib.config import load_gss_config, get_command_defs_path
-        from mav_gss_lib.protocol import init_nodes, load_command_defs
+        from mav_gss_lib.config import load_gss_config
 
         cfg = load_gss_config()
-        init_nodes(cfg)
-        cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
-        adapter = load_mission_adapter(cfg, cmd_defs)
+        adapter = load_mission_adapter(cfg)
         self.assertEqual(type(adapter).__name__, "MavericMissionAdapter")
         self.assertIsInstance(adapter, MissionAdapter)
 

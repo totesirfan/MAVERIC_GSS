@@ -321,11 +321,11 @@ def load_command_defs(path=None):
       warning: str or None -- set when schema could not be loaded.
     Returns (empty dict, warning) on any failure."""
     from pathlib import Path as _Path
-    _cfg_dir = _Path(__file__).resolve().parent.parent.parent / "config"
+    _mission_dir = _Path(__file__).resolve().parent
     if path is None:
-        path = str(_cfg_dir / "maveric_commands.yml")
+        path = str(_mission_dir / "commands.yml")
     elif not os.path.isabs(path):
-        path = str(_cfg_dir / path)
+        path = str((_mission_dir / path).resolve())
     if not _YAML_OK:
         msg = ("PyYAML not installed -- command schema unavailable. "
                "Install with: pip install pyyaml")

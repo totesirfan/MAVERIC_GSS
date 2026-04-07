@@ -10,6 +10,7 @@ maveric_commands.yml
 maveric_gss.yml
 maveric_decoder.yml
 mav_gss_lib/config/maveric_commands.yml
+mav_gss_lib/missions/maveric/commands.yml
 mav_gss_lib/config/maveric_gss.yml
 generated_commands/
 node_modules/

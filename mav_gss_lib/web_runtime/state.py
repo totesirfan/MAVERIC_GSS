@@ -16,20 +16,17 @@ from __future__ import annotations
 
 import secrets
 import threading
-from collections import deque
 from pathlib import Path
-from queue import Queue
-from typing import Any
 
 from mav_gss_lib.config import (
     apply_ax25,
     apply_csp,
-    get_command_defs_path,
     get_generated_commands_dir,
     load_gss_config,
 )
-from mav_gss_lib.mission_adapter import load_mission_adapter, load_mission_metadata
-from mav_gss_lib.protocol import AX25Config, CSPConfig, init_nodes, load_command_defs
+from mav_gss_lib.mission_adapter import load_mission_adapter
+from mav_gss_lib.protocols.ax25 import AX25Config
+from mav_gss_lib.protocols.csp import CSPConfig
 from .services import RxService, TxService
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web" / "dist"
@@ -55,10 +52,8 @@ class WebRuntime:
         self.max_queue = MAX_QUEUE
 
         self.cfg = load_gss_config()
-        load_mission_metadata(self.cfg)    # merge mission.yml BEFORE init_nodes
-        init_nodes(self.cfg)
-        self.cmd_defs, self.cmd_warn = load_command_defs(get_command_defs_path(self.cfg))
-        self.adapter = self._load_adapter()
+        self.adapter = load_mission_adapter(self.cfg)
+        self.cmd_defs = self.adapter.cmd_defs
 
         self.rx_status = ["OFFLINE"]
         self.tx_status = ["OFFLINE"]
@@ -73,10 +68,6 @@ class WebRuntime:
         self.cfg_lock = threading.Lock()
         self.rx = RxService(self)
         self.tx = TxService(self)
-
-    def _load_adapter(self):
-        """Instantiate and validate the mission adapter via the shared loader."""
-        return load_mission_adapter(self.cfg, self.cmd_defs)
 
     def queue_file(self) -> Path:
         return Path(self.cfg.get("general", {}).get("log_dir", "logs")) / ".pending_queue.jsonl"

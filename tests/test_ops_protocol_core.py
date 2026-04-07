@@ -7,7 +7,7 @@ import unittest
 
 from ops_test_support import CMD_DEFS, CMD_WARN
 
-from mav_gss_lib.mission_adapter import MavericMissionAdapter
+from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
 from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
 from mav_gss_lib.protocols.crc import verify_csp_crc32

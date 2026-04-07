@@ -330,9 +330,3 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     )
     return adapter
 
-
-# =============================================================================
-#  FACADE -- re-export MAVERIC adapter
-# =============================================================================
-
-from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter  # noqa: F401

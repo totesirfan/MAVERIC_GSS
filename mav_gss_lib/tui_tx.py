@@ -14,8 +14,8 @@ from rich.style import Style
 from rich.text import Text
 from mav_gss_lib.tui_common import Widget, ScrollableWidget
 
-import mav_gss_lib.protocol as protocol
-from mav_gss_lib.protocol import node_label
+import mav_gss_lib.missions.maveric.wire_format as protocol
+from mav_gss_lib.missions.maveric.wire_format import node_label
 from mav_gss_lib.tui_common import (
     S_LABEL, S_VALUE, S_SUCCESS, S_WARNING, S_ERROR, S_DIM, S_SEP, lr_line,
     scrollbar_styles, append_wrapped_args, build_header, build_col_hdr,

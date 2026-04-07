@@ -125,16 +125,11 @@ class TestMavericLoggingMethods(unittest.TestCase):
     """Verify MAVERIC adapter produces correct log data."""
 
     def setUp(self):
-        from mav_gss_lib.config import load_gss_config, get_command_defs_path
-        from mav_gss_lib.mission_adapter import load_mission_metadata
-        from mav_gss_lib.protocol import init_nodes, load_command_defs
-        from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
 
         cfg = load_gss_config()
-        load_mission_metadata(cfg)
-        init_nodes(cfg)
-        cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
-        self.adapter = MavericMissionAdapter(cmd_defs=cmd_defs)
+        self.adapter = load_mission_adapter(cfg)
 
     def _make_pkt(self, cmd=None, csp=None, ts_result=None, crc_status=None):
         class MockPkt:
@@ -225,16 +220,11 @@ class TestPlatformLogEnvelope(unittest.TestCase):
     """Verify the platform log envelope structure."""
 
     def setUp(self):
-        from mav_gss_lib.config import load_gss_config, get_command_defs_path
-        from mav_gss_lib.mission_adapter import load_mission_metadata
-        from mav_gss_lib.protocol import init_nodes, load_command_defs
-        from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
 
         cfg = load_gss_config()
-        load_mission_metadata(cfg)
-        init_nodes(cfg)
-        cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
-        self.adapter = MavericMissionAdapter(cmd_defs=cmd_defs)
+        self.adapter = load_mission_adapter(cfg)
 
     def _make_pkt(self):
         class MockPkt:
@@ -350,16 +340,11 @@ class TestUnknownClassification(unittest.TestCase):
     def test_maveric_pipeline_known_command_not_unknown(self):
         """MAVERIC adapter classifies parsed commands as known."""
         from mav_gss_lib.parsing import RxPipeline
-        from mav_gss_lib.config import load_gss_config, get_command_defs_path
-        from mav_gss_lib.mission_adapter import load_mission_metadata
-        from mav_gss_lib.protocol import init_nodes, load_command_defs
-        from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
 
         cfg = load_gss_config()
-        load_mission_metadata(cfg)
-        init_nodes(cfg)
-        cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
-        adapter = MavericMissionAdapter(cmd_defs=cmd_defs)
+        adapter = load_mission_adapter(cfg)
 
         pipeline = RxPipeline(adapter, tx_freq_map={})
         # Process a minimal raw packet with no valid command
@@ -372,14 +357,12 @@ class TestReplayCompat(unittest.TestCase):
     """Verify replay reads both new envelope and legacy flat formats."""
 
     def setUp(self):
-        from mav_gss_lib.config import load_gss_config, get_command_defs_path
-        from mav_gss_lib.mission_adapter import load_mission_metadata
-        from mav_gss_lib.protocol import init_nodes, load_command_defs
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
 
         cfg = load_gss_config()
-        load_mission_metadata(cfg)
-        init_nodes(cfg)
-        self.cmd_defs, _ = load_command_defs(get_command_defs_path(cfg))
+        adapter = load_mission_adapter(cfg)
+        self.cmd_defs = adapter.cmd_defs
 
     def test_new_envelope_replay_extracts_cmd_from_mission_block(self):
         """Replay normalizes new-format RX log with cmd in mission block."""

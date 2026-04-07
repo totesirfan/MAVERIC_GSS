@@ -89,13 +89,6 @@ def resolve_project_path(path_value, *, base_dir=None):
     return (root / path).resolve()
 
 
-def get_command_defs_path(cfg):
-    """Return the resolved command schema path from config."""
-    general = cfg.get("general", {})
-    raw = general.get("command_defs", str(_CONFIG_DIR / "maveric_commands.yml"))
-    return str(resolve_project_path(raw, base_dir=_CONFIG_DIR))
-
-
 def get_decoder_yml_path(cfg):
     """Return the resolved decoder YAML path from config."""
     general = cfg.get("general", {})
