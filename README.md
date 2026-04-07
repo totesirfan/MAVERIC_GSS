@@ -92,7 +92,13 @@ cp mav_gss_lib/gss.example.yml mav_gss_lib/gss.yml
 
 The repository tracks `mission.example.yml` as the public-safe MAVERIC metadata baseline. If a local `mission.yml` exists beside it, the runtime prefers that local file.
 
-The command schema (`commands.yml`) must be obtained separately — it is not included in the public repository for operational security reasons.
+The operational command schema (`commands.yml`) is gitignored for security. A public example (`commands.example.yml`) is tracked in each mission package — copy it to get started:
+
+```bash
+cp mav_gss_lib/missions/maveric/commands.example.yml mav_gss_lib/missions/maveric/commands.yml
+```
+
+Replace the example commands with your real mission commands for operational use.
 
 If `gss.yml` is missing, the system falls back to hardcoded defaults. If `commands.yml` is missing, the system starts but cannot validate or send commands.
 

@@ -40,75 +40,77 @@
 #   NONE  — No echo routing
 #
 
-# ── Basic connectivity ──────────────────────────────────────────────────────
+commands:
 
-com_ping:
-  dest: 1          # Example: LPPM node ID
-  echo: 0          # NONE
-  ptype: 1         # CMD
-  guard: false
-  nodes: [LPPM, EPS, UPPM]
-  tx_args: []
-  rx_args:
-    - name: uptime_ms
-      type: int
-      important: true
+  # ── Basic connectivity ──────────────────────────────────────────────────
 
-# ── Mode control ────────────────────────────────────────────────────────────
+  com_ping:
+    dest: 1          # LPPM node ID
+    echo: 0          # NONE
+    ptype: 1         # CMD
+    guard: false
+    nodes: [LPPM, EPS, UPPM]
+    tx_args: []
+    rx_args:
+      - name: uptime_ms
+        type: int
+        important: true
 
-set_mode:
-  dest: 1          # LPPM
-  echo: 0          # NONE
-  ptype: 1         # CMD
-  guard: true      # Require confirmation — mode change is hazardous
-  nodes: [LPPM]
-  tx_args:
-    - name: mode
-      type: int
-      important: true
-  rx_args:
-    - name: prev_mode
-      type: int
-    - name: new_mode
-      type: int
-      important: true
+  # ── Mode control ────────────────────────────────────────────────────────
 
-# ── Telemetry ───────────────────────────────────────────────────────────────
+  set_mode:
+    dest: 1          # LPPM
+    echo: 0          # NONE
+    ptype: 1         # CMD
+    guard: true      # Require confirmation — mode change is hazardous
+    nodes: [LPPM]
+    tx_args:
+      - name: mode
+        type: int
+        important: true
+    rx_args:
+      - name: prev_mode
+        type: int
+      - name: new_mode
+        type: int
+        important: true
 
-tlm_beacon:
-  rx_only: true    # Cannot be uplinked; this entry documents the downlink format
-  rx_args:
-    - name: voltage_mv
-      type: int
-      important: true
-    - name: current_ma
-      type: int
-    - name: temp_c
-      type: float
-    - name: timestamp_ms
-      type: epoch_ms
-      important: true
+  # ── Telemetry ───────────────────────────────────────────────────────────
 
-# ── File transfer ───────────────────────────────────────────────────────────
+  tlm_beacon:
+    rx_only: true    # Cannot be uplinked; documents the downlink format
+    rx_args:
+      - name: voltage_mv
+        type: int
+        important: true
+      - name: current_ma
+        type: int
+      - name: temp_c
+        type: float
+      - name: timestamp_ms
+        type: epoch_ms
+        important: true
 
-file_download:
-  dest: 2          # EPS node ID (example)
-  echo: 0          # NONE
-  ptype: 4         # FILE
-  guard: true      # Requires confirmation — initiates downlink session
-  nodes: [EPS, UPPM]
-  tx_args:
-    - name: file_id
-      type: int
-      important: true
-    - name: offset
-      type: int
-  rx_args:
-    - name: file_id
-      type: int
-    - name: chunk_index
-      type: int
-    - name: total_chunks
-      type: int
-    - name: data
-      type: blob
+  # ── File transfer ───────────────────────────────────────────────────────
+
+  file_download:
+    dest: 2          # EPS node ID
+    echo: 0          # NONE
+    ptype: 4         # FILE
+    guard: true      # Requires confirmation — initiates downlink session
+    nodes: [EPS, UPPM]
+    tx_args:
+      - name: file_id
+        type: int
+        important: true
+      - name: offset
+        type: int
+    rx_args:
+      - name: file_id
+        type: int
+      - name: chunk_index
+        type: int
+      - name: total_chunks
+        type: int
+      - name: data
+        type: blob

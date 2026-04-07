@@ -15,33 +15,35 @@
 # complete example with all field types documented.
 #
 
-# ── Minimal example — replace with your mission's commands ─────────────────
+commands:
 
-ping:
-  dest: 1          # Destination node ID
-  echo: 0          # Echo node (0 = NONE)
-  ptype: 1         # Packet type ID
-  guard: false
-  nodes: [SAT]     # Node names this command is valid for
-  tx_args: []
-  rx_args:
-    - name: status
-      type: str
-      important: true
+  # ── Minimal example — replace with your mission's commands ───────────────
 
-set_value:
-  dest: 1
-  echo: 0
-  ptype: 1
-  guard: false
-  nodes: [SAT]
-  tx_args:
-    - name: key
-      type: str
-      important: true
-    - name: value
-      type: str
-      important: true
-  rx_args:
-    - name: result
-      type: str
+  ping:
+    dest: 1          # Destination node ID
+    echo: 0          # Echo node (0 = NONE)
+    ptype: 1         # Packet type ID
+    guard: false
+    nodes: [SAT]     # Node names this command is valid for
+    tx_args: []
+    rx_args:
+      - name: status
+        type: str
+        important: true
+
+  set_value:
+    dest: 1
+    echo: 0
+    ptype: 1
+    guard: false
+    nodes: [SAT]
+    tx_args:
+      - name: key
+        type: str
+        important: true
+      - name: value
+        type: str
+        important: true
+    rx_args:
+      - name: result
+        type: str
