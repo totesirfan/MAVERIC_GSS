@@ -63,8 +63,8 @@ export function CellValue({ col: c, row, showFrame, showEcho, nodeDescriptions }
     )
   }
 
-  // Node columns (src, echo) — with tooltip
-  if (c.id === 'src' || c.id === 'echo') {
+  // Node columns (src, dest, echo) — with tooltip
+  if (c.id === 'src' || c.id === 'dest' || c.id === 'echo') {
     const nodeColor = c.id === 'echo' ? colors.warning : colors.label
     return (
       <span className={`py-1.5 px-1.5 ${width} whitespace-nowrap`}>
