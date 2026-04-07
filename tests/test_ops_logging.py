@@ -364,37 +364,36 @@ class TestReplayCompat(unittest.TestCase):
         adapter = load_mission_adapter(cfg)
         self.cmd_defs = adapter.cmd_defs
 
-    def test_new_envelope_replay_extracts_cmd_from_mission_block(self):
-        """Replay normalizes new-format RX log with cmd in mission block."""
+    def test_new_envelope_replay_passes_through_rendering(self):
+        """Replay passes through _rendering from new-format RX log entries."""
         from mav_gss_lib.web_runtime.api import parse_replay_entry
 
+        rendering = {
+            "row": {"values": {"cmd": "com_ping", "src": "GS"}, "_meta": {"opacity": 1.0}},
+            "detail_blocks": [{"kind": "routing", "label": "Routing", "fields": []}],
+            "protocol_blocks": [{"kind": "csp", "label": "CSP V1", "fields": []}],
+            "integrity_blocks": [{"kind": "crc16", "label": "CRC-16", "scope": "command", "ok": True}],
+        }
         entry = {
             "v": "4.3.1", "pkt": 1,
             "gs_ts": "2026-04-06 10:30:00 PDT",
             "frame_type": "AX.25", "raw_hex": "deadbeef", "raw_len": 4,
-            "payload_hex": "beef", "payload_len": 2,
             "duplicate": False, "uplink_echo": False, "unknown": False,
-            "protocol_blocks": [], "integrity_blocks": [],
-            "mission": {
-                "cmd": {
-                    "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
-                    "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
-                    "args": [],
-                },
-            },
+            "_rendering": rendering,
         }
         result = parse_replay_entry(entry, self.cmd_defs)
         self.assertIsNotNone(result)
-        self.assertEqual(result["cmd"], "com_ping")
         self.assertEqual(result["num"], 1)
         self.assertFalse(result["is_dup"])
-        # New envelope includes _rendering with protocol/integrity blocks
-        self.assertIn("_rendering", result)
-        self.assertIsInstance(result["_rendering"]["protocol_blocks"], list)
-        self.assertIsInstance(result["_rendering"]["integrity_blocks"], list)
+        # RX entries no longer emit flat cmd/src/dest fields
+        self.assertNotIn("cmd", result)
+        self.assertNotIn("src", result)
+        # _rendering is passed through verbatim
+        self.assertEqual(result["_rendering"], rendering)
+        self.assertEqual(result["_rendering"]["row"]["values"]["cmd"], "com_ping")
 
-    def test_legacy_flat_replay_extracts_cmd_from_top_level(self):
-        """Replay normalizes pre-Phase-9 MAVERIC log with flat cmd dict."""
+    def test_rx_entry_without_rendering_gets_empty_rendering(self):
+        """RX entry without _rendering gets empty dict — no flat field reconstruction."""
         from mav_gss_lib.web_runtime.api import parse_replay_entry
 
         entry = {
@@ -402,19 +401,15 @@ class TestReplayCompat(unittest.TestCase):
             "gs_ts": "2026-04-06 10:30:00 PDT",
             "frame_type": "AX.25", "raw_hex": "deadbeef", "raw_len": 4,
             "duplicate": False, "uplink_echo": False, "unknown": False,
-            "cmd": {
-                "src": 6, "dest": 1, "echo": 0, "pkt_type": 2,
-                "cmd_id": "com_ping", "crc": 0x1234, "crc_valid": True,
-                "args": [],
-            },
-            "csp_candidate": {"prio": 2, "src": 0, "dest": 8},
         }
         result = parse_replay_entry(entry, self.cmd_defs)
         self.assertIsNotNone(result)
-        self.assertEqual(result["cmd"], "com_ping")
-        self.assertEqual(result["csp_header"], {"prio": 2, "src": 0, "dest": 8})
-        # Legacy logs without protocol/integrity blocks don't get _rendering
-        self.assertNotIn("_rendering", result)
+        self.assertEqual(result["num"], 1)
+        # No flat mission fields
+        self.assertNotIn("cmd", result)
+        self.assertNotIn("csp_header", result)
+        # Empty _rendering passthrough
+        self.assertEqual(result["_rendering"], {})
 
     def test_tx_log_entry_detected_by_missing_pkt_field(self):
         """TX log entries (no 'pkt' field) are correctly identified."""

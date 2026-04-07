@@ -524,9 +524,21 @@ async def api_log_entries(
             if normalized is None:
                 continue
 
-            # Apply cmd filter
-            if cmd and cmd.lower() not in normalized["cmd"].lower():
-                continue
+            # Apply cmd filter — RX uses _rendering.row, TX uses flat cmd field
+            is_rx = "pkt" in entry
+            if cmd:
+                if is_rx:
+                    row_cmd = ""
+                    r = normalized.get("_rendering")
+                    if isinstance(r, dict):
+                        row_vals = r.get("row", {})
+                        if isinstance(row_vals, dict):
+                            row_cmd = str(row_vals.get("values", {}).get("cmd", ""))
+                    if cmd.lower() not in row_cmd.lower():
+                        continue
+                else:
+                    if cmd.lower() not in normalized.get("cmd", "").lower():
+                        continue
             # Apply time filters
             if time_from is not None and normalized["time"] < str(time_from):
                 continue
@@ -534,7 +546,6 @@ async def api_log_entries(
                 continue
 
             # For TX entries, fill in args from runtime
-            is_rx = "pkt" in entry
             if not is_rx:
                 normalized["args_named"] = runtime.tx.match_tx_args(str(entry.get("cmd", "")), str(entry.get("args", "")))
                 normalized["args_extra"] = runtime.tx.tx_extra_args(str(entry.get("cmd", "")), str(entry.get("args", "")))
