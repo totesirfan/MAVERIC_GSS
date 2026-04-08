@@ -1,5 +1,8 @@
 """
-mav_gss_lib.imaging -- Image Chunk Reassembly
+mav_gss_lib.missions.maveric.imaging -- Image Chunk Reassembly (reference)
+
+NOT currently wired into the mission adapter or web runtime.
+Kept as a reference implementation for future image downlink integration.
 
 Collects image chunks from img_get_chunk packets and reassembles them
 into complete image files.  Auto-saves to disk on every chunk so the

@@ -181,7 +181,9 @@ export default function App() {
   useEffect(() => {
     fetch('/api/config')
       .then((r) => r.json())
-      .then((data: GssConfig) => setConfig(data))
+      .then((data: GssConfig) => {
+        setConfig(data)
+      })
       .catch(() => {})
   }, [])
 

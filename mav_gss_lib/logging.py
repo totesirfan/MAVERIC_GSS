@@ -186,12 +186,26 @@ class _BaseLog:
         self._writer.start()
 
     def new_session(self, tag=""):
-        """Close current log files and start a new session."""
+        """Close current log files and start a new session.
+
+        If the old JSONL file is empty (0 bytes), both the JSONL and
+        text files from the previous session are automatically deleted.
+        """
+        old_jsonl = self.jsonl_path
+        old_text = self.text_path
         with self._q_lock:
             self._q.put(self._SENTINEL)
         self._writer.join(timeout=5.0)
         if not self._writer.is_alive():
             self._text_f.close(); self._jsonl_f.close()
+        # Auto-delete empty session files (JSONL has no header, so 0B = no data)
+        try:
+            if os.path.isfile(old_jsonl) and os.path.getsize(old_jsonl) == 0:
+                os.remove(old_jsonl)
+                if os.path.isfile(old_text):
+                    os.remove(old_text)
+        except OSError:
+            pass
         with self._q_lock:
             self._open_files(tag)
 
@@ -217,6 +231,14 @@ class _BaseLog:
         if not self._writer.is_alive():
             self._jsonl_f.close()
             self._text_f.close()
+        # Auto-delete empty session files on exit
+        try:
+            if os.path.isfile(self.jsonl_path) and os.path.getsize(self.jsonl_path) == 0:
+                os.remove(self.jsonl_path)
+                if os.path.isfile(self.text_path):
+                    os.remove(self.text_path)
+        except OSError:
+            pass
 
 
 # =============================================================================

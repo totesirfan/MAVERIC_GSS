@@ -502,7 +502,15 @@ async def new_session(body: dict, request: Request):
     if denied:
         return denied
     tag = body.get("tag", "")
+    if not runtime.rx.log and not runtime.tx.log:
+        return JSONResponse(status_code=400, content={"error": "No active session"})
+    result: dict = {"ok": True}
     if runtime.rx.log:
         runtime.rx.log.new_session(tag)
-        return {"ok": True, "path": runtime.rx.log.jsonl_path}
-    return JSONResponse(status_code=400, content={"error": "No active session"})
+        result["rx_log_json"] = runtime.rx.log.jsonl_path
+        result["rx_log_text"] = runtime.rx.log.text_path
+    if runtime.tx.log:
+        runtime.tx.log.new_session(tag)
+        result["tx_log_json"] = runtime.tx.log.jsonl_path
+        result["tx_log_text"] = runtime.tx.log.text_path
+    return result

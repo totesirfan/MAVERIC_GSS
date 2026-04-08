@@ -9,7 +9,7 @@ Mission package contract:
   - mission.yml: optional local mission metadata override
   - adapter.py: MissionAdapter implementation
   - wire_format.py: command wire format, schema, node tables
-  - imaging.py: image chunk reassembly
+  - imaging.py: image chunk reassembly (reference, not wired into adapter)
 """
 
 ADAPTER_API_VERSION = 1
