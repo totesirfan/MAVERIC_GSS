@@ -5,16 +5,20 @@ Mission package contract:
   - ADAPTER_API_VERSION: int — adapter contract version
   - ADAPTER_CLASS: type — adapter class (MavericMissionAdapter)
   - init_mission(cfg): mission-specific initialization hook
+  - get_plugin_routers(): optional FastAPI routers for mission plugins
   - mission.example.yml: tracked public-safe mission metadata baseline
   - mission.yml: optional local mission metadata override
   - adapter.py: MissionAdapter implementation
   - wire_format.py: command wire format, schema, node tables
-  - imaging.py: image chunk reassembly (reference, not wired into adapter)
+  - imaging.py: image chunk reassembly + REST API
 """
 
 ADAPTER_API_VERSION = 1
 
 from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter as ADAPTER_CLASS  # noqa: F401
+
+# Module-level reference to the ImageAssembler, set during init_mission
+_image_assembler = None
 
 
 def init_mission(cfg: dict) -> dict:
@@ -26,10 +30,16 @@ def init_mission(cfg: dict) -> dict:
     Returns:
         {"cmd_defs": dict, "cmd_warn": str | None}
     """
+    global _image_assembler
     import os
     from mav_gss_lib.missions.maveric.wire_format import init_nodes, load_command_defs
+    from mav_gss_lib.missions.maveric.imaging import ImageAssembler
 
     init_nodes(cfg)
+
+    # Initialize ImageAssembler
+    image_dir = cfg.get("general", {}).get("image_dir", "images")
+    _image_assembler = ImageAssembler(image_dir)
 
     # Resolve command schema path: check mission package dir first
     cmd_defs_name = cfg.get("general", {}).get("command_defs", "commands.yml")
@@ -48,4 +58,12 @@ def init_mission(cfg: dict) -> dict:
             path = config_path if os.path.isfile(config_path) else mission_path
 
     cmd_defs, cmd_warn = load_command_defs(path)
-    return {"cmd_defs": cmd_defs, "cmd_warn": cmd_warn}
+    return {"cmd_defs": cmd_defs, "cmd_warn": cmd_warn, "image_assembler": _image_assembler}
+
+
+def get_plugin_routers():
+    """Return FastAPI routers for MAVERIC mission plugins."""
+    if _image_assembler is None:
+        return []
+    from mav_gss_lib.missions.maveric.imaging import get_imaging_router
+    return [get_imaging_router(_image_assembler)]

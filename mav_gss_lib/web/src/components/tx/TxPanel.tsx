@@ -1,4 +1,4 @@
-import { useState, Suspense } from 'react'
+import { useState, useMemo, Suspense } from 'react'
 import { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink } from 'lucide-react'
@@ -10,7 +10,7 @@ import { TxQueue } from './TxQueue'
 import { SentHistory } from './SentHistory'
 import { CommandInput } from './CommandInput'
 import { ImportDialog } from './ImportDialog'
-import { getMissionBuilder } from '@/missions/registry'
+import { getMissionBuilder } from '@/plugins/registry'
 import type {
   TxQueueItem, TxQueueSummary, TxHistoryItem,
   SendProgress, GuardConfirm, GssConfig, TxColumnDef,
@@ -55,7 +55,8 @@ export function TxPanel({
   const [txColumns, setTxColumns] = useState<TxColumnDef[]>([])
 
   const missionId = config?.general?.mission ?? ''
-  const MissionBuilder = getMissionBuilder(missionId)
+  /* eslint-disable react-hooks/static-components */
+  const MissionBuilder = useMemo(() => getMissionBuilder(missionId), [missionId])
   const hasCommandBuilder = MissionBuilder !== null
 
   useEffect(() => {
@@ -177,6 +178,7 @@ export function TxPanel({
       <ImportDialog open={showImport} onClose={() => setShowImport(false)} onImported={() => {}} txColumns={txColumns} />
     </div>
   )
+  /* eslint-enable react-hooks/static-components */
 }
 
 /* Guard confirm inline block */

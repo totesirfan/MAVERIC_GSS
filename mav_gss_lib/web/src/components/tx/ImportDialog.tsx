@@ -44,6 +44,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ loaded: number; skipped: number } | null>(null)
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (open) {
       setResult(null)
@@ -52,6 +53,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
       fetch('/api/import-files').then(r => r.json()).then(setFiles).catch(() => setFiles([]))
     }
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const visibleColumns = useMemo(() => {
     return txColumns.filter(col => {

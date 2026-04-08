@@ -147,6 +147,27 @@ class RxService:
                             dead.append(ws)
                     for ws in dead:
                         self.clients.remove(ws)
+
+                # Plugin hook — let adapter inject extra WS messages
+                hook = getattr(self.runtime.adapter, 'on_packet_received', None)
+                if hook:
+                    try:
+                        extra_msgs = hook(pkt)
+                        if extra_msgs:
+                            for extra in extra_msgs:
+                                extra_text = json.dumps(extra)
+                                with self.lock:
+                                    dead = []
+                                    for ws in self.clients:
+                                        try:
+                                            await ws.send_text(extra_text)
+                                        except Exception:
+                                            dead.append(ws)
+                                    for ws in dead:
+                                        self.clients.remove(ws)
+                    except Exception as exc:
+                        logging.warning("on_packet_received hook failed: %s", exc)
+
                 drained += 1
 
             if self.broadcast_stop:

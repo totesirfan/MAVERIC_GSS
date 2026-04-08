@@ -141,6 +141,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
       .catch(() => { setEntries([]); setLoading(false) })
   }, [cmdFilter, fromTime, toTime])
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (selected) fetchEntries(selected)
   }, [selected, fetchEntries])
@@ -148,6 +149,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
   useEffect(() => {
     if (!open) { setSelected(null); setEntries([]); setCmdFilter(''); setFromTime(''); setToTime(''); setExpandedSet(new Set()); setDateFilter('') }
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Derive whether selected session is downlink
   const isDownlinkSession = selected?.startsWith('downlink') ?? false

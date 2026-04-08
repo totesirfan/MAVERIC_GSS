@@ -102,6 +102,19 @@ def create_app() -> FastAPI:
     app.include_router(rx_router)
     app.include_router(tx_router)
 
+    # Auto-mount mission plugin routers
+    import importlib
+    mission_id = runtime.cfg.get("general", {}).get("mission", "maveric")
+    try:
+        mission_pkg = importlib.import_module(f"mav_gss_lib.missions.{mission_id}")
+        get_routers = getattr(mission_pkg, "get_plugin_routers", None)
+        if get_routers:
+            for router in get_routers():
+                app.include_router(router)
+                logging.info("Mounted plugin router: %s", router.prefix)
+    except Exception as exc:
+        logging.warning("Failed to load plugin routers for %s: %s", mission_id, exc)
+
     if WEB_DIR.exists():
 
         @app.get("/{full_path:path}")

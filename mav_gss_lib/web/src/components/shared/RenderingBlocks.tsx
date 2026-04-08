@@ -189,6 +189,7 @@ export function IntegritySection({ blocks }: { blocks: IntegrityBlockType[] }) {
 }
 
 /** Extract copyable command text from _rendering. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function extractFromRendering(rendering: { row?: { values: Record<string, unknown> }; detail_blocks?: DetailBlock[] } | undefined): { cmd: string; args: string } {
   const row = rendering?.row?.values
   if (row?.cmd) {

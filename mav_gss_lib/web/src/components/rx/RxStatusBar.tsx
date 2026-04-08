@@ -26,6 +26,7 @@ export function RxStatusBar({ status, packets, autoScroll, onLiveClick, replayMo
   const burstStart = useRef(0)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (packets.length > prevCount.current) {
       if (!receiving) {
@@ -39,6 +40,7 @@ export function RxStatusBar({ status, packets, autoScroll, onLiveClick, replayMo
     }
     prevCount.current = packets.length
   }, [packets.length, receiving])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }

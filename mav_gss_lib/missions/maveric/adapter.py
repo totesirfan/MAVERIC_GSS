@@ -42,6 +42,7 @@ class MavericMissionAdapter:
     """
 
     cmd_defs: dict
+    image_assembler: object = None  # ImageAssembler, set by init_mission
 
     def detect_frame_type(self, meta) -> str:
         """Classify outer framing from GNU Radio/gr-satellites metadata."""
@@ -640,3 +641,60 @@ class MavericMissionAdapter:
         if src != GS_NODE:
             result["src"] = _wire_node_name(src)
         return result
+
+    # -- Plugin hook --
+
+    def on_packet_received(self, pkt) -> list[dict] | None:
+        """Feed image chunks to the assembler and return progress messages."""
+        if not self.image_assembler:
+            return None
+        md = self._md(pkt)
+        cmd = md.get("cmd")
+        if not cmd:
+            return None
+
+        cmd_id = cmd.get("cmd_id", "")
+        if cmd_id not in ("img_cnt_chunks", "img_get_chunk"):
+            return None
+
+        # Extract args from typed_args (schema match) or raw args
+        if cmd.get("schema_match") and cmd.get("typed_args"):
+            args_by_name = {ta["name"]: ta.get("value", "") for ta in cmd["typed_args"]}
+        else:
+            return None  # can't extract without schema
+
+        # RX arg names from commands.yml:
+        #   img_cnt_chunks RX: Filename, Num Chunks
+        #   img_get_chunk  RX: Filename, Chunk Number, Chunk Size, Data
+        filename = str(args_by_name.get("Filename", ""))
+        if not filename:
+            return None
+
+        if cmd_id == "img_cnt_chunks":
+            count = args_by_name.get("Num Chunks", "")
+            try:
+                self.image_assembler.set_total(filename, int(count))
+            except (ValueError, TypeError):
+                return None
+        elif cmd_id == "img_get_chunk":
+            chunk_num = args_by_name.get("Chunk Number", "")
+            chunk_size = args_by_name.get("Chunk Size", None)
+            data = args_by_name.get("Data", b"")
+            if isinstance(data, str):
+                try:
+                    data = bytes.fromhex(data)
+                except ValueError:
+                    data = data.encode()
+            try:
+                self.image_assembler.feed_chunk(filename, int(chunk_num), data, chunk_size=chunk_size)
+            except (ValueError, TypeError):
+                return None
+
+        received, total = self.image_assembler.progress(filename)
+        return [{
+            "type": "imaging_progress",
+            "filename": filename,
+            "received": received,
+            "total": total,
+            "complete": self.image_assembler.is_complete(filename),
+        }]

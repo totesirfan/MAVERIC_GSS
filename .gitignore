@@ -10,6 +10,8 @@ mav_gss_lib/web/node_modules/
 
 # === Logs & Runtime Outputs ===
 /logs/
+/images/
+tests/test_images/
 backup_control/logs/
 generated_commands/
 .pending_queue.jsonl

@@ -318,16 +318,37 @@ The platform always provides raw CLI input. If your mission wants a visual comma
 
 To add a custom TX input UI:
 
-1. Create `mav_gss_lib/web/src/missions/<name>/TxBuilder.tsx`
+1. Create `mav_gss_lib/web/src/plugins/<name>/TxBuilder.tsx`
 2. Export a default component satisfying `MissionBuilderProps`
 3. Run `npm run build` and commit `dist/`
 
 The frontend auto-discovers builder components by convention — any file at
-`missions/<name>/TxBuilder.tsx` is automatically registered. No manual
+`plugins/<name>/TxBuilder.tsx` is automatically registered. No manual
 registry edit, no backend attribute, no separate configuration step.
 The directory name must match the `general.mission` value in `gss.yml`.
 
-See `missions/maveric/TxBuilder.tsx` for an example implementation.
+See `plugins/maveric/TxBuilder.tsx` for an example implementation.
+
+### Optional: Mission-Owned Command Help
+
+If your mission uses command-entry syntax that differs from MAVERIC, do not
+hardcode that syntax into shared web UI. Keep the shared Help modal, but make
+the command-entry rows mission-owned.
+
+This keeps the operator help aligned with the mission's actual parser and avoids
+teaching future missions MAVERIC-specific command grammar by accident.
+
+See [mission-help-contract.md](mission-help-contract.md) for the proposed contract and placement.
+
+### Optional: Plugin Pages
+
+Missions can provide standalone tool pages (imaging, telemetry viewers, etc.) beyond the core RX/TX dashboard. These are discovered by convention and lazy-loaded.
+
+1. Create `mav_gss_lib/web/src/plugins/<name>/plugins.ts` exporting a `PluginPageDef[]`
+2. Create corresponding page components in the same directory
+3. Run `npm run build` and commit `dist/`
+
+See [plugin-system.md](plugin-system.md) for the full plugin contract and architecture.
 
 ---
 

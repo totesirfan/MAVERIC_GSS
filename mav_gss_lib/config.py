@@ -32,7 +32,7 @@ _DEFAULTS = {
     },
     "general": {
         "mission":      "maveric",
-        "version":      "5.0.0",
+        "version":      "5.1.0",
         "log_dir":      "logs",
         "generated_commands_dir": "generated_commands",
     },

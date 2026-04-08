@@ -57,21 +57,23 @@ export function useAlarms(
   const lingerTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Update sliding windows when new packets arrive
-  if (packets.length > prevLen.current) {
-    const newPkts = packets.slice(prevLen.current)
-    const now = Date.now()
-    for (const p of newPkts) {
-      const flags = p._rendering?.row?.values?.flags
-      const hasCrcFlag = Array.isArray(flags) && flags.some(
-        (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
-      )
-      if (hasCrcFlag) crcTimes.current.push(now)
-      const ptype = p._rendering?.row?.values?.ptype
-      if (ptype === 'NONE' || ptype === '0') noneTimes.current.push(now)
-      if (p.is_dup) dupTimes.current.push(now)
+  useEffect(() => {
+    if (packets.length > prevLen.current) {
+      const newPkts = packets.slice(prevLen.current)
+      const now = Date.now()
+      for (const p of newPkts) {
+        const flags = p._rendering?.row?.values?.flags
+        const hasCrcFlag = Array.isArray(flags) && flags.some(
+          (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
+        )
+        if (hasCrcFlag) crcTimes.current.push(now)
+        const ptype = p._rendering?.row?.values?.ptype
+        if (ptype === 'NONE' || ptype === '0') noneTimes.current.push(now)
+        if (p.is_dup) dupTimes.current.push(now)
+      }
+      prevLen.current = packets.length
     }
-    prevLen.current = packets.length
-  }
+  }, [packets])
 
   // Tick every 2s to expire lingering alarms and update relative times
   useEffect(() => {
@@ -79,6 +81,7 @@ export function useAlarms(
     return () => { if (lingerTimer.current) clearInterval(lingerTimer.current) }
   }, [])
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   const alarms = useMemo<Alarm[]>(() => {
     if (replayMode) return []
 
@@ -208,6 +211,7 @@ export function useAlarms(
 
     return result
   }, [status.silence_s, status.zmq, packets.length, replayMode, ackedSet, tick])
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   // Track which acked alarms have cleared (side-effect outside useMemo)
   useEffect(() => {

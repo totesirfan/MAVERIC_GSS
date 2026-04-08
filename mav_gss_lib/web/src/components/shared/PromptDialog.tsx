@@ -18,12 +18,14 @@ export function PromptDialog({ open, title, placeholder, required, onSubmit, onC
   const [value, setValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (open) {
       setValue('')
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function handleSubmit() {
     if (required && !value.trim()) return

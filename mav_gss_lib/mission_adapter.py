@@ -97,6 +97,9 @@ class MissionAdapter(Protocol):
     def format_log_lines(self, pkt) -> list[str]: ...
     def is_unknown_packet(self, parsed: ParsedPacket) -> bool: ...
 
+    # -- Plugin hook (optional) --
+    # def on_packet_received(self, pkt) -> list[dict] | None: ...
+
     # -- Resolution contract --
     @property
     def gs_node(self) -> int: ...
@@ -328,6 +331,7 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
 
     # Call mission init hook if available
     init_fn = getattr(mission_pkg, "init_mission", None)
+    resources = {}
     if init_fn is not None:
         resources = init_fn(cfg)
         resolved_cmd_defs = resources.get("cmd_defs", {})
@@ -337,7 +341,12 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     else:
         resolved_cmd_defs = {}
 
-    adapter = adapter_cls(cmd_defs=resolved_cmd_defs)
+    # Build adapter kwargs — pass image_assembler if mission provides one
+    adapter_kwargs = {"cmd_defs": resolved_cmd_defs}
+    if resources.get("image_assembler") is not None:
+        adapter_kwargs["image_assembler"] = resources["image_assembler"]
+
+    adapter = adapter_cls(**adapter_kwargs)
     validate_adapter(adapter, api_version, mission_name)
 
     cmd_path = cfg.get("general", {}).get("command_defs", "")

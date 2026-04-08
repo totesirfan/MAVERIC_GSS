@@ -31,6 +31,7 @@ export function DelayItem({ delayMs, index, sortId, isActive, onEditDelay, onDel
     opacity: isDragging ? 0.5 : 1,
   }
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!isActive) { startTime.current = null; setRemaining(delayMs); return }
     startTime.current = Date.now()
@@ -39,6 +40,7 @@ export function DelayItem({ delayMs, index, sortId, isActive, onEditDelay, onDel
     }, 50)
     return () => clearInterval(id)
   }, [isActive, delayMs])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <div

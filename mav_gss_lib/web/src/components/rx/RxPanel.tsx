@@ -125,6 +125,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
   const [selectedNum, setSelectedNum] = useState<number | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailHeight, setDetailHeight] = useState(200)
+  const [isDraggingState, setIsDraggingState] = useState(false)
   const isDragging = useRef(false)
   const receiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevLastNum = useRef(-1)
@@ -143,6 +144,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
   const lastPktNum = packets.length > 0 ? packets[packets.length - 1].num : -1
 
   // Receiving detection — fire whenever a new packet number appears
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (lastPktNum > prevLastNum.current) {
       setReceiving(true)
@@ -151,15 +153,18 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
     }
     prevLastNum.current = lastPktNum
   }, [lastPktNum])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => () => { if (receiveTimer.current) clearTimeout(receiveTimer.current) }, [])
 
   // Auto-follow latest
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (autoScroll && lastNum !== null && !pinned.current) {
       setSelectedNum(lastNum)
     }
   }, [autoScroll, lastNum])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function handleSelect(num: number) {
     if (selectedNum === num && detailOpen) {
@@ -189,6 +194,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
   const startDragResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     isDragging.current = true
+    setIsDraggingState(true)
     const startY = e.clientY
     const startH = detailHeight
     function onMove(ev: MouseEvent) {
@@ -196,6 +202,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
     }
     function onUp() {
       isDragging.current = false
+      setIsDraggingState(false)
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
@@ -317,7 +324,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
           style={{
             height: detailOpen ? detailHeight : 0,
             opacity: detailOpen ? 1 : 0,
-            transition: isDragging.current ? 'none' : 'height 0.2s ease, opacity 0.15s ease',
+            transition: isDraggingState ? 'none' : 'height 0.2s ease, opacity 0.15s ease',
           }}
         >
           <ContextMenuRoot>

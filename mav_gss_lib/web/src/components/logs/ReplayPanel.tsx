@@ -86,6 +86,7 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   useEffect(() => { speedRef.current = speed }, [speed])
 
   // Fetch session data
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setLoading(true)
     fetch(`/api/logs/${sessionId}`)
@@ -129,8 +130,10 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
       if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [sessionId, replacePackets])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Replay tick engine
+  // Replay tick engine — use ref for recursive call to avoid self-reference before declaration
+  const scheduleNextRef = useRef<() => void>(() => {})
   const scheduleNext = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
 
@@ -147,9 +150,10 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
       posRef.current = nextPos
       setPosition(nextPos)
       replacePackets(entries.slice(0, nextPos + 1))
-      scheduleNext()
+      scheduleNextRef.current()
     }, delay)
   }, [replacePackets])
+  useEffect(() => { scheduleNextRef.current = scheduleNext }, [scheduleNext])
 
   // Start/stop playback
   useEffect(() => {
@@ -196,11 +200,13 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   const total = allEntries.length
 
   // Auto-pause at end
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (atEnd && playing) {
       setPlaying(false)
     }
   }, [atEnd, playing])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (loading) {
     return (
