@@ -106,16 +106,30 @@ If `gss.yml` is missing, the system falls back to hardcoded defaults. If `comman
 
 ## Startup
 
+### Running (no build step needed)
+
+The production web UI (`mav_gss_lib/web/dist/`) is committed to the repo. To run:
+
 ```bash
-conda activate radioconda
-pip install -r requirements.txt
-cp mav_gss_lib/gss.example.yml mav_gss_lib/gss.yml
+conda activate gnuradio
+cp mav_gss_lib/gss.example.yml mav_gss_lib/gss.yml   # first time only
 python3 MAV_WEB.py
 ```
 
-The web UI build (`mav_gss_lib/web/dist/`) is committed to the repo — no build step needed for deployment. For UI development, run `npm install && npm run dev` in `mav_gss_lib/web/`.
+The web dashboard auto-opens at `http://127.0.0.1:8080`. The server shuts down 5 seconds after all browser tabs disconnect.
 
-The web UI auto-opens at `http://127.0.0.1:8080`. The server shuts down 15 seconds after all browser tabs disconnect.
+### Web UI Development
+
+For working on the frontend source (`mav_gss_lib/web/src/`):
+
+```bash
+cd mav_gss_lib/web
+npm install            # first time only
+npm run dev            # Vite dev server with HMR (proxies API to :8080)
+npm run build          # production build to dist/ — commit after changes
+```
+
+The backend (`python3 MAV_WEB.py`) must be running alongside `npm run dev` for API/WebSocket proxying to work.
 
 ### Preflight Check
 
@@ -126,14 +140,6 @@ python3 scripts/preflight.py
 ```
 
 Reports pass/fail for Python dependencies, GNU Radio/PMT availability, config files, command schema, web build, and ZMQ addresses.
-
-### Web UI Development
-
-```bash
-cd mav_gss_lib/web
-npm run dev           # Vite dev server with HMR (proxies API to :8080)
-npm run build         # Production build to dist/
-```
 
 ### Self-Check
 
@@ -255,7 +261,7 @@ See `mav_gss_lib/missions/template/` for a minimal starting point and `docs/main
 ## Testing
 
 ```bash
-conda activate radioconda
+conda activate gnuradio
 pytest -q
 ```
 
