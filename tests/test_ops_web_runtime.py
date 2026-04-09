@@ -151,5 +151,52 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
 
+    def test_log_pagination_respects_offset_and_limit(self):
+        """Paginated log endpoint returns bounded results with has_more."""
+        import json as _json
+
+        # Redirect log_dir to isolated temp directory
+        log_base = Path(self.tmp.name) / "logs"
+        self.runtime.cfg["general"]["log_dir"] = str(log_base)
+        log_dir = log_base / "json"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write 5 realistic RX log entries (RX entries have "pkt" and "gs_ts")
+        session_id = "downlink_20260408_120000"
+        log_file = log_dir / f"{session_id}.jsonl"
+        entries = []
+        for i in range(5):
+            entry = {
+                "pkt": i + 1,
+                "gs_ts": f"2026-04-08T12:00:{i:02d}Z",
+                "raw_hex": f"{i:02x}" * 10,
+                "raw_len": 20,
+                "frame_type": "HDLC",
+            }
+            entries.append(_json.dumps(entry))
+        log_file.write_text("\n".join(entries) + "\n")
+
+        # Call the endpoint with offset=1, limit=2
+        from mav_gss_lib.web_runtime.api import api_log_entries
+
+        req = _request_for(self.runtime)
+        result = asyncio.run(api_log_entries(
+            session_id=session_id,
+            request=req,
+            cmd=None,
+            time_from=None,
+            time_to=None,
+            offset=1,
+            limit=2,
+        ))
+        self.assertIsInstance(result, dict)
+        self.assertIn("entries", result)
+        self.assertIn("has_more", result)
+        self.assertEqual(len(result["entries"]), 2)
+        self.assertTrue(result["has_more"])
+        self.assertEqual(result["offset"], 1)
+        self.assertEqual(result["limit"], 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

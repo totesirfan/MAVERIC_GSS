@@ -396,6 +396,8 @@ async def api_log_entries(
     cmd: Optional[str] = None,
     time_from: Optional[str] = Query(None, alias="from"),
     time_to: Optional[str] = Query(None, alias="to"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=2000),
 ):
     runtime = get_runtime(request)
     log_dir = (Path(runtime.cfg.get("general", {}).get("log_dir", "logs")) / "json").resolve()
@@ -406,6 +408,8 @@ async def api_log_entries(
         return JSONResponse(status_code=404, content={"error": "session not found"})
 
     entries = []
+    has_more = False
+    matched = 0
     with open(log_file) as handle:
         for line in handle:
             line = line.strip()
@@ -436,8 +440,19 @@ async def api_log_entries(
             if time_to is not None and normalized["time"] > str(time_to):
                 continue
 
-            entries.append(normalized)
-    return entries
+            # Pagination: skip entries before offset, collect up to limit
+            if matched < offset:
+                matched += 1
+                continue
+            if len(entries) < limit:
+                entries.append(normalized)
+                matched += 1
+            else:
+                # One match past limit — there are more entries
+                has_more = True
+                break
+
+    return {"entries": entries, "has_more": has_more, "offset": offset, "limit": limit}
 
 
 def _session_info(runtime) -> dict:

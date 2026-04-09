@@ -6,13 +6,11 @@ import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Separator } from '@/components/ui/separator'
 import { colors } from '@/lib/colors'
-import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useLogQuery } from '@/hooks/useLogQuery'
 import { ContextMenuRoot, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@/components/shared/ContextMenu'
 import { LogFilterBar } from './LogFilterBar'
 import { CellValue, SemanticBlocks, ProtocolBlocks, IntegritySection, extractFromRendering } from '@/components/shared/RenderingBlocks'
-import type { ColumnDef, RenderingData } from '@/lib/types'
-
-type LogEntry = Record<string, unknown>
+import type { RenderingData } from '@/lib/types'
 
 interface LogViewerProps {
   open: boolean
@@ -39,21 +37,32 @@ let hasLoadedLogViewer = false
 export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<Element | null>(null)
-  const [sessions, setSessions] = useState<Record<string, unknown>[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [entries, setEntries] = useState<LogEntry[]>([])
   const [expandedSet, setExpandedSet] = useState<Set<number>>(new Set())
-  const [cmdFilter, setCmdFilter] = useState('')
-  const [fromTime, setFromTime] = useState('')
-  const [toTime, setToTime] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [dateFilter, setDateFilter] = useState('')
-  const debouncedCmd = useDebouncedValue(cmdFilter, 300)
-  const debouncedFrom = useDebouncedValue(fromTime, 300)
-  const debouncedTo = useDebouncedValue(toTime, 300)
   const animateOnMount = hasLoadedLogViewer
-  const [rxColumns, setRxColumns] = useState<ColumnDef[]>([])
-  const [txColumns, setTxColumns] = useState<ColumnDef[]>([])
+
+  const {
+    sessions,
+    selected,
+    setSelected,
+    entries,
+    loading,
+    hasMore,
+    currentOffset,
+    cmdFilter,
+    setCmdFilter,
+    fromTime,
+    setFromTime,
+    toTime,
+    setToTime,
+    dateFilter,
+    setDateFilter,
+    rxColumns,
+    txColumns,
+    fetchSessions,
+    fetchColumns,
+    fetchEntries,
+    reset,
+  } = useLogQuery()
 
   useEffect(() => {
     hasLoadedLogViewer = true
@@ -61,24 +70,8 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
 
   useEffect(() => {
     if (!open) return
-    fetch('/api/columns')
-      .then((r) => r.json())
-      .then((data: ColumnDef[]) => setRxColumns(data))
-      .catch(() => {})
-    fetch('/api/tx-columns')
-      .then((r) => r.json())
-      .then((data: ColumnDef[]) => {
-        // Wrap mission TX columns with platform-owned num/time/size for log viewer
-        const full: ColumnDef[] = [
-          { id: 'num', label: '#', align: 'right', width: 'w-9' },
-          { id: 'time', label: 'time', width: 'w-[68px]' },
-          ...data,
-          { id: 'size', label: 'size', align: 'right', width: 'w-10' },
-        ]
-        setTxColumns(full)
-      })
-      .catch(() => {})
-  }, [open])
+    fetchColumns()
+  }, [open, fetchColumns])
 
   // Save / restore focus
   useEffect(() => {
@@ -126,34 +119,17 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
 
   useEffect(() => {
     if (!open) return
-    fetch('/api/logs')
-      .then((r) => r.json())
-      .then((data: Record<string, unknown>[]) => setSessions(data))
-      .catch(() => {})
-  }, [open])
-
-  const fetchEntries = useCallback((sessionId: string) => {
-    setLoading(true)
-    setExpandedSet(new Set())
-    const params = new URLSearchParams()
-    if (debouncedCmd) params.set('cmd', debouncedCmd)
-    if (debouncedFrom) params.set('from', debouncedFrom)
-    if (debouncedTo) params.set('to', debouncedTo)
-    const qs = params.toString()
-    fetch(`/api/logs/${sessionId}${qs ? `?${qs}` : ''}`)
-      .then((r) => r.json())
-      .then((data: LogEntry[]) => { setEntries(data); setLoading(false) })
-      .catch(() => { setEntries([]); setLoading(false) })
-  }, [debouncedCmd, debouncedFrom, debouncedTo])
+    fetchSessions()
+  }, [open, fetchSessions])
 
   /* eslint-disable react-hooks/set-state-in-effect -- fetchEntries is triggered by selection/filter changes; reset on close is intentional */
   useEffect(() => {
-    if (selected) fetchEntries(selected)
+    if (selected) { setExpandedSet(new Set()); fetchEntries(selected, false, 0) }
   }, [selected, fetchEntries])
 
   useEffect(() => {
-    if (!open) { setSelected(null); setEntries([]); setCmdFilter(''); setFromTime(''); setToTime(''); setExpandedSet(new Set()); setDateFilter('') }
-  }, [open])
+    if (!open) { setExpandedSet(new Set()); reset() }
+  }, [open, reset])
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Derive whether selected session is downlink
@@ -353,7 +329,8 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                 ) : entries.length === 0 ? (
                   <div className="flex items-center justify-center h-full text-xs" style={{ color: colors.dim }}>No matching entries</div>
                 ) : (
-                  entries.map((e, i) => {
+                  <>
+                  {entries.map((e, i) => {
                     const timeStr = String(e.time ?? '')
                     const rawHex = String(e.raw_hex ?? '')
                     const warnings = (Array.isArray(e.warnings) ? e.warnings : []) as string[]
@@ -472,7 +449,20 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                         </ContextMenuContent>
                       </ContextMenuRoot>
                     )
-                  })
+                  })}
+                  {hasMore && (
+                    <div className="flex justify-center py-3">
+                      <button
+                        onClick={() => selected && fetchEntries(selected, true, currentOffset)}
+                        disabled={loading}
+                        className="text-xs px-4 py-1.5 rounded border hover:bg-white/5 disabled:opacity-40"
+                        style={{ color: colors.label, borderColor: colors.borderSubtle }}
+                      >
+                        {loading ? 'Loading...' : 'Load more'}
+                      </button>
+                    </div>
+                  )}
+                  </>
                 )}
               </div>
             </div>
