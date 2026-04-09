@@ -133,15 +133,6 @@ class TestMissionBoundary(unittest.TestCase):
         self.assertEqual(type(adapter).__name__, "MavericMissionAdapter")
         self.assertIsInstance(adapter, MissionAdapter)
 
-    def test_shared_loader_loads_echo_mission(self):
-        """load_mission_adapter() successfully loads the maveric mission adapter."""
-        from mav_gss_lib.config import load_gss_config
-        from mav_gss_lib.mission_adapter import load_mission_adapter
-
-        cfg = load_gss_config()
-        adapter = load_mission_adapter(cfg)
-        self.assertEqual(type(adapter).__name__, "MavericMissionAdapter")
-        self.assertIsInstance(adapter, MissionAdapter)
 
     def test_shared_loader_rejects_unknown_mission(self):
         """load_mission_adapter() raises ImportError for unknown mission."""

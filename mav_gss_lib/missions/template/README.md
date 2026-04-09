@@ -25,7 +25,7 @@ cp mav_gss_lib/missions/<your_mission>/commands.example.yml \
 # add commands.yml to .gitignore if security-sensitive
 
 # 6. (Optional) Add a frontend TX builder
-#    Create mav_gss_lib/web/src/missions/<your_mission>/TxBuilder.tsx
+#    Create mav_gss_lib/web/src/plugins/<your_mission>/TxBuilder.tsx
 #    The platform auto-discovers it by convention — no registration needed
 ```
 
