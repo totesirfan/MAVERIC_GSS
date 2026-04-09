@@ -554,15 +554,28 @@ def requires_space(runtime: "WebRuntime") -> str | None:
 
 
 # ---------------------------------------------------------------------------
-#  Post-mutation helper
+#  Queue mutation helper
 # ---------------------------------------------------------------------------
 
-async def persist_and_broadcast(runtime: "WebRuntime") -> None:
-    """Renumber, persist under send_lock, then broadcast (outside lock)."""
+def mutate_queue_if_idle(runtime: "WebRuntime", fn) -> str | None:
+    """Run fn(queue) under send_lock with an atomic idle check.
+
+    Returns an error string if the queue is being sent, else None.
+    fn receives the queue list and may mutate it. After fn returns,
+    renumber and save are done under the same lock. Broadcasts happen
+    after the lock is released by the caller.
+
+    This is the ONLY correct way to mutate the queue from action handlers.
+    The dispatch-loop guard (requires_idle) is a fast pre-check; this
+    function is the authoritative gate under the lock.
+    """
     with runtime.tx.send_lock:
+        if runtime.tx.sending["active"]:
+            return "cannot modify queue during send"
+        fn(runtime.tx.queue)
         runtime.tx.renumber_queue()
         runtime.tx.save_queue()
-    await runtime.tx.send_queue_update()
+    return None
 
 
 async def send_error(ws: "WebSocket", error: str) -> None:
@@ -583,9 +596,11 @@ async def handle_queue(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
     try:
         payload = runtime.adapter.cmd_line_to_payload(line)
         item = validate_mission_cmd(payload, runtime=runtime)
-        with runtime.tx.send_lock:
-            runtime.tx.queue.append(item)
-        await persist_and_broadcast(runtime)
+        err = mutate_queue_if_idle(runtime, lambda q: q.append(item))
+        if err:
+            await send_error(ws, err)
+            return
+        await runtime.tx.send_queue_update()
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         await send_error(ws, str(exc))
 
@@ -595,9 +610,11 @@ async def handle_queue_mission_cmd(runtime: "WebRuntime", msg: dict, ws: "WebSoc
     try:
         payload = msg.get("payload", {})
         item = validate_mission_cmd(payload, runtime=runtime)
-        with runtime.tx.send_lock:
-            runtime.tx.queue.append(item)
-        await persist_and_broadcast(runtime)
+        err = mutate_queue_if_idle(runtime, lambda q: q.append(item))
+        if err:
+            await send_error(ws, err)
+            return
+        await runtime.tx.send_queue_update()
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         await send_error(ws, str(exc))
 
@@ -605,55 +622,62 @@ async def handle_queue_mission_cmd(runtime: "WebRuntime", msg: dict, ws: "WebSoc
 async def handle_delete(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Delete a queue item by index."""
     idx = msg.get("index")
-    with runtime.tx.send_lock:
-        if isinstance(idx, int) and 0 <= idx < len(runtime.tx.queue):
-            runtime.tx.queue.pop(idx)
-            runtime.tx.renumber_queue()
-            runtime.tx.save_queue()
+    def do_delete(q):
+        if isinstance(idx, int) and 0 <= idx < len(q):
+            q.pop(idx)
+    err = mutate_queue_if_idle(runtime, do_delete)
+    if err:
+        await send_error(ws, err)
+        return
     await runtime.tx.send_queue_update()
 
 
 async def handle_clear(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Clear the entire queue."""
-    with runtime.tx.send_lock:
-        runtime.tx.queue.clear()
-        runtime.tx.save_queue()
+    err = mutate_queue_if_idle(runtime, lambda q: q.clear())
+    if err:
+        await send_error(ws, err)
+        return
     await runtime.tx.send_queue_update()
 
 
 async def handle_undo(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Remove the last item from the queue."""
-    with runtime.tx.send_lock:
-        if runtime.tx.queue:
-            runtime.tx.queue.pop()
-            runtime.tx.renumber_queue()
-            runtime.tx.save_queue()
+    err = mutate_queue_if_idle(runtime, lambda q: q.pop() if q else None)
+    if err:
+        await send_error(ws, err)
+        return
     await runtime.tx.send_queue_update()
 
 
 async def handle_guard(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Toggle the guard flag on a queue item."""
     idx = msg.get("index")
-    with runtime.tx.send_lock:
-        if isinstance(idx, int) and 0 <= idx < len(runtime.tx.queue):
-            item = runtime.tx.queue[idx]
+    def do_guard(q):
+        if isinstance(idx, int) and 0 <= idx < len(q):
+            item = q[idx]
             if item["type"] == "mission_cmd":
                 item["guard"] = not item.get("guard", False)
-                runtime.tx.save_queue()
+    err = mutate_queue_if_idle(runtime, do_guard)
+    if err:
+        await send_error(ws, err)
+        return
     await runtime.tx.send_queue_update()
 
 
 async def handle_reorder(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Reorder queue items by index list."""
     order = msg.get("order", [])
-    with runtime.tx.send_lock:
-        if isinstance(order, list) and len(order) == len(runtime.tx.queue):
+    def do_reorder(q):
+        if isinstance(order, list) and len(order) == len(q):
             try:
-                runtime.tx.queue[:] = [runtime.tx.queue[index] for index in order]
-                runtime.tx.renumber_queue()
-                runtime.tx.save_queue()
+                q[:] = [q[index] for index in order]
             except (IndexError, TypeError):
                 pass
+    err = mutate_queue_if_idle(runtime, do_reorder)
+    if err:
+        await send_error(ws, err)
+        return
     await runtime.tx.send_queue_update()
 
 
@@ -662,13 +686,15 @@ async def handle_add_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") ->
     delay_ms = max(0, min(300_000, int(msg.get("delay_ms", 1000))))
     idx = msg.get("index")
     item = make_delay(delay_ms)
-    with runtime.tx.send_lock:
-        if isinstance(idx, int) and 0 <= idx <= len(runtime.tx.queue):
-            runtime.tx.queue.insert(idx, item)
+    def do_add(q):
+        if isinstance(idx, int) and 0 <= idx <= len(q):
+            q.insert(idx, item)
         else:
-            runtime.tx.queue.append(item)
-        runtime.tx.renumber_queue()
-        runtime.tx.save_queue()
+            q.append(item)
+    err = mutate_queue_if_idle(runtime, do_add)
+    if err:
+        await send_error(ws, err)
+        return
     await runtime.tx.send_queue_update()
 
 
@@ -676,15 +702,18 @@ async def handle_edit_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -
     """Update delay_ms on an existing delay item."""
     idx = msg.get("index")
     delay_ms = msg.get("delay_ms")
-    with runtime.tx.send_lock:
+    def do_edit(q):
         if (
             isinstance(idx, int)
-            and 0 <= idx < len(runtime.tx.queue)
-            and runtime.tx.queue[idx]["type"] == "delay"
+            and 0 <= idx < len(q)
+            and q[idx]["type"] == "delay"
             and isinstance(delay_ms, (int, float))
         ):
-            runtime.tx.queue[idx]["delay_ms"] = max(0, min(300_000, int(delay_ms)))
-            runtime.tx.save_queue()
+            q[idx]["delay_ms"] = max(0, min(300_000, int(delay_ms)))
+    err = mutate_queue_if_idle(runtime, do_edit)
+    if err:
+        await send_error(ws, err)
+        return
     await runtime.tx.send_queue_update()
 
 
