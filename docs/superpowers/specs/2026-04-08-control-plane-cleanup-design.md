@@ -21,7 +21,7 @@ web_runtime/api/
 ├── schema.py            # GET /api/schema, GET /api/columns, GET /api/tx-columns, GET /api/tx/capabilities
 ├── queue_io.py          # GET /api/import-files, GET /api/import/{}/preview, POST /api/import/{}, POST /api/export-queue
 ├── logs.py              # GET /api/logs, GET /api/logs/{session_id}
-├── session.py           # GET /api/session, POST /api/session/new, PATCH /api/session + deprecated aliases
+├── session.py           # GET /api/session, POST /api/session/new, PATCH /api/session, deprecated aliases (all existing endpoints, relocated)
 ```
 
 **Routing:** Each module defines its own `APIRouter`. `__init__.py` creates a parent router that includes all sub-routers. `app.py` continues to mount a single `api.router`.
@@ -116,22 +116,29 @@ for ws in dead:
     self.clients.remove(ws)
 ```
 
-**Target:** Single async helper at the top of `services.py` (used by both RxService and TxService, and importable by api/session.py):
+**Target:** Single async helper at the top of `services.py` (used by both RxService and TxService, and importable by api/session.py).
+
+**Concurrency contract:** The current code uses `self.lock` (a `threading.Lock`) around all client list mutations in both RxService and TxService. The helper must preserve this. It becomes an instance method on each service (or accepts the lock), not a bare function:
 
 ```python
-async def broadcast_safe(clients: list[WebSocket], payload: str) -> None:
-    """Send payload to all clients, removing dead connections."""
+async def broadcast_safe(clients: list[WebSocket], lock: threading.Lock, payload: str) -> None:
+    """Send payload to all clients, removing dead connections under lock."""
     dead = []
     for ws in clients:
         try:
             await ws.send_text(payload)
         except Exception:
             dead.append(ws)
-    for ws in dead:
-        clients.remove(ws)
+    if dead:
+        with lock:
+            for ws in dead:
+                if ws in clients:
+                    clients.remove(ws)
 ```
 
-Replace all 6 occurrences in `RxService.broadcast()`, `RxService.broadcast_loop()` (3 sites), `TxService.broadcast()`, and the session rename broadcast in `api.py`.
+The lock is only held for the removal phase (fast), not during sends (slow/blocking). This matches the current pattern where sends happen outside the lock and removals happen inside it.
+
+Replace all 6 occurrences in `RxService.broadcast()`, `RxService.broadcast_loop()` (3 sites), `TxService.broadcast()`, and the session rename broadcast in `api.py` (which uses `runtime.session_clients` — pass the appropriate lock or add one for session clients).
 
 ---
 
@@ -198,6 +205,8 @@ AppProvider (single context)
 ```
 
 All consumers rerender when any sub-object changes. RX flushes every 50ms during live traffic, causing TX and session consumers to rerender unnecessarily.
+
+**Acceptance criterion:** After the split, components that consume only `useTx()` or `useSession()` must not rerender when RX packets flush. Verify with React DevTools Profiler: during live RX traffic, TxPanel and SessionBar should show zero renders unless their own state changes.
 
 ### Target architecture
 
@@ -279,15 +288,24 @@ export function useConfig(): { config: GssConfig | null; setConfig: (c: GssConfi
 ## Dependency Order
 
 ```
-1A (api/ package split) ─────────────┐
-1B (tx dispatch table) ──────────────┤
-1C (broadcast_safe extraction) ──────┤── can be done in parallel
-2  (RX rendering dedup) ─────────────┘
-3  (frontend state split) ─── independent of backend changes
-4  (TX contract alignment) ── depends on 1B (dispatch table exists first)
+1A (api/ package split) ──── standalone (api.py only)
+        ↓
+1C (broadcast_safe) ──────── sequential after 1A (both touch api session broadcast)
+        ↓
+2  (RX rendering dedup) ──── sequential after 1C (both touch services.py)
+
+1B (tx dispatch table) ───── parallel with 1A/1C/2 (tx.py + new tx_actions.py only)
+
+3  (frontend state split) ── independent of all backend changes
+
+4  (TX contract alignment) ─ after 1B (documents the dispatch table)
 ```
 
-Items 1A, 1B, 1C, and 2 touch different backend files and can proceed in parallel. Item 3 is frontend-only. Item 4 should come after 1B since it documents the new dispatch table.
+**File ownership constraints:**
+- `1A` owns `api.py` → `api/` migration
+- `1C` owns `services.py` broadcast patterns + imports the helper into `api/session.py` (created by 1A)
+- `2` owns `services.py` rendering path + `parsing.py` (after 1C is done with services.py)
+- `1B` owns `tx.py` + new `tx_actions.py` — no overlap with other items
 
 Each item is independently committable and testable.
 
@@ -296,6 +314,8 @@ Each item is independently committable and testable.
 ## Verification
 
 After each item:
-- Backend: run `python3 tests/test_ops_protocol_core.py`, `test_ops_logging.py`, `test_tx_plugin.py`
-- Frontend: run `npm run build` (TypeScript + bundle check), `npm run lint`
+- Backend (control plane): `python3 tests/test_ops_web_runtime.py`, `python3 tests/test_ops_tx_runtime.py` — primary regression suites for this work
+- Backend (protocol/logging): `python3 tests/test_ops_protocol_core.py`, `test_ops_logging.py`, `test_tx_plugin.py` — confirm no side-effect breakage
+- Frontend: `npm run build` (TypeScript + bundle check), `npm run lint`
 - Manual: start `MAV_WEB.py`, verify dashboard loads, RX/TX panels render, queue operations work
+- Item 3 specifically: React DevTools Profiler check during live RX traffic (see acceptance criterion above)
