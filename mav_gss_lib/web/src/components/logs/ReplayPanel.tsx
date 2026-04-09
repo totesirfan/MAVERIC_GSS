@@ -144,9 +144,10 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setLoading(true)
-    fetch(`/api/logs/${sessionId}`)
+    fetch(`/api/logs/${sessionId}?limit=2000`)
       .then((r) => r.json())
-      .then((data: LogEntry[]) => {
+      .then((resp: { entries: LogEntry[] } | LogEntry[]) => {
+        const data = Array.isArray(resp) ? resp : resp.entries
         const packets = data.map((e, i) => entryToPacket(e, i))
         // Compute session time bounds
         const t0 = packets.length > 0 ? parseReplayTime(packets[0]) : 0
@@ -353,7 +354,7 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
           onValueCommitted={handleDragEnd}
           data-dragging={dragging || undefined}
           style={{ '--slider-track': colors.borderSubtle } as React.CSSProperties}
-          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[var(--slider-track)] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&[data-dragging]_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
+          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[var(--slider-track)] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&[data-dragging]_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]]:focus-visible:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
         />
       </div>
 
