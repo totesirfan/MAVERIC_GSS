@@ -120,17 +120,6 @@ class RxService:
 
         zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)
 
-    def _build_rendering(self, pkt) -> dict:
-        """Build structured rendering-slot data for one packet."""
-        from dataclasses import asdict
-        adapter = self.runtime.adapter
-        return {
-            "row": adapter.packet_list_row(pkt),
-            "detail_blocks": adapter.packet_detail_blocks(pkt),
-            "protocol_blocks": [asdict(b) for b in adapter.protocol_blocks(pkt)],
-            "integrity_blocks": [asdict(b) for b in adapter.integrity_blocks(pkt)],
-        }
-
     async def broadcast(self, msg):
         """Broadcast one JSON-serializable message to all RX websocket clients."""
         text = json.dumps(msg) if isinstance(msg, dict) else msg
@@ -150,9 +139,10 @@ class RxService:
                 if item_gen < self.runtime.session.generation:
                     continue
                 pkt = self.pipeline.process(meta, raw)
+                record = build_rx_log_record(pkt, version, meta, self.runtime.adapter)
                 try:
                     if self.log:
-                        self.log.write_jsonl(build_rx_log_record(pkt, version, meta, self.runtime.adapter))
+                        self.log.write_jsonl(record)
                         self.log.write_packet(pkt, adapter=self.runtime.adapter)
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)
@@ -167,7 +157,7 @@ class RxService:
                     "is_echo": pkt.is_uplink_echo,
                     "is_dup": pkt.is_dup,
                     "is_unknown": pkt.is_unknown,
-                    "_rendering": self._build_rendering(pkt),
+                    "_rendering": record["_rendering"],
                 }
                 self.packets.append(pkt_json)
                 msg = json.dumps({"type": "packet", "data": pkt_json})
