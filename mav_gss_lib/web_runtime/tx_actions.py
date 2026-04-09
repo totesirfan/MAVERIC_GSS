@@ -4,6 +4,39 @@ Each handler is a standalone async function: (runtime, msg, websocket) -> None.
 Guards are checked by the dispatch loop before calling the handler.
 """
 
+# ── TX WebSocket Contract ──────────────────────────────────────────────
+#
+# Client sends:  {"action": "<name>", ...payload}
+# Server sends:  {"type": "<event>", ...data}
+#
+# Actions (client → server):
+#   queue             {input: str}                    → queue_update | error
+#   queue_mission_cmd {payload: dict}                 → queue_update | error
+#   delete            {index: int}                    → queue_update
+#   clear             {}                              → queue_update
+#   undo              {}                              → queue_update
+#   guard             {index: int}                    → queue_update
+#   reorder           {order: int[]}                  → queue_update
+#   add_delay         {delay_ms: int, index?: int}    → queue_update
+#   edit_delay        {index: int, delay_ms: int}     → queue_update
+#   send              {}                              → send_progress | error
+#   abort             {}                              → send_aborted
+#   guard_approve     {}                              → (resumes send)
+#   guard_reject      {}                              → send_aborted
+#
+# Events (server → client):
+#   queue_update      {items, summary, sending}
+#   history           {items}
+#   sent              {data: TxHistoryItem}
+#   send_progress     {sent, total, current, waiting}
+#   send_complete     {sent}
+#   send_aborted      {sent, remaining}
+#   guard_confirm     {index, display}
+#   error             {error: str}
+#   send_error        {error: str}
+#   session_new       {}
+# ───────────────────────────────────────────────────────────────────────
+
 from __future__ import annotations
 
 import asyncio

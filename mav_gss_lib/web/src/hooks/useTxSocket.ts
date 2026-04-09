@@ -128,10 +128,10 @@ export function useTxSocket() {
     send('reorder', { order })
   }, [send])
 
-  // addDelay: component passes (ms), backend expects {after_index, delay_ms}
+  // addDelay: component passes (ms), backend expects {index, delay_ms}
   const addDelay = useCallback((ms: number) => {
     const q = queueRef.current
-    send('add_delay', { after_index: q.length - 1, delay_ms: ms })
+    send('add_delay', { index: q.length, delay_ms: ms })
   }, [send])
 
   return {
