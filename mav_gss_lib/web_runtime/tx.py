@@ -1,16 +1,14 @@
-"""TX queue management, send task, and websocket handling."""
+"""TX WebSocket endpoint with dispatch-table action routing."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from .state import MAX_HISTORY, MAX_QUEUE, WebRuntime, get_runtime
+from .state import MAX_HISTORY, get_runtime
 from .runtime import schedule_shutdown_check
-from .tx_queue import make_delay
+from .tx_actions import ACTIONS, send_error
 from .security import authorize_websocket
-from .services import item_to_json
 
 router = APIRouter()
 
@@ -47,179 +45,22 @@ async def ws_tx(websocket: WebSocket):
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
-                await websocket.send_text(json.dumps({"type": "error", "error": "invalid JSON"}))
+                await send_error(websocket, "invalid JSON")
                 continue
 
             action = msg.get("action", "")
+            spec = ACTIONS.get(action)
+            if not spec:
+                await send_error(websocket, f"unknown action: {action}")
+                continue
 
-            def sending():
-                return runtime.tx.sending["active"]
-
-            if action == "queue":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                if len(runtime.tx.queue) >= MAX_QUEUE:
-                    await websocket.send_text(
-                        json.dumps({"type": "error", "error": f"queue full ({MAX_QUEUE} items max)"})
-                    )
-                    continue
-                line = msg.get("input", "").strip()
-                if not line:
-                    await websocket.send_text(json.dumps({"type": "error", "error": "empty input"}))
-                    continue
-                try:
-                    from .tx_queue import validate_mission_cmd
-                    payload = runtime.adapter.cmd_line_to_payload(line)
-                    item = validate_mission_cmd(payload, runtime=runtime)
-                    runtime.tx.queue.append(item)
-                    runtime.tx.renumber_queue()
-                    runtime.tx.save_queue()
-                    await runtime.tx.send_queue_update()
-                except (ValueError, KeyError, TypeError, AttributeError) as exc:
-                    await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
-
-            elif action == "queue_mission_cmd":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                if len(runtime.tx.queue) >= MAX_QUEUE:
-                    await websocket.send_text(
-                        json.dumps({"type": "error", "error": f"queue full ({MAX_QUEUE} items max)"})
-                    )
-                    continue
-                try:
-                    from .tx_queue import validate_mission_cmd
-                    payload = msg.get("payload", {})
-                    item = validate_mission_cmd(payload, runtime=runtime)
-                    runtime.tx.queue.append(item)
-                    runtime.tx.renumber_queue()
-                    runtime.tx.save_queue()
-                    await runtime.tx.send_queue_update()
-                except (ValueError, KeyError, TypeError, AttributeError) as exc:
-                    await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
-
-            elif action == "delete":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                idx = msg.get("index")
-                with runtime.tx.send_lock:
-                    if isinstance(idx, int) and 0 <= idx < len(runtime.tx.queue):
-                        runtime.tx.queue.pop(idx)
-                        runtime.tx.renumber_queue()
-                        runtime.tx.save_queue()
-                await runtime.tx.send_queue_update()
-
-            elif action == "clear":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                with runtime.tx.send_lock:
-                    runtime.tx.queue.clear()
-                    runtime.tx.save_queue()
-                await runtime.tx.send_queue_update()
-
-            elif action == "undo":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                with runtime.tx.send_lock:
-                    if runtime.tx.queue:
-                        runtime.tx.queue.pop()
-                        runtime.tx.renumber_queue()
-                        runtime.tx.save_queue()
-                await runtime.tx.send_queue_update()
-
-            elif action == "guard":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                idx = msg.get("index")
-                with runtime.tx.send_lock:
-                    if isinstance(idx, int) and 0 <= idx < len(runtime.tx.queue):
-                        item = runtime.tx.queue[idx]
-                        if item["type"] == "mission_cmd":
-                            item["guard"] = not item.get("guard", False)
-                            runtime.tx.save_queue()
-                await runtime.tx.send_queue_update()
-
-            elif action == "reorder":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                order = msg.get("order", [])
-                with runtime.tx.send_lock:
-                    if isinstance(order, list) and len(order) == len(runtime.tx.queue):
-                        try:
-                            runtime.tx.queue[:] = [runtime.tx.queue[index] for index in order]
-                            runtime.tx.renumber_queue()
-                            runtime.tx.save_queue()
-                        except (IndexError, TypeError):
-                            pass
-                await runtime.tx.send_queue_update()
-
-            elif action == "add_delay":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                if len(runtime.tx.queue) >= MAX_QUEUE:
-                    await websocket.send_text(
-                        json.dumps({"type": "error", "error": f"queue full ({MAX_QUEUE} items max)"})
-                    )
-                    continue
-                delay_ms = max(0, min(300_000, int(msg.get("delay_ms", 1000))))
-                idx = msg.get("index")
-                item = make_delay(delay_ms)
-                with runtime.tx.send_lock:
-                    if isinstance(idx, int) and 0 <= idx <= len(runtime.tx.queue):
-                        runtime.tx.queue.insert(idx, item)
-                    else:
-                        runtime.tx.queue.append(item)
-                    runtime.tx.renumber_queue()
-                    runtime.tx.save_queue()
-                await runtime.tx.send_queue_update()
-
-            elif action == "edit_delay":
-                if sending():
-                    await websocket.send_text(json.dumps({"type": "error", "error": "cannot modify queue during send"}))
-                    continue
-                idx = msg.get("index")
-                delay_ms = msg.get("delay_ms")
-                with runtime.tx.send_lock:
-                    if (
-                        isinstance(idx, int)
-                        and 0 <= idx < len(runtime.tx.queue)
-                        and runtime.tx.queue[idx]["type"] == "delay"
-                        and isinstance(delay_ms, (int, float))
-                    ):
-                        runtime.tx.queue[idx]["delay_ms"] = max(0, min(300_000, int(delay_ms)))
-                        runtime.tx.save_queue()
-                await runtime.tx.send_queue_update()
-
-            elif action == "send":
-                with runtime.tx.send_lock:
-                    if runtime.tx.sending["active"] and runtime.tx.send_task and runtime.tx.send_task.done():
-                        runtime.tx.sending["active"] = False
-                    if runtime.tx.sending["active"]:
-                        await websocket.send_text(json.dumps({"type": "error", "error": "send already in progress"}))
-                        continue
-                    if not runtime.tx.queue:
-                        await websocket.send_text(json.dumps({"type": "error", "error": "queue is empty"}))
-                        continue
-                    runtime.tx.abort.clear()
-                    runtime.tx.guard_ok.clear()
-                    runtime.tx.sending.update(active=True, total=len(runtime.tx.queue), idx=0, guarding=False, sent_at=0, waiting=False)
-                runtime.tx.send_task = asyncio.create_task(runtime.tx.run_send())
-
-            elif action == "abort":
-                runtime.tx.abort.set()
-
-            elif action == "guard_approve":
-                runtime.tx.guard_ok.set()
-
-            elif action == "guard_reject":
-                runtime.tx.abort.set()
+            for guard in spec.guards:
+                err = guard(runtime)
+                if err:
+                    await send_error(websocket, err)
+                    break
+            else:
+                await spec.handler(runtime, msg, websocket)
 
     except WebSocketDisconnect:
         pass
