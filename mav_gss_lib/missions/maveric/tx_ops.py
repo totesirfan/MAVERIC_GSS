@@ -1,30 +1,26 @@
 """
 mav_gss_lib.missions.maveric.tx_ops -- MAVERIC TX Command Building
 
-Extracted TX logic from adapter.py. All functions take cmd_defs as a
-parameter instead of relying on self, so they can be called from the
-adapter via delegation or tested independently.
+All functions receive cmd_defs and/or nodes explicitly — no module globals.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
 
 from __future__ import annotations
 
-from mav_gss_lib.missions.maveric.wire_format import (
-    GS_NODE,
-    build_cmd_raw,
-    node_name as _node_name,
-    ptype_name as _ptype_name,
-    resolve_node,
-    resolve_ptype,
-    validate_args,
-    parse_cmd_line,
-)
+from typing import TYPE_CHECKING
+
+from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
+from mav_gss_lib.missions.maveric.schema import validate_args
+from mav_gss_lib.missions.maveric.cmd_parser import parse_cmd_line
+
+if TYPE_CHECKING:
+    from mav_gss_lib.missions.maveric.nodes import NodeTable
 
 
 def build_raw_command(src, dest, echo, ptype, cmd_id: str, args: str) -> bytes:
     """Build one raw mission command payload for TX."""
-    return build_cmd_raw(dest, cmd_id, args, echo=echo, ptype=ptype, origin=src)
+    return build_cmd_raw(src, dest, cmd_id, args, echo=echo, ptype=ptype)
 
 
 def validate_tx_args(cmd_id: str, args: str, cmd_defs: dict):
@@ -32,13 +28,10 @@ def validate_tx_args(cmd_id: str, args: str, cmd_defs: dict):
     return validate_args(cmd_id, args, cmd_defs)
 
 
-def build_tx_command(payload, cmd_defs: dict):
+def build_tx_command(payload, cmd_defs: dict, nodes: NodeTable):
     """Build a mission command from structured input.
 
     Accepts: {cmd_id, args: str | {name: value, ...}, src?, dest, echo, ptype, guard?}
-    - args as a flat string: CLI path — positional tokens matched to tx_args schema
-    - args as a dict: mission builder path — {name: value} mapping
-    - src (optional): override source node; defaults to GS_NODE
     Returns: {raw_cmd: bytes, display: dict, guard: bool}
     Raises ValueError on validation failure.
     """
@@ -50,22 +43,22 @@ def build_tx_command(payload, cmd_defs: dict):
     echo_name = str(payload.get("echo", "NONE"))
     ptype_name = str(payload.get("ptype", "CMD"))
 
-    # Resolve src: explicit payload value overrides GS_NODE default
+    # Resolve src: explicit payload value overrides gs_node default
     src_name = str(payload.get("src", ""))
     if src_name:
-        src = resolve_node(src_name)
+        src = nodes.resolve_node(src_name)
         if src is None:
             raise ValueError(f"unknown source node '{src_name}'")
     else:
-        src = GS_NODE
+        src = nodes.gs_node
 
-    dest = resolve_node(dest_name)
+    dest = nodes.resolve_node(dest_name)
     if dest is None:
         raise ValueError(f"unknown destination node '{dest_name}'")
-    echo = resolve_node(echo_name)
+    echo = nodes.resolve_node(echo_name)
     if echo is None:
         raise ValueError(f"unknown echo node '{echo_name}'")
-    ptype = resolve_ptype(ptype_name)
+    ptype = nodes.resolve_ptype(ptype_name)
     if ptype is None:
         raise ValueError(f"unknown packet type '{ptype_name}'")
 
@@ -82,7 +75,6 @@ def build_tx_command(payload, cmd_defs: dict):
 
     # Normalize args_input to args_str (wire) and args_dict (display)
     if isinstance(args_input, str):
-        # CLI path: flat string goes to wire directly; split for display matching
         args_str = args_input
         tokens = args_str.split() if args_str.strip() else []
         args_dict = {}
@@ -91,7 +83,6 @@ def build_tx_command(payload, cmd_defs: dict):
                 args_dict[arg_def["name"]] = tokens[i]
         extra_tokens = tokens[len(tx_args_schema):]
     else:
-        # Mission builder path: reconstruct args_str from dict
         if not isinstance(args_input, dict):
             raise ValueError("args must be a str or dict")
         args_dict = args_input
@@ -107,23 +98,23 @@ def build_tx_command(payload, cmd_defs: dict):
     if not valid:
         raise ValueError("; ".join(issues))
 
-    raw_cmd = bytes(build_cmd_raw(dest, cmd_id, args_str, echo=echo, ptype=ptype, origin=src))
+    raw_cmd = bytes(build_cmd_raw(src, dest, cmd_id, args_str, echo=echo, ptype=ptype))
 
     guard = payload.get("guard", defn.get("guard", False))
 
     row = {
-        "src": _node_name(src),
-        "dest": _node_name(dest),
-        "echo": _node_name(echo),
-        "ptype": _ptype_name(ptype),
+        "src": nodes.node_name(src),
+        "dest": nodes.node_name(dest),
+        "echo": nodes.node_name(echo),
+        "ptype": nodes.ptype_name(ptype),
         "cmd": (f"{cmd_id} {args_str}".strip() if args_str else cmd_id),
     }
 
     routing_block = {"kind": "routing", "label": "Routing", "fields": [
-        {"name": "Src", "value": _node_name(src)},
-        {"name": "Dest", "value": _node_name(dest)},
-        {"name": "Echo", "value": _node_name(echo)},
-        {"name": "Type", "value": _ptype_name(ptype)},
+        {"name": "Src", "value": nodes.node_name(src)},
+        {"name": "Dest", "value": nodes.node_name(dest)},
+        {"name": "Echo", "value": nodes.node_name(echo)},
+        {"name": "Type", "value": nodes.ptype_name(ptype)},
     ]}
 
     args_fields = []
@@ -142,7 +133,7 @@ def build_tx_command(payload, cmd_defs: dict):
 
     display = {
         "title": cmd_id,
-        "subtitle": f"{_node_name(src)} \u2192 {_node_name(dest)}",
+        "subtitle": f"{nodes.node_name(src)} \u2192 {nodes.node_name(dest)}",
         "row": row,
         "detail_blocks": detail_blocks,
     }
@@ -150,16 +141,12 @@ def build_tx_command(payload, cmd_defs: dict):
     return {"raw_cmd": raw_cmd, "display": display, "guard": guard}
 
 
-def cmd_line_to_payload(line: str, cmd_defs: dict) -> dict:
+def cmd_line_to_payload(line: str, cmd_defs: dict, nodes: NodeTable) -> dict:
     """Convert raw CLI text to a payload dict for build_tx_command.
 
     Handles two input formats:
     - Shortcut: CMD_ID [ARGS]  (when cmd_id has routing defaults in schema)
     - Full:     [SRC] DEST ECHO TYPE CMD_ID [ARGS]
-
-    Returns: {cmd_id, args, dest, echo, ptype[, src]} for build_tx_command.
-    Only includes 'src' when explicitly provided in full format.
-    Raises ValueError on parse failure or unknown command.
     """
     line = line.strip()
     if not line:
@@ -170,26 +157,24 @@ def cmd_line_to_payload(line: str, cmd_defs: dict) -> dict:
     defn = cmd_defs.get(candidate)
 
     if defn and not defn.get("rx_only") and defn.get("dest") is not None:
-        # Shortcut path: cmd_id [args...]
         args = " ".join(parts[1:])
         return {
             "cmd_id": candidate,
             "args": args,
-            "dest": _node_name(defn["dest"]),
-            "echo": _node_name(defn["echo"]),
-            "ptype": _ptype_name(defn["ptype"]),
+            "dest": nodes.node_name(defn["dest"]),
+            "echo": nodes.node_name(defn["echo"]),
+            "ptype": nodes.ptype_name(defn["ptype"]),
         }
 
-    # Full parse path: [SRC] DEST ECHO TYPE CMD [ARGS]
-    src, dest, echo, ptype, cmd_id, args = parse_cmd_line(line)
+    # Full parse path
+    src, dest, echo, ptype, cmd_id, args = parse_cmd_line(line, nodes)
     result = {
         "cmd_id": cmd_id,
         "args": args,
-        "dest": _node_name(dest),
-        "echo": _node_name(echo),
-        "ptype": _ptype_name(ptype),
+        "dest": nodes.node_name(dest),
+        "echo": nodes.node_name(echo),
+        "ptype": nodes.ptype_name(ptype),
     }
-    # Include explicit src only when it differs from GS_NODE
-    if src != GS_NODE:
-        result["src"] = _node_name(src)
+    if src != nodes.gs_node:
+        result["src"] = nodes.node_name(src)
     return result
