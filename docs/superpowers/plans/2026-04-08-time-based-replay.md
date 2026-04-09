@@ -4,7 +4,7 @@
 
 **Goal:** Replace the packet-index replay scrubber with a YouTube-style time-based scrubber using shadcn Slider.
 
-**Architecture:** The existing `ReplayPanel.tsx` is the only file modified. The slider's value domain changes from packet index to millisecond offset from session start. A binary search helper maps time offsets back to packet indices for the accumulative `replacePackets()` call. A hover tooltip tracks the pointer along the slider track.
+**Architecture:** Primary changes are in `ReplayPanel.tsx`. A new `slider.tsx` is added via shadcn CLI. The slider's value domain changes from packet index to millisecond offset from session start. A binary search helper maps time offsets back to packet indices for the accumulative `replacePackets()` call. A hover tooltip tracks the pointer along the slider track. Production `dist/` is rebuilt at the end.
 
 **Tech Stack:** React, shadcn Slider (`@radix-ui/react-slider`), TypeScript, Tailwind CSS
 
@@ -27,7 +27,7 @@ npx shadcn@latest add slider
 - [ ] **Step 2: Verify the file was created**
 
 ```bash
-ls mav_gss_lib/web/src/components/ui/slider.tsx
+ls src/components/ui/slider.tsx
 ```
 
 Expected: file exists.
@@ -87,10 +87,28 @@ function findPacketIndexAtTime(packets: RxPacket[], targetTime: number): number 
 Add directly after `findPacketIndexAtTime`:
 
 ```tsx
-/** Format a packet's time field for display (HH:MM:SS). */
+/** Convert a packet's timestamp to HH:MM:SS for display.
+ *  Handles full datetime strings, ISO format, and bare HH:MM:SS.
+ */
 function formatTimestamp(pkt: RxPacket): string {
-  const t = (pkt.time || '').trim()
-  return t || '--:--:--'
+  const raw = (pkt.time_utc || pkt.time || '').trim()
+  if (!raw) return '--:--:--'
+
+  // ISO format: "2026-04-08T11:58:23.000Z"
+  if (raw.length > 10 && raw[10] === 'T') {
+    const timePart = raw.slice(11, 19)
+    if (timePart.length >= 8) return timePart
+  }
+
+  // Full datetime: "2026-04-08 11:58:23 PDT" or "2026-04-08 11:58:23.123"
+  const spaceMatch = raw.match(/\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2})/)
+  if (spaceMatch) return spaceMatch[1]
+
+  // Bare time: "11:58:23" or "11:58:23.456"
+  const bareMatch = raw.match(/^(\d{2}:\d{2}:\d{2})/)
+  if (bareMatch) return bareMatch[1]
+
+  return '--:--:--'
 }
 ```
 
@@ -231,7 +249,7 @@ Find the `{/* Scrubber */}` and `{/* Position counter */}` sections (lines 241�
           step={1}
           value={[allEntries.length > 0 ? parseReplayTime(allEntries[position]) - startTime : 0]}
           onValueChange={handleScrub}
-          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
+          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[#222222] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
         />
       </div>
 
@@ -267,13 +285,14 @@ git commit -m "Replace range input with shadcn Slider and timestamp display"
 **Files:**
 - Modify: `mav_gss_lib/web/src/components/logs/ReplayPanel.tsx`
 
-- [ ] **Step 1: Add tooltip state**
+- [ ] **Step 1: Add tooltip and drag state**
 
 Inside `ReplayPanel`, after the existing state declarations, add:
 
 ```tsx
   const [tooltipTime, setTooltipTime] = useState<string | null>(null)
   const [tooltipX, setTooltipX] = useState(0)
+  const [dragging, setDragging] = useState(false)
   const scrubberRef = useRef<HTMLDivElement>(null)
 ```
 
@@ -283,6 +302,7 @@ Add these callbacks after the existing `handleScrub` callback:
 
 ```tsx
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragging) return // hide tooltip during drag — thumb position is sufficient
     const rect = scrubberRef.current?.getBoundingClientRect()
     if (!rect || sessionDurationMs === 0) return
     const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
@@ -291,7 +311,7 @@ Add these callbacks after the existing `handleScrub` callback:
     const idx = findPacketIndexAtTime(entriesRef.current, targetTime)
     setTooltipTime(formatTimestamp(entriesRef.current[idx]))
     setTooltipX(fraction * 100)
-  }, [sessionDurationMs])
+  }, [sessionDurationMs, dragging])
 
   const handlePointerLeave = useCallback(() => {
     setTooltipTime(null)
@@ -300,7 +320,7 @@ Add these callbacks after the existing `handleScrub` callback:
 
 - [ ] **Step 3: Attach handlers and tooltip to the scrubber wrapper div**
 
-Update the `{/* Scrubber */}` wrapper `<div>` (the `relative flex-1 group` div added in Task 5) to:
+Update the `{/* Scrubber */}` wrapper `<div>` (the `relative flex-1 group` div added in Task 5). Add `onPointerDown` to detect drag start on the Slider, and `onValueCommit` to detect drag end. The tooltip is suppressed while `dragging` is true.
 
 ```tsx
       {/* Scrubber */}
@@ -324,12 +344,17 @@ Update the `{/* Scrubber */}` wrapper `<div>` (the `relative flex-1 group` div a
           </div>
         )}
         <Slider
-          {/* ... existing Slider props unchanged ... */}
+          min={0}
+          max={sessionDurationMs || 1}
+          step={1}
+          value={[allEntries.length > 0 ? parseReplayTime(allEntries[position]) - startTime : 0]}
+          onValueChange={handleScrub}
+          onPointerDown={() => { setDragging(true); setTooltipTime(null) }}
+          onValueCommit={() => setDragging(false)}
+          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[#222222] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
         />
       </div>
 ```
-
-Keep all existing `Slider` props exactly as they were in Task 5. Only the wrapper div and tooltip div are new.
 
 - [ ] **Step 4: Verify build passes**
 
@@ -372,11 +397,15 @@ git commit -m "Rebuild dist for time-based replay scrubber"
 
 Start the app (`python3 MAV_WEB.py`) and open a log replay session. Verify:
 
-1. Scrubber shows as a thin amber progress bar, not the default browser range input
+1. Scrubber shows as a thin amber progress bar with dark (`#222222`) track background, not the default browser range input
 2. Thumb appears on hover, hidden otherwise
-3. Hovering over the track shows a timestamp tooltip that follows the cursor
-4. Dragging the scrubber seeks to the correct time — packets accumulate up to that point
-5. Current timestamp displays to the right of the scrubber (e.g., `11:58:23`)
-6. Playback works at all speeds (1x, 2x, 5x, 10x)
-7. Play/pause/stop buttons work as before
-8. Arrow keys nudge the scrubber position
+3. Hovering over the track shows a timestamp tooltip (HH:MM:SS) that follows the cursor
+4. Tooltip disappears during drag — only the thumb is visible while dragging
+5. Tooltip reappears after drag ends (pointer release)
+6. Dragging the scrubber seeks to the correct time — packets accumulate up to that point
+7. Current timestamp displays to the right of the scrubber (e.g., `11:58:23`), not a packet counter
+8. Timestamp formats correctly for full datetime logs, ISO logs, and bare HH:MM:SS logs
+9. Playback works at all speeds (1x, 2x, 5x, 10x)
+10. Play/pause/stop buttons work as before
+11. Arrow keys nudge the scrubber position
+12. Slider is keyboard-focusable with visible focus indicator
