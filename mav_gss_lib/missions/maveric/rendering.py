@@ -10,10 +10,10 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
-from mav_gss_lib.missions.maveric.wire_format import (
-    node_name as _node_name,
-    ptype_name as _ptype_name,
-)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mav_gss_lib.missions.maveric.node_table import NodeTable
 
 
 def _md(pkt) -> dict:
@@ -41,7 +41,7 @@ def packet_list_columns() -> list[dict]:
     ]
 
 
-def packet_list_row(pkt) -> dict:
+def packet_list_row(pkt, nodes: NodeTable) -> dict:
     """Return row values keyed by column ID for one packet."""
     md = _md(pkt)
     cmd = md.get("cmd")
@@ -77,9 +77,9 @@ def packet_list_row(pkt) -> dict:
             "num": pkt.pkt_num,
             "time": pkt.gs_ts_short,
             "frame": pkt.frame_type,
-            "src": _node_name(cmd["src"]) if cmd else "",
-            "echo": _node_name(cmd["echo"]) if cmd else "",
-            "ptype": _ptype_name(cmd["pkt_type"]) if cmd else "",
+            "src": nodes.node_name(cmd["src"]) if cmd else "",
+            "echo": nodes.node_name(cmd["echo"]) if cmd else "",
+            "ptype": nodes.ptype_name(cmd["pkt_type"]) if cmd else "",
             "cmd": ((cmd["cmd_id"] + " " + args_str).strip() if args_str else cmd["cmd_id"]) if cmd else "",
             "flags": flags,
             "size": len(pkt.raw),
@@ -153,7 +153,7 @@ def integrity_blocks(pkt) -> list:
     return blocks
 
 
-def packet_detail_blocks(pkt) -> list[dict]:
+def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
     """Return mission-specific semantic blocks for the detail view."""
     md = _md(pkt)
     cmd = md.get("cmd")
@@ -173,10 +173,10 @@ def packet_detail_blocks(pkt) -> list[dict]:
 
     if cmd:
         blocks.append({"kind": "routing", "label": "Routing", "fields": [
-            {"name": "Src", "value": _node_name(cmd["src"])},
-            {"name": "Dest", "value": _node_name(cmd["dest"])},
-            {"name": "Echo", "value": _node_name(cmd["echo"])},
-            {"name": "Type", "value": _ptype_name(cmd["pkt_type"])},
+            {"name": "Src", "value": nodes.node_name(cmd["src"])},
+            {"name": "Dest", "value": nodes.node_name(cmd["dest"])},
+            {"name": "Echo", "value": nodes.node_name(cmd["echo"])},
+            {"name": "Type", "value": nodes.ptype_name(cmd["pkt_type"])},
             {"name": "Cmd", "value": cmd["cmd_id"]},
         ]})
 

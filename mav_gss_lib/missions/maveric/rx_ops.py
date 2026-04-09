@@ -12,7 +12,8 @@ from __future__ import annotations
 from mav_gss_lib.protocols.crc import verify_csp_crc32
 from mav_gss_lib.protocols.csp import try_parse_csp_v1
 from mav_gss_lib.protocols.frame_detect import detect_frame_type, normalize_frame
-from mav_gss_lib.missions.maveric.wire_format import GS_NODE, apply_schema, try_parse_command
+from mav_gss_lib.missions.maveric.wire_format import try_parse_command
+from mav_gss_lib.missions.maveric.schema import apply_schema
 
 
 def detect(meta) -> str:
@@ -79,10 +80,12 @@ def duplicate_fingerprint(mission_data: dict):
     return cmd["crc"], cmd["csp_crc32"]
 
 
-def is_uplink_echo(mission_data: dict) -> bool:
+def is_uplink_echo(mission_data: dict, gs_node: int) -> bool:
     """Classify whether a decoded command is the ground-station echo.
 
-    Takes a mission_data dict (not a ParsedPacket).
+    Args:
+        mission_data: dict (not a ParsedPacket)
+        gs_node: ground station node ID (from NodeTable.gs_node)
     """
     cmd_obj = mission_data.get("cmd")
-    return bool(cmd_obj and cmd_obj.get("src") == GS_NODE)
+    return bool(cmd_obj and cmd_obj.get("src") == gs_node)

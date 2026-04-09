@@ -11,11 +11,12 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
-from mav_gss_lib.missions.maveric.wire_format import (
-    format_arg_value,
-    node_name,
-    ptype_name,
-)
+from typing import TYPE_CHECKING
+
+from mav_gss_lib.missions.maveric.schema import format_arg_value
+
+if TYPE_CHECKING:
+    from mav_gss_lib.missions.maveric.node_table import NodeTable
 
 
 def _md(pkt) -> dict:
@@ -76,7 +77,7 @@ def build_log_mission_data(pkt) -> dict:
     return data
 
 
-def format_log_lines(pkt) -> list[str]:
+def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
     """Return MAVERIC-specific text log lines for one packet.
 
     Platform handles: separator, warnings, hex dump, ASCII.
@@ -120,8 +121,8 @@ def format_log_lines(pkt) -> list[str]:
     cmd = md.get("cmd")
     if cmd:
         lines.append(f"  {'CMD':<12}"
-            f"Src:{node_name(cmd['src'])}  Dest:{node_name(cmd['dest'])}  "
-            f"Echo:{node_name(cmd['echo'])}  Type:{ptype_name(cmd['pkt_type'])}")
+            f"Src:{nodes.node_name(cmd['src'])}  Dest:{nodes.node_name(cmd['dest'])}  "
+            f"Echo:{nodes.node_name(cmd['echo'])}  Type:{nodes.ptype_name(cmd['pkt_type'])}")
         lines.append(f"  {'CMD ID':<12}{cmd['cmd_id']}")
 
         if cmd.get("schema_match"):
