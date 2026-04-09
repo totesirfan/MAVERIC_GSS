@@ -66,6 +66,52 @@ function parseReplayTime(pkt: RxPacket): number {
   return h * 3600000 + m * 60000 + s * 1000 + ms
 }
 
+/** Binary search for the last packet with parseReplayTime(pkt) <= targetTime.
+ *  Returns the index, or 0 if targetTime is before all packets.
+ */
+export function findPacketIndexAtTime(packets: RxPacket[], targetTime: number): number {
+  let lo = 0
+  let hi = packets.length - 1
+  let result = 0
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1
+    if (parseReplayTime(packets[mid]) <= targetTime) {
+      result = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  return result
+}
+
+/** Format a packet's display time to HH:MM:SS.
+ *  Uses pkt.time (the operator-facing local time field, already HH:MM:SS
+ *  from the backend normalizer). Falls back to extracting HH:MM:SS from
+ *  pkt.time_utc only if pkt.time is empty.
+ */
+export function formatTimestamp(pkt: RxPacket): string {
+  // Prefer pkt.time — the display-oriented local time field
+  const display = (pkt.time || '').trim()
+  if (display) {
+    // Already HH:MM:SS from the backend, but guard against extras
+    const match = display.match(/(\d{2}:\d{2}:\d{2})/)
+    return match ? match[1] : display
+  }
+
+  // Fallback: extract HH:MM:SS from time_utc if time is missing
+  const utc = (pkt.time_utc || '').trim()
+  if (!utc) return '--:--:--'
+
+  const isoMatch = utc.match(/T(\d{2}:\d{2}:\d{2})/)
+  if (isoMatch) return isoMatch[1]
+
+  const spaceMatch = utc.match(/\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2})/)
+  if (spaceMatch) return spaceMatch[1]
+
+  return '--:--:--'
+}
+
 export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelProps) {
   const [allEntries, setAllEntries] = useState<RxPacket[]>([])
   const [, setIntervals] = useState<number[]>([])
