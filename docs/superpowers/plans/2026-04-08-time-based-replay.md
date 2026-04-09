@@ -87,26 +87,29 @@ function findPacketIndexAtTime(packets: RxPacket[], targetTime: number): number 
 Add directly after `findPacketIndexAtTime`:
 
 ```tsx
-/** Convert a packet's timestamp to HH:MM:SS for display.
- *  Handles full datetime strings, ISO format, and bare HH:MM:SS.
+/** Format a packet's display time to HH:MM:SS.
+ *  Uses pkt.time (the operator-facing local time field, already HH:MM:SS
+ *  from the backend normalizer). Falls back to extracting HH:MM:SS from
+ *  pkt.time_utc only if pkt.time is empty.
  */
 function formatTimestamp(pkt: RxPacket): string {
-  const raw = (pkt.time_utc || pkt.time || '').trim()
-  if (!raw) return '--:--:--'
-
-  // ISO format: "2026-04-08T11:58:23.000Z"
-  if (raw.length > 10 && raw[10] === 'T') {
-    const timePart = raw.slice(11, 19)
-    if (timePart.length >= 8) return timePart
+  // Prefer pkt.time — the display-oriented local time field
+  const display = (pkt.time || '').trim()
+  if (display) {
+    // Already HH:MM:SS from the backend, but guard against extras
+    const match = display.match(/(\d{2}:\d{2}:\d{2})/)
+    return match ? match[1] : display
   }
 
-  // Full datetime: "2026-04-08 11:58:23 PDT" or "2026-04-08 11:58:23.123"
-  const spaceMatch = raw.match(/\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2})/)
-  if (spaceMatch) return spaceMatch[1]
+  // Fallback: extract HH:MM:SS from time_utc if time is missing
+  const utc = (pkt.time_utc || '').trim()
+  if (!utc) return '--:--:--'
 
-  // Bare time: "11:58:23" or "11:58:23.456"
-  const bareMatch = raw.match(/^(\d{2}:\d{2}:\d{2})/)
-  if (bareMatch) return bareMatch[1]
+  const isoMatch = utc.match(/T(\d{2}:\d{2}:\d{2})/)
+  if (isoMatch) return isoMatch[1]
+
+  const spaceMatch = utc.match(/\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2})/)
+  if (spaceMatch) return spaceMatch[1]
 
   return '--:--:--'
 }
@@ -249,7 +252,8 @@ Find the `{/* Scrubber */}` and `{/* Position counter */}` sections (lines 241�
           step={1}
           value={[allEntries.length > 0 ? parseReplayTime(allEntries[position]) - startTime : 0]}
           onValueChange={handleScrub}
-          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[#222222] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
+          style={{ '--slider-track': colors.borderSubtle } as React.CSSProperties}
+          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[var(--slider-track)] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
         />
       </div>
 
@@ -351,7 +355,8 @@ Update the `{/* Scrubber */}` wrapper `<div>` (the `relative flex-1 group` div a
           onValueChange={handleScrub}
           onPointerDown={() => { setDragging(true); setTooltipTime(null) }}
           onValueCommit={() => setDragging(false)}
-          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[#222222] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
+          style={{ '--slider-track': colors.borderSubtle } as React.CSSProperties}
+          className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[var(--slider-track)] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
         />
       </div>
 ```
@@ -397,7 +402,7 @@ git commit -m "Rebuild dist for time-based replay scrubber"
 
 Start the app (`python3 MAV_WEB.py`) and open a log replay session. Verify:
 
-1. Scrubber shows as a thin amber progress bar with dark (`#222222`) track background, not the default browser range input
+1. Scrubber shows as a thin amber progress bar with dark track background (`colors.borderSubtle`), not the default browser range input
 2. Thumb appears on hover, hidden otherwise
 3. Hovering over the track shows a timestamp tooltip (HH:MM:SS) that follows the cursor
 4. Tooltip disappears during drag — only the thumb is visible while dragging
