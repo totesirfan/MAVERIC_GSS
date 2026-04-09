@@ -21,6 +21,7 @@ from mav_gss_lib.mission_adapter import load_mission_adapter
 CFG = load_gss_config()
 _ADAPTER = load_mission_adapter(CFG)
 CMD_DEFS = _ADAPTER.cmd_defs
+NODES = getattr(_ADAPTER, "nodes", None)
 GNURADIO_PYTHON = os.environ.get(
     "MAVERIC_GNURADIO_PYTHON",
     "/Users/irfan/radioconda/envs/gnuradio/bin/python3",

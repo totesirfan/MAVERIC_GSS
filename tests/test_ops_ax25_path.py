@@ -22,7 +22,7 @@ class TestAX25Path(unittest.TestCase):
         self.pipeline = RxPipeline(CMD_DEFS, {})
 
     def test_ax25_rx_pipeline_recovers_ping(self):
-        raw = build_cmd_raw(2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "ping", "REQ")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
         self.assertEqual(pkt.frame_type, "AX.25")
@@ -32,20 +32,20 @@ class TestAX25Path(unittest.TestCase):
         self.assertTrue(pkt.mission_data["cmd"]["schema_match"])
 
     def test_ax25_marks_ground_echo(self):
-        raw = build_cmd_raw(2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "ping", "REQ")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
         self.assertTrue(pkt.is_uplink_echo)
 
     def test_ax25_payload_is_deterministic(self):
-        raw = build_cmd_raw(2, "set_mode", "NOMINAL")
+        raw = build_cmd_raw(6, 2, "set_mode", "NOMINAL")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         frame_a = build_ax25_gfsk_frame(payload)
         frame_b = build_ax25_gfsk_frame(payload)
         self.assertEqual(frame_a, frame_b)
 
     def test_ax25_log_record_matches_input_bytes(self):
-        raw = build_cmd_raw(2, "set_mode", "NOMINAL")
+        raw = build_cmd_raw(6, 2, "set_mode", "NOMINAL")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
         record = build_rx_log_record(pkt, "test", META_AX25, self.pipeline.adapter)
@@ -72,7 +72,7 @@ class TestAX25Path(unittest.TestCase):
         self.ax25.dest_ssid = 0
         self.ax25.src_call = "N0CALL"
         self.ax25.src_ssid = 1
-        raw = build_cmd_raw(2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "ping", "REQ")
         payload = self.ax25.wrap(self.csp.wrap(raw))
         pkt = self.pipeline.process(META_AX25, payload)
         blocks = self.pipeline.adapter.protocol_blocks(pkt)

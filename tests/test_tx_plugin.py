@@ -304,7 +304,7 @@ def _make_maveric_adapter():
     cfg = load_gss_config()
     load_mission_metadata(cfg)
     resources = init_mission(cfg)
-    return MavericMissionAdapter(cmd_defs=resources["cmd_defs"])
+    return MavericMissionAdapter(cmd_defs=resources["cmd_defs"], nodes=resources["nodes"])
 
 
 class TestTxQueueColumns(unittest.TestCase):
@@ -360,25 +360,26 @@ class TestBuildTxCommandStringArgs(unittest.TestCase):
         Converts numeric node/ptype IDs to names using the adapter's resolution tables.
         Falls back to the first allowed node, or to a known valid node name.
         """
-        from mav_gss_lib.missions.maveric.wire_format import node_name, ptype_name, NODE_NAMES
+        adapter = self.adapter
+        node_names = adapter.nodes.node_names
 
         # Resolve dest: prefer defn.dest, else first allowed node, else first known node
         raw_dest = defn.get("dest")
         if isinstance(raw_dest, int):
-            dest = node_name(raw_dest)
+            dest = adapter.node_name(raw_dest)
         elif raw_dest:
             dest = raw_dest
         elif defn.get("nodes"):
             dest = defn["nodes"][0]
         else:
             # Fall back to first non-NONE, non-GS node available
-            dest = next((v for k, v in sorted(NODE_NAMES.items()) if k not in (0, 6)), "GS")
+            dest = next((v for k, v in sorted(node_names.items()) if k not in (0, adapter.gs_node)), "GS")
 
         raw_echo = defn.get("echo", 0)
-        echo = node_name(raw_echo) if isinstance(raw_echo, int) else raw_echo
+        echo = adapter.node_name(raw_echo) if isinstance(raw_echo, int) else raw_echo
 
         raw_ptype = defn.get("ptype", 1)
-        ptype = ptype_name(raw_ptype) if isinstance(raw_ptype, int) else raw_ptype
+        ptype = adapter.ptype_name(raw_ptype) if isinstance(raw_ptype, int) else raw_ptype
 
         return {"dest": dest, "echo": echo, "ptype": ptype}
 
@@ -443,7 +444,6 @@ class TestBuildTxCommandStringArgs(unittest.TestCase):
 
     def test_default_src_is_gs_node(self):
         """Omitting src should default to GS_NODE in the Src routing field."""
-        from mav_gss_lib.missions.maveric.wire_format import GS_NODE, node_name
         cmd_id, defn = self.cmd_with_args
         tx_args = defn.get("tx_args", [])
         args_str = " ".join("test" for _ in tx_args)
@@ -451,7 +451,7 @@ class TestBuildTxCommandStringArgs(unittest.TestCase):
         result = self.adapter.build_tx_command(payload)
         routing_block = next(b for b in result["display"]["detail_blocks"] if b["kind"] == "routing")
         field_map = {f["name"]: f["value"] for f in routing_block["fields"]}
-        self.assertEqual(field_map["Src"], node_name(GS_NODE))
+        self.assertEqual(field_map["Src"], self.adapter.node_name(self.adapter.gs_node))
 
 
 def _find_cmd_with_defaults(adapter):
@@ -465,7 +465,6 @@ class TestTxRendering(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mav_gss_lib.missions.maveric.wire_format import node_name
         cls.adapter = _make_maveric_adapter()
         # Prefer a zero-args command with dest defaults; fall back to first with defaults
         cmd_id, defn = None, None
@@ -477,7 +476,7 @@ class TestTxRendering(unittest.TestCase):
         if cmd_id is None:
             cmd_id, defn = _find_cmd_with_defaults(cls.adapter)
         dest_raw = defn["dest"]
-        dest_str = node_name(dest_raw) if isinstance(dest_raw, int) else dest_raw
+        dest_str = cls.adapter.node_name(dest_raw) if isinstance(dest_raw, int) else dest_raw
         cls.payload = {"cmd_id": cmd_id, "args": "", "dest": dest_str}
         cls.cmd_id = cmd_id
 
@@ -560,11 +559,10 @@ class TestCmdLineToPayload(unittest.TestCase):
 
     def test_full_format_without_src(self):
         """Full format (DEST ECHO TYPE CMD) sets cmd_id and dest, no src key."""
-        from mav_gss_lib.missions.maveric.wire_format import node_name, ptype_name
         cmd_id, defn = self.cmd_with_defaults
-        dest_name = defn.get("dest") if isinstance(defn.get("dest"), str) else node_name(defn["dest"])
-        echo_name = node_name(defn.get("echo", 0)) if isinstance(defn.get("echo"), int) else defn.get("echo", "NONE")
-        ptype_n = ptype_name(defn.get("ptype", 1)) if isinstance(defn.get("ptype"), int) else defn.get("ptype", "CMD")
+        dest_name = defn.get("dest") if isinstance(defn.get("dest"), str) else self.adapter.node_name(defn["dest"])
+        echo_name = self.adapter.node_name(defn.get("echo", 0)) if isinstance(defn.get("echo"), int) else defn.get("echo", "NONE")
+        ptype_n = self.adapter.ptype_name(defn.get("ptype", 1)) if isinstance(defn.get("ptype"), int) else defn.get("ptype", "CMD")
         line = f"{dest_name} {echo_name} {ptype_n} {cmd_id}"
         payload = self.adapter.cmd_line_to_payload(line)
         self.assertEqual(payload["cmd_id"], cmd_id)
@@ -573,13 +571,14 @@ class TestCmdLineToPayload(unittest.TestCase):
 
     def test_full_format_with_explicit_src(self):
         """Full format (SRC DEST ECHO TYPE CMD) sets src key when non-default."""
-        from mav_gss_lib.missions.maveric.wire_format import node_name, ptype_name, NODE_NAMES, GS_NODE
         cmd_id, defn = self.cmd_with_defaults
-        dest_name = defn.get("dest") if isinstance(defn.get("dest"), str) else node_name(defn["dest"])
-        echo_name = node_name(defn.get("echo", 0)) if isinstance(defn.get("echo"), int) else defn.get("echo", "NONE")
-        ptype_n = ptype_name(defn.get("ptype", 1)) if isinstance(defn.get("ptype"), int) else defn.get("ptype", "CMD")
+        dest_name = defn.get("dest") if isinstance(defn.get("dest"), str) else self.adapter.node_name(defn["dest"])
+        echo_name = self.adapter.node_name(defn.get("echo", 0)) if isinstance(defn.get("echo"), int) else defn.get("echo", "NONE")
+        ptype_n = self.adapter.ptype_name(defn.get("ptype", 1)) if isinstance(defn.get("ptype"), int) else defn.get("ptype", "CMD")
         # Pick a src that differs from GS_NODE
-        alt_src = next((v for k, v in sorted(NODE_NAMES.items()) if k != GS_NODE), None)
+        node_names = self.adapter.nodes.node_names
+        gs_node = self.adapter.gs_node
+        alt_src = next((v for k, v in sorted(node_names.items()) if k != gs_node), None)
         if alt_src is None:
             self.skipTest("No alternate src node available")
         line = f"{alt_src} {dest_name} {echo_name} {ptype_n} {cmd_id}"

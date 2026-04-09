@@ -21,13 +21,13 @@ class TestGolayPath(unittest.TestCase):
         self.pipeline = RxPipeline(CMD_DEFS, {})
 
     def test_frame_size_is_fixed(self):
-        packet = self.csp.wrap(build_cmd_raw(2, "ping", "REQ"))
+        packet = self.csp.wrap(build_cmd_raw(6, 2, "ping", "REQ"))
         frame = build_asm_golay_frame(packet)
         self.assertEqual(len(frame), 312)
         self.assertEqual(frame[50:54].hex(), "930b51de")
 
     def test_golay_header_flag_bits_remain_zero(self):
-        packet = self.csp.wrap(build_cmd_raw(2, "ping", "REQ"))
+        packet = self.csp.wrap(build_cmd_raw(6, 2, "ping", "REQ"))
         frame = build_asm_golay_frame(packet)
         golay_header = frame[54:57]
         length_field = int.from_bytes(golay_header, "big") & 0xFFF
@@ -39,7 +39,7 @@ class TestGolayPath(unittest.TestCase):
             build_asm_golay_frame(bytes(MAX_PAYLOAD + 1))
 
     def test_gr_satellites_roundtrip_ping(self):
-        raw = build_cmd_raw(2, "ping", "REQ")
+        raw = build_cmd_raw(6, 2, "ping", "REQ")
         packet = self.csp.wrap(raw)
         frame = build_asm_golay_frame(packet)
         decoded = decode_golay_via_gr(frame)
@@ -59,7 +59,7 @@ class TestGolayPath(unittest.TestCase):
         self.assertEqual(decoded, packet)
 
     def test_full_flowgraph_roundtrip_set_mode(self):
-        raw = build_cmd_raw(2, "set_mode", "NOMINAL")
+        raw = build_cmd_raw(6, 2, "set_mode", "NOMINAL")
         packet = self.csp.wrap(raw)
         frame = build_asm_golay_frame(packet)
         decoded, meta = decode_golay_via_flowgraph(frame)

@@ -22,7 +22,8 @@ from mav_gss_lib.mission_adapter import (
     _merge_mission_metadata,
     MissionAdapter,
 )
-from mav_gss_lib.missions.maveric.wire_format import init_nodes, load_command_defs
+from mav_gss_lib.missions.maveric.nodes import init_nodes
+from mav_gss_lib.missions.maveric.schema import load_command_defs
 
 
 class TestMissionMetadata(unittest.TestCase):
