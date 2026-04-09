@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 
 from ..state import Session, get_runtime
 from ..security import require_api_token
+from ..services import broadcast_safe
 
 router = APIRouter()
 
@@ -126,11 +127,7 @@ async def api_session_new(body: dict, request: Request):
     await runtime.rx.broadcast(event)
     await runtime.tx.broadcast(event)
     event_text = json.dumps(event)
-    for sc in list(runtime.session_clients):
-        try:
-            await sc.send_text(event_text)
-        except Exception:
-            pass
+    await broadcast_safe(runtime.session_clients, runtime.session_lock, event_text)
 
     info = _session_info(runtime)
     if commit_errors:
@@ -208,11 +205,7 @@ async def api_session_rename(body: dict, request: Request):
     await runtime.rx.broadcast(event)
     await runtime.tx.broadcast(event)
     event_text = json.dumps(event)
-    for sc in list(runtime.session_clients):
-        try:
-            await sc.send_text(event_text)
-        except Exception:
-            pass
+    await broadcast_safe(runtime.session_clients, runtime.session_lock, event_text)
 
     info = _session_info(runtime)
     info["ok"] = True

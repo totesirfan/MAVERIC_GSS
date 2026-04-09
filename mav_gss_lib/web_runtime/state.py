@@ -84,6 +84,7 @@ class WebRuntime:
             generation=1,
         )
         self.session_clients: list = []
+        self.session_lock = threading.Lock()
 
         self.rx = RxService(self)
         self.tx = TxService(self)

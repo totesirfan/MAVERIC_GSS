@@ -39,6 +39,32 @@ except ImportError:
 
 
 # =============================================================================
+#  HELPERS
+# =============================================================================
+
+async def broadcast_safe(clients: list, lock: threading.Lock, payload: str) -> None:
+    """Send payload to all clients, removing dead connections.
+
+    Snapshots the client list under lock before iterating to avoid
+    races with concurrent connect/disconnect. Lock is held briefly
+    twice: once to snapshot, once to remove dead sockets.
+    """
+    with lock:
+        snapshot = list(clients)
+    dead = []
+    for ws in snapshot:
+        try:
+            await ws.send_text(payload)
+        except Exception:
+            dead.append(ws)
+    if dead:
+        with lock:
+            for ws in dead:
+                if ws in clients:
+                    clients.remove(ws)
+
+
+# =============================================================================
 #  RX SERVICE
 # =============================================================================
 
@@ -108,15 +134,7 @@ class RxService:
     async def broadcast(self, msg):
         """Broadcast one JSON-serializable message to all RX websocket clients."""
         text = json.dumps(msg) if isinstance(msg, dict) else msg
-        with self.lock:
-            dead = []
-            for ws in self.clients:
-                try:
-                    await ws.send_text(text)
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                self.clients.remove(ws)
+        await broadcast_safe(self.clients, self.lock, text)
 
     async def broadcast_loop(self) -> None:
         """Drain received packets and push packet/status updates to clients."""
@@ -153,15 +171,7 @@ class RxService:
                 }
                 self.packets.append(pkt_json)
                 msg = json.dumps({"type": "packet", "data": pkt_json})
-                with self.lock:
-                    dead = []
-                    for ws in self.clients:
-                        try:
-                            await ws.send_text(msg)
-                        except Exception:
-                            dead.append(ws)
-                    for ws in dead:
-                        self.clients.remove(ws)
+                await broadcast_safe(self.clients, self.lock, msg)
 
                 # Plugin hook — let adapter inject extra WS messages
                 hook = getattr(self.runtime.adapter, 'on_packet_received', None)
@@ -171,15 +181,7 @@ class RxService:
                         if extra_msgs:
                             for extra in extra_msgs:
                                 extra_text = json.dumps(extra)
-                                with self.lock:
-                                    dead = []
-                                    for ws in self.clients:
-                                        try:
-                                            await ws.send_text(extra_text)
-                                        except Exception:
-                                            dead.append(ws)
-                                    for ws in dead:
-                                        self.clients.remove(ws)
+                                await broadcast_safe(self.clients, self.lock, extra_text)
                     except Exception as exc:
                         logging.warning("on_packet_received hook failed: %s", exc)
 
@@ -227,15 +229,7 @@ class RxService:
                         "packet_count": self.pipeline.packet_count,
                     }
                 )
-                with self.lock:
-                    dead = []
-                    for ws in self.clients:
-                        try:
-                            await ws.send_text(status_msg)
-                        except Exception:
-                            dead.append(ws)
-                    for ws in dead:
-                        self.clients.remove(ws)
+                await broadcast_safe(self.clients, self.lock, status_msg)
 
             await asyncio.sleep(0.05)
 
@@ -320,15 +314,7 @@ class TxService:
     async def broadcast(self, msg):
         """Broadcast one JSON-serializable message to all TX websocket clients."""
         text = json.dumps(msg) if isinstance(msg, dict) else msg
-        with self.lock:
-            dead = []
-            for ws in self.clients:
-                try:
-                    await ws.send_text(text)
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                self.clients.remove(ws)
+        await broadcast_safe(self.clients, self.lock, text)
 
     async def send_queue_update(self):
         """Broadcast the current queue plus send-state snapshot."""
