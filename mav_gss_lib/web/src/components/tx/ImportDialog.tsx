@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileUp, FileText, Check, ChevronRight, Shield, Timer } from 'lucide-react'
+import { FileUp, FileText, Check, ChevronRight, Shield, Timer, MessageSquareText } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
 import { PtypeBadge } from '@/components/shared/PtypeBadge'
@@ -31,6 +31,7 @@ interface PreviewItem {
   guard?: boolean
   size?: number
   delay_ms?: number
+  text?: string
 }
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
@@ -141,7 +142,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
                   >
                     <FileText className="size-3.5 shrink-0" style={{ color: active ? colors.label : colors.dim }} />
                     <div className="flex-1 min-w-0">
-                      <div className="font-mono truncate" style={{ color: active ? colors.label : colors.value }}>{f.name}</div>
+                      <div className="font-mono truncate" style={{ color: active ? colors.label : colors.value }}>{f.name.replace(/\.jsonl$/, '')}</div>
                       <div className="text-[11px]" style={{ color: colors.dim }}>{(f.size / 1024).toFixed(1)} KB</div>
                     </div>
                     <ChevronRight className="size-3 shrink-0" style={{ color: colors.dim }} />
@@ -186,7 +187,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
               >
                 {/* Preview header */}
                 <div className="flex items-center justify-between px-3 py-2 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
-                  <span className="text-xs font-mono" style={{ color: colors.value }}>{selectedFile}</span>
+                  <span className="text-xs font-mono" style={{ color: colors.value }}>{selectedFile.replace(/\.jsonl$/, '')}</span>
                   <span className="text-[11px]" style={{ color: colors.dim }}>
                     {preview.length} command{preview.length !== 1 ? 's' : ''}
                     {skipped > 0 && <span style={{ color: colors.warning }}> · {skipped} skipped</span>}
@@ -208,7 +209,12 @@ export function ImportDialog({ open, onClose, onImported, txColumns }: ImportDia
                   {preview.map((item, i) => (
                     <div key={i} className="flex items-center gap-2 px-3 py-1 text-xs border-b" style={{ borderColor: colors.borderSubtle }}>
                       <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{i + 1}</span>
-                      {item.type === 'delay' ? (
+                      {item.type === 'note' ? (
+                        <>
+                          <MessageSquareText className="size-3 shrink-0" style={{ color: colors.dim }} />
+                          <span className="italic truncate" style={{ color: colors.dim }}>{item.text}</span>
+                        </>
+                      ) : item.type === 'delay' ? (
                         <>
                           <Timer className="size-3 shrink-0" style={{ color: colors.warning }} />
                           <span style={{ color: colors.warning }}>{((item.delay_ms ?? 0) / 1000).toFixed(1)}s delay</span>

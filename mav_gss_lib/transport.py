@@ -28,7 +28,7 @@ def init_zmq_sub(addr, timeout_ms=200):
     sock.setsockopt(zmq.RCVHWM, 10000)
     sock.setsockopt(zmq.RCVTIMEO, timeout_ms)
     sock.setsockopt(zmq.RECONNECT_IVL, 500)
-    sock.setsockopt(zmq.RECONNECT_IVL_MAX, 30000)
+    sock.setsockopt(zmq.RECONNECT_IVL_MAX, 1000)
     sock.setsockopt(zmq.LINGER, 0)
     sock.setsockopt(zmq.TCP_KEEPALIVE, 1)
     sock.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 30)

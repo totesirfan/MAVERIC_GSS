@@ -1,5 +1,6 @@
 import { useState, useMemo, Suspense } from 'react'
 import { useEffect } from 'react'
+import { useShortcuts } from '@/hooks/useShortcuts'
 import { motion } from 'framer-motion'
 import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -102,7 +103,7 @@ export function TxPanel({
           onClear={clearQueue} onSend={sendAll}
           onDuplicate={(idx) => {
             const item = queue[idx]
-            if (!item || item.type === 'delay') return
+            if (!item || item.type !== 'mission_cmd') return
             queueTemplate(item.payload)
           }}
           onMoveToTop={(idx) => reorder(idx, queue.length - 1)}
@@ -188,14 +189,10 @@ function GuardConfirmBlock({ guardConfirm, onApprove, onReject }: {
   onReject: () => void
 }) {
   // Enter to approve, Escape to reject
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Enter') { e.preventDefault(); onApprove() }
-      if (e.key === 'Escape') { e.preventDefault(); onReject() }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [onApprove, onReject])
+  useShortcuts([
+    { key: 'Enter', action: onApprove },
+    { key: 'Escape', action: onReject },
+  ])
 
   return (
     <div

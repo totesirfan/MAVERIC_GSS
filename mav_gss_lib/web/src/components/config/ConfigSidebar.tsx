@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { colors } from '@/lib/colors'
-import { showToast } from '@/components/shared/StatusToast'
 import type { GssConfig } from '@/lib/types'
-import { X, FileText, Database, Plus, Tag } from 'lucide-react'
-import { PromptDialog } from '@/components/shared/PromptDialog'
+import { X, FileText, Database } from 'lucide-react'
 import { authFetch } from '@/lib/auth'
+import { GssInput } from '@/components/ui/gss-input'
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 let hasLoadedConfigSidebar = false
@@ -41,12 +40,7 @@ function TextField({ label, value, onChange }: { label: string; value: string; o
   return (
     <label className="flex items-center justify-between gap-2">
       <span className="text-xs font-light shrink-0" style={{ color: colors.dim }}>{label}</span>
-      <input
-        className="w-36 px-2 py-1 rounded text-xs text-right outline-none border border-[#222222] focus:border-[#30C8E0] focus:ring-1 focus:ring-[#30C8E0]/20"
-        style={{ backgroundColor: colors.bgBase, color: colors.value }}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <GssInput className="w-36 text-right" value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
   )
 }
@@ -55,13 +49,7 @@ function NumberField({ label, value, onChange, compact }: { label: string; value
   return (
     <label className="flex items-center justify-between gap-2">
       <span className="text-xs font-light shrink-0" style={{ color: colors.dim }}>{label}</span>
-      <input
-        type="number"
-        className={`${compact ? 'w-16' : 'w-36'} px-2 py-1 rounded text-xs text-right outline-none border border-[#222222] focus:border-[#30C8E0] focus:ring-1 focus:ring-[#30C8E0]/20`}
-        style={{ backgroundColor: colors.bgBase, color: colors.value }}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
+      <GssInput type="number" className={`${compact ? 'w-16' : 'w-36'} text-right`} value={value} onChange={(e) => onChange(Number(e.target.value))} />
     </label>
   )
 }
@@ -96,7 +84,6 @@ interface ConfigSidebarProps {
 export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
   const [cfg, setCfg] = useState<GssConfig | null>(null)
   const [dirty, setDirty] = useState(false)
-  const [promptMode, setPromptMode] = useState<'new' | 'tag' | null>(null)
   const [statusInfo, setStatusInfo] = useState<{ version: string; schema_path: string; schema_count: number; log_dir: string; rx_log_json: string | null; rx_log_text: string | null; tx_log_json: string | null; tx_log_text: string | null } | null>(null)
   const initialRef = useRef<GssConfig | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -315,67 +302,6 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                     {statusInfo.tx_log_json && <InfoRow label="TX Data" value={statusInfo.tx_log_json.split('/').pop() ?? ''} />}
                   </Section>
                 )}
-
-                {/* Logging */}
-                <Section title="Logging">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setPromptMode('new')}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs border btn-feedback"
-                      style={{ color: colors.dim, borderColor: colors.borderSubtle }}
-                    >
-                      <Plus className="size-3" />
-                      New Session
-                    </button>
-                    <button
-                      onClick={() => setPromptMode('tag')}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs border btn-feedback"
-                      style={{ color: colors.dim, borderColor: colors.borderSubtle }}
-                    >
-                      <Tag className="size-3" />
-                      Tag Session
-                    </button>
-                  </div>
-                  <PromptDialog
-                    open={promptMode === 'new'}
-                    title="New Log Session"
-                    placeholder="Session tag (optional)"
-                    onSubmit={(tag) => {
-                      setPromptMode(null)
-                      authFetch('/api/logs/new', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ tag }),
-                      }).then(r => r.json()).then(d => {
-                        if (d.ok) {
-                          showToast('New log session started', 'success')
-                          fetch('/api/status').then(r => r.json()).then(setStatusInfo)
-                        }
-                      }).catch(() => showToast('Failed to start new session', 'error'))
-                    }}
-                    onCancel={() => setPromptMode(null)}
-                  />
-                  <PromptDialog
-                    open={promptMode === 'tag'}
-                    title="Tag Session"
-                    placeholder="Tag name"
-                    required
-                    onSubmit={(tag) => {
-                      setPromptMode(null)
-                      authFetch('/api/logs/tag', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ tag }),
-                      }).then(r => r.json()).then(d => {
-                        if (d.ok) {
-                          showToast(`Session tagged: ${tag}`, 'success')
-                          fetch('/api/status').then(r => r.json()).then(setStatusInfo)
-                        }
-                      }).catch(() => showToast('Failed to tag session', 'error'))
-                    }}
-                    onCancel={() => setPromptMode(null)}
-                  />
-                </Section>
 
                 {/* Save / Cancel */}
                 <div className="flex items-center gap-2 mt-4 pt-3 border-t" style={{ borderColor: colors.borderSubtle }}>

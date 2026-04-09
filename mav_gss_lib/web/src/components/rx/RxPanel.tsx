@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import { SessionBanner } from './SessionBanner'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ExternalLink, SlidersHorizontal, ArrowDownToLine, Download, X, ClipboardCopy, Binary } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -101,6 +102,16 @@ interface RxPanelProps {
   replaySession?: string | null
   replacePackets?: (pkts: RxPacket[]) => void
   onStopReplay?: () => void
+  sessionResetGen?: number
+  sessionTag?: string
+  externalShowHex?: boolean
+  externalShowFrame?: boolean
+  externalShowWrapper?: boolean
+  externalHideUplink?: boolean
+  onToggleHex?: () => void
+  onToggleFrame?: () => void
+  onToggleWrapper?: () => void
+  onToggleUplink?: () => void
 }
 
 const RECEIVE_TIMEOUT_MS = 2000
@@ -115,11 +126,19 @@ function hasEcho(packet: RxPacket): boolean {
   return packet.is_echo
 }
 
-export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay }: RxPanelProps) {
-  const [showHex, setShowHex] = useState(false)
-  const [showFrame, setShowFrame] = useState(false)
-  const [showWrapper, setShowWrapper] = useState(false)
-  const [hideUplink, setHideUplink] = useState(true)
+export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay, sessionResetGen, sessionTag, externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink, onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink }: RxPanelProps) {
+  const [localShowHex, setLocalShowHex] = useState(false)
+  const [localShowFrame, setLocalShowFrame] = useState(false)
+  const [localShowWrapper, setLocalShowWrapper] = useState(false)
+  const [localHideUplink, setLocalHideUplink] = useState(true)
+  const showHex = externalShowHex ?? localShowHex
+  const showFrame = externalShowFrame ?? localShowFrame
+  const showWrapper = externalShowWrapper ?? localShowWrapper
+  const hideUplink = externalHideUplink ?? localHideUplink
+  const toggleHex = onToggleHex ?? (() => setLocalShowHex(v => !v))
+  const toggleFrame = onToggleFrame ?? (() => setLocalShowFrame(v => !v))
+  const toggleWrapper = onToggleWrapper ?? (() => setLocalShowWrapper(v => !v))
+  const toggleUplink = onToggleUplink ?? (() => setLocalHideUplink(v => !v))
   const [autoScroll, setAutoScroll] = useState(true)
   const [receiving, setReceiving] = useState(false)
   const [selectedNum, setSelectedNum] = useState<number | null>(null)
@@ -266,16 +285,16 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
           <div className="flex items-center gap-1 group/toggles">
             <div className="flex items-center gap-1">
               <div className={`flex items-center gap-1 ${!showHex ? 'hidden group-hover/toggles:flex' : 'flex'}`}>
-                <TogglePill label="HEX" active={showHex} onClick={() => setShowHex(v => !v)} />
+                <TogglePill label="HEX" active={showHex} onClick={toggleHex} />
               </div>
               <div className={`flex items-center gap-1 ${hideUplink ? 'hidden group-hover/toggles:flex' : 'flex'}`}>
-                <TogglePill label="UL" active={!hideUplink} onClick={() => setHideUplink(v => !v)} />
+                <TogglePill label="UL" active={!hideUplink} onClick={toggleUplink} />
               </div>
               <div className={`flex items-center gap-1 ${!showFrame ? 'hidden group-hover/toggles:flex' : 'flex'}`}>
-                <TogglePill label="FRAME" active={showFrame} onClick={() => setShowFrame(v => !v)} />
+                <TogglePill label="FRAME" active={showFrame} onClick={toggleFrame} />
               </div>
               <div className={`flex items-center gap-1 ${!showWrapper ? 'hidden group-hover/toggles:flex' : 'flex'}`}>
-                <TogglePill label="WRAP" active={showWrapper} onClick={() => setShowWrapper(v => !v)} />
+                <TogglePill label="WRAP" active={showWrapper} onClick={toggleWrapper} />
               </div>
             </div>
             {!showHex && hideUplink && !showFrame && !showWrapper && (
@@ -290,6 +309,8 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
         {replayMode && replaySession && replacePackets && onStopReplay && (
           <ReplayPanel sessionId={replaySession} replacePackets={replacePackets} onStop={onStopReplay} />
         )}
+
+        <SessionBanner sessionResetGen={sessionResetGen} sessionTag={sessionTag} packetCount={packets.length} />
 
         <PacketList
           packets={filtered}

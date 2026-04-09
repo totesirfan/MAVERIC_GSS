@@ -1,0 +1,1 @@
+var e=null,t=null;async function n(){return e||(t||=fetch(`/api/status`).then(e=>e.json()).then(t=>(e=String(t.auth_token??``),e)).catch(()=>``),t)}async function r(e,t={}){let r=await n(),i=new Headers(t.headers??{});return r&&i.set(`X-GSS-Token`,r),fetch(e,{...t,headers:i})}export{n,r as t};

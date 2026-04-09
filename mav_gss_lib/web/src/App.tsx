@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useShortcuts } from '@/hooks/useShortcuts'
+import { AppProvider, useAppConfig, useAppRx, useAppSession } from '@/hooks/useAppContext'
 import { colors } from '@/lib/colors'
 import { GlobalHeader } from '@/components/layout/GlobalHeader'
-import { useRxSocket } from '@/hooks/useRxSocket'
+import { SessionBar } from '@/components/layout/SessionBar'
 import { useTxSocket } from '@/hooks/useTxSocket'
+import { useSession } from '@/hooks/useSession'
+import { useRxSocket } from '@/hooks/useRxSocket'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
 import { AlarmStrip } from '@/components/shared/AlarmStrip'
@@ -28,18 +32,29 @@ function getPageMode(): string | null {
 }
 
 export default function App() {
+  const panelMode = getPanelMode()
+
+  // Pop-out windows stay outside the provider — they manage their own state
+  if (panelMode === 'tx') {
+    return <PopOutTx />
+  }
+  if (panelMode === 'rx') {
+    return <PopOutRx />
+  }
+
+  return (
+    <AppProvider>
+      <AppShell />
+    </AppProvider>
+  )
+}
+
+/** Main app shell — lives inside AppProvider */
+function AppShell() {
+  const { config, setConfig } = useAppConfig()
   const [panelMode, setPanelMode] = useState(() => getPanelMode())
   const [page, setPage] = useState<string | null>(() => panelMode ? null : getPageMode())
-  const [config, setConfig] = useState<GssConfig | null>(null)
   const [plugins, setPlugins] = useState<PluginPageDef[]>([])
-
-  // Config fetch — shared across all views
-  useEffect(() => {
-    fetch('/api/config')
-      .then((r) => r.json())
-      .then((data: GssConfig) => setConfig(data))
-      .catch(() => {})
-  }, [])
 
   // Load plugin pages once mission is known
   useEffect(() => {
@@ -70,17 +85,10 @@ export default function App() {
   }, [])
 
   // Escape key returns to main dashboard from plugin pages
-  useEffect(() => {
-    if (!page) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        navigateTo(null)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [page, navigateTo])
+  useShortcuts(
+    [{ key: 'Escape', action: () => navigateTo(null) }],
+    !!page,
+  )
 
   useEffect(() => {
     const missionName = config?.general?.mission_name ?? 'Mission'
@@ -89,16 +97,6 @@ export default function App() {
 
   const version = config?.general?.version ?? '...'
   const missionName = config?.general?.mission_name ?? 'Mission'
-
-  // Pop-out: TX only — ?panel= takes precedence over ?page=
-  if (panelMode === 'tx') {
-    return <PopOutTx config={config} />
-  }
-
-  // Pop-out: RX only
-  if (panelMode === 'rx') {
-    return <PopOutRx config={config} />
-  }
 
   // Plugin page
   if (page) {
@@ -145,7 +143,8 @@ function PluginPageShell({ missionName, version, page, plugins, onBackClick, plu
   plugin: PluginPageDef | undefined
   configLoaded: boolean
 }) {
-  const rx = useRxSocket()
+  const rx = useAppRx()
+  const session = useAppSession()
 
   return (
     <>
@@ -159,7 +158,8 @@ function PluginPageShell({ missionName, version, page, plugins, onBackClick, plu
         onConfigClick={() => {}}
         onHelpClick={() => {}}
       />
-      <AlarmStrip status={rx.status} packets={rx.packets} replayMode={false} />
+      <SessionBar {...session} />
+      <AlarmStrip status={rx.status} packets={rx.packets} replayMode={false} sessionResetGen={rx.sessionResetGen} />
       {plugin ? (
         <Suspense fallback={
           <div className="flex-1 flex items-center justify-center">
@@ -182,12 +182,19 @@ function PluginPageShell({ missionName, version, page, plugins, onBackClick, plu
 }
 
 /** Pop-out TX panel — standalone window */
-function PopOutTx({ config }: { config: GssConfig | null }) {
+function PopOutTx() {
+  const [config, setConfig] = useState<GssConfig | null>(null)
+  useEffect(() => {
+    fetch('/api/config').then(r => r.json()).then(setConfig).catch(() => {})
+  }, [])
   const tx = useTxSocket()
+  const session = useSession()
   const uplinkMode = config?.tx?.uplink_mode ?? ''
 
   return (
-    <div className="flex flex-col h-full p-2" style={{ backgroundColor: colors.bgApp }}>
+    <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
+      <SessionBar {...session} />
+      <div className="flex-1 p-2">
       <TxPanel
         config={config}
         queue={tx.queue} summary={tx.summary} history={tx.history}
@@ -204,26 +211,37 @@ function PopOutTx({ config }: { config: GssConfig | null }) {
         triggerConfirmSend={0}
         triggerConfirmClear={0}
       />
+      </div>
     </div>
   )
 }
 
 /** Pop-out RX panel — standalone window */
-function PopOutRx({ config }: { config: GssConfig | null }) {
+function PopOutRx() {
+  const [config, setConfig] = useState<GssConfig | null>(null)
+  useEffect(() => {
+    fetch('/api/config').then(r => r.json()).then(setConfig).catch(() => {})
+  }, [])
   const rx = useRxSocket()
+  const session = useSession()
 
   return (
-    <div className="flex flex-col h-full p-2" style={{ backgroundColor: colors.bgApp }}>
-      <RxPanel
-        config={config}
-        packets={rx.packets} status={rx.status}
-        packetStats={rx.stats}
-        columns={rx.columns}
-        replayMode={rx.replayMode}
-        replaySession={null}
-        replacePackets={rx.replacePackets}
-        onStopReplay={() => {}}
-      />
+    <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
+      <SessionBar {...session} />
+      <div className="flex-1 p-2">
+        <RxPanel
+          config={config}
+          packets={rx.packets} status={rx.status}
+          packetStats={rx.stats}
+          columns={rx.columns}
+          replayMode={rx.replayMode}
+          replaySession={null}
+          replacePackets={rx.replacePackets}
+          onStopReplay={() => {}}
+          sessionResetGen={rx.sessionResetGen}
+          sessionTag={rx.sessionResetTag || session.tag}
+        />
+      </div>
     </div>
   )
 }

@@ -33,6 +33,7 @@ export function useAlarms(
   status: RxStatus,
   packets: RxPacket[],
   replayMode: boolean,
+  sessionResetGen: number = 0,
 ): {
   alarms: Alarm[]
   ackAll: () => void
@@ -51,6 +52,19 @@ export function useAlarms(
   const noneTimes = useRef<number[]>([])
   const dupTimes = useRef<number[]>([])
   const prevLen = useRef(0)
+
+  // Reset all alarm state on session change
+  useEffect(() => {
+    if (sessionResetGen === 0) return // skip initial mount
+    prevLen.current = 0
+    crcTimes.current = []
+    noneTimes.current = []
+    dupTimes.current = []
+    firstSeenMap.current = new Map()
+    clearedAtMap.current = new Map()
+    setAckedSet(new Set())
+    clearedSinceAck.current = new Set()
+  }, [sessionResetGen])
 
   // Force re-eval for linger expiry
   const [tick, setTick] = useState(0)

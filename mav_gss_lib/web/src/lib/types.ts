@@ -107,7 +107,12 @@ export interface TxQueueDelay {
   delay_ms: number
 }
 
-export type TxQueueItem = TxQueueCmd | TxQueueDelay
+export interface TxQueueNote {
+  type: 'note'
+  text: string
+}
+
+export type TxQueueItem = TxQueueCmd | TxQueueDelay | TxQueueNote
 
 export interface TxQueueSummary {
   cmds: number

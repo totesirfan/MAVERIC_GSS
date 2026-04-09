@@ -60,6 +60,8 @@ class RxService:
         self.thread_handle: threading.Thread | None = None
         self.broadcast_task = None
         self.pipeline = RxPipeline(runtime.adapter, {})
+        self.last_rx_at: float = 0.0
+        self._was_traffic_active: bool = False
 
     def start_receiver(self) -> None:
         if self.thread_handle and self.thread_handle.is_alive():
@@ -90,7 +92,7 @@ class RxService:
             self.status[0] = status
             result = receive_pdu(sock)
             if result is not None:
-                self.queue.put(result)
+                self.queue.put((self.runtime.session.generation, *result))
 
         zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)
 
@@ -105,6 +107,19 @@ class RxService:
             "integrity_blocks": [asdict(b) for b in adapter.integrity_blocks(pkt)],
         }
 
+    async def broadcast(self, msg):
+        """Broadcast one JSON-serializable message to all RX websocket clients."""
+        text = json.dumps(msg) if isinstance(msg, dict) else msg
+        with self.lock:
+            dead = []
+            for ws in self.clients:
+                try:
+                    await ws.send_text(text)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                self.clients.remove(ws)
+
     async def broadcast_loop(self) -> None:
         """Drain received packets and push packet/status updates to clients."""
         version = self.runtime.cfg.get("general", {}).get("version", "")
@@ -113,9 +128,11 @@ class RxService:
             drained = 0
             while True:
                 try:
-                    meta, raw = self.queue.get_nowait()
+                    item_gen, meta, raw = self.queue.get_nowait()
                 except Empty:
                     break
+                if item_gen < self.runtime.session.generation:
+                    continue
                 pkt = self.pipeline.process(meta, raw)
                 try:
                     if self.log:
@@ -168,6 +185,17 @@ class RxService:
                     except Exception as exc:
                         logging.warning("on_packet_received hook failed: %s", exc)
 
+                # Track last RX time and detect inactive→active transition
+                self.last_rx_at = time.time()
+                if not self._was_traffic_active:
+                    self._was_traffic_active = True
+                    traffic_msg = json.dumps({"type": "traffic_status", "active": True})
+                    for sc in list(self.runtime.session_clients):
+                        try:
+                            await sc.send_text(traffic_msg)
+                        except Exception:
+                            pass
+
                 drained += 1
 
             if self.broadcast_stop:
@@ -176,6 +204,16 @@ class RxService:
                 continue
 
             now = time.time()
+            # Detect active→inactive traffic transition (10s timeout)
+            if self._was_traffic_active and self.last_rx_at > 0 and (now - self.last_rx_at) > 10.0:
+                self._was_traffic_active = False
+                traffic_msg = json.dumps({"type": "traffic_status", "active": False})
+                for sc in list(self.runtime.session_clients):
+                    try:
+                        await sc.send_text(traffic_msg)
+                    except Exception:
+                        pass
+
             if drained == 0 and now - last_status_push > 1.0:
                 last_status_push = now
                 cutoff = now - 5
@@ -294,15 +332,20 @@ class TxService:
 
     def json_to_item(self, payload):
         """Convert one persisted JSON payload back into a runtime queue item."""
-        from .runtime import make_delay, validate_mission_cmd
+        from .runtime import make_delay, make_note, validate_mission_cmd
 
         if payload["type"] == "delay":
             return make_delay(payload.get("delay_ms", 0))
+        if payload["type"] == "note":
+            return make_note(payload.get("text", ""))
         if payload["type"] == "mission_cmd":
-            return validate_mission_cmd(
+            item = validate_mission_cmd(
                 payload.get("payload", {}),
                 runtime=self.runtime,
             )
+            if "guard" in payload:
+                item["guard"] = payload["guard"]
+            return item
         raise ValueError(f"unsupported queue item type: {payload['type']}")
 
     def renumber_queue(self) -> None:
@@ -329,6 +372,9 @@ class TxService:
         for item in self.queue:
             if item["type"] == "delay":
                 result.append({"type": "delay", "delay_ms": item["delay_ms"]})
+                continue
+            if item["type"] == "note":
+                result.append({"type": "note", "text": item["text"]})
                 continue
             result.append({
                 "type": "mission_cmd",
@@ -387,6 +433,13 @@ class TxService:
                     self.sending["waiting"] = False
 
                 await self.send_queue_update()
+
+                if item["type"] == "note":
+                    with self.send_lock:
+                        if self.queue:
+                            self.queue.pop(0)
+                        self.save_queue()
+                    continue
 
                 if item["type"] == "delay":
                     with self.send_lock:

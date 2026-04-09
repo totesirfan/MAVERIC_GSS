@@ -140,6 +140,7 @@ python3 scripts/preflight.py
 ```
 
 Reports pass/fail for Python dependencies, GNU Radio/PMT availability, config files, command schema, web build, and ZMQ addresses.
+This includes the WebSocket backend required by Uvicorn for the browser RX/TX feeds.
 
 ### Self-Check
 

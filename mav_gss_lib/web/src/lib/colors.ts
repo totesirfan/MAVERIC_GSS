@@ -28,7 +28,7 @@ export const colors = {
   borderStrong:  '#333333',
 
   // Semantic state colors (restrained)
-  danger:        '#F06060',
+  danger:        '#FF3838',
   dangerFill:    '#1A0E0E',
   warning:       '#E8B83A',
   warningFill:   '#1A1508',
@@ -44,7 +44,7 @@ export const colors = {
   // Legacy aliases (used widely, mapped to new semantic names)
   label:   '#30C8E0',   // active/cyan — selection, live context
   value:   '#E5E5E5',   // text-primary
-  error:   '#F06060',   // danger
+  error:   '#FF3838',   // danger
   dim:     '#8A8A8A',   // text-muted
   sep:     '#777777',   // text-disabled (5.2:1 contrast on #080808)
   bgBase:  '#080808',   // bg-app

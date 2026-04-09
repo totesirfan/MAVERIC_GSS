@@ -87,6 +87,9 @@ export function useTxSocket() {
             setTimeout(() => setError(null), 5000)
             break
           }
+          case 'session_new':
+            setHistory([])
+            break
           case 'send_error': {
             const errMsg = (msg.error || 'Send failed') as string
             setError(errMsg)

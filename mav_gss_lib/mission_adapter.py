@@ -349,9 +349,12 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     adapter = adapter_cls(**adapter_kwargs)
     validate_adapter(adapter, api_version, mission_name)
 
-    cmd_path = cfg.get("general", {}).get("command_defs", "")
+    cmd_path = resources.get("cmd_path") or cfg.get("general", {}).get("command_defs_resolved") or cfg.get("general", {}).get("command_defs", "")
+    cmd_warn = resources.get("cmd_warn") or cfg.get("general", {}).get("command_defs_warning", "")
     logging.info(
         "Mission loaded: %s [id=%s, adapter API v%d, schema=%s]",
         mission_name, mission, api_version, cmd_path,
     )
+    if cmd_warn:
+        logging.warning("Mission schema warning for %s: %s", mission, cmd_warn)
     return adapter

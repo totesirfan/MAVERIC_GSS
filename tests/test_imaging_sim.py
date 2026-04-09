@@ -361,11 +361,11 @@ def main():
         time.sleep(delay)
 
         # Send img_get_chunk responses
-        dropped = 0
+        dropped_indices = []
         for i, chunk in enumerate(chunks):
             if drop_every > 0 and i > 0 and i % drop_every == 0:
                 print(f"  [{i + 2}/{num_chunks + 1}] chunk {i} DROPPED")
-                dropped += 1
+                dropped_indices.append(i)
                 time.sleep(delay)
                 continue
             print(f"  [{i + 2}/{num_chunks + 1}] chunk {i} ({len(chunk)} bytes)")
@@ -373,8 +373,18 @@ def main():
             send_pmt_pdu(sock, pdu)
             time.sleep(delay)
 
-        if dropped:
-            print(f"  Done: {filename} ({dropped} chunks dropped)")
+        if dropped_indices:
+            print(f"  Done: {filename} ({len(dropped_indices)} chunks dropped: {dropped_indices})")
+            print(f"\n  Press ENTER to re-request {len(dropped_indices)} missing chunk(s)...")
+            input()
+            print(f"  Re-sending dropped chunks...")
+            for i in dropped_indices:
+                chunk = chunks[i]
+                print(f"  [re-request] chunk {i} ({len(chunk)} bytes)")
+                pdu = make_get_chunk_response(filename, i, len(chunk), chunk, src_node)
+                send_pmt_pdu(sock, pdu)
+                time.sleep(delay)
+            print(f"  All dropped chunks re-sent for {filename}")
         else:
             print(f"  Done: {filename}")
 

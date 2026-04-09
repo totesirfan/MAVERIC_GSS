@@ -47,6 +47,9 @@ export function useRxSocket() {
   const replayRef = useRef(false)
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const statsRef = useRef<RxPacketStats>(createEmptyStats())
+  const customListenersRef = useRef<Set<(msg: Record<string, unknown>) => void>>(new Set())
+  const [sessionResetGen, setSessionResetGen] = useState(0)
+  const [sessionResetTag, setSessionResetTag] = useState('')
 
   const syncVisiblePackets = useCallback(() => {
     if (flushTimerRef.current) {
@@ -98,12 +101,23 @@ export function useRxSocket() {
             }
           }
           scheduleFlush()
+        } else if (msg.type === 'session_new') {
+          livePacketsRef.current = []
+          statsRef.current = createEmptyStats()
+          setPackets([])
+          setStats(createEmptyStats())
+          setSessionResetTag((msg as Record<string, unknown>).tag as string ?? 'untitled')
+          setSessionResetGen(g => g + 1)
         } else if (msg.type === 'status') {
           setStatus({
             zmq: (msg.zmq as string) || 'DOWN',
             pkt_rate: (msg.pkt_rate as number) || 0,
             silence_s: (msg.silence_s as number) || 0,
           })
+        } else {
+          for (const listener of customListenersRef.current) {
+            listener(msg)
+          }
         }
       },
       setConnected,
@@ -141,5 +155,10 @@ export function useRxSocket() {
     setStats({ ...statsRef.current })
   }, [])
 
-  return { packets, status, connected, stats, columns, clearPackets, replayMode, replacePackets, enterReplay, exitReplay }
+  const subscribeCustom = useCallback((fn: (msg: Record<string, unknown>) => void) => {
+    customListenersRef.current.add(fn)
+    return () => { customListenersRef.current.delete(fn) }
+  }, [])
+
+  return { packets, status, connected, stats, columns, clearPackets, replayMode, replacePackets, enterReplay, exitReplay, sessionResetGen, sessionResetTag, subscribeCustom }
 }

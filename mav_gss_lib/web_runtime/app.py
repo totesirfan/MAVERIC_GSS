@@ -24,6 +24,7 @@ from mav_gss_lib.logging import SessionLog, TXLog
 from .api import router as api_router
 from .rx import router as rx_router
 from .runtime import sanitize_queue_items
+from .session_ws import router as session_router
 from .tx import router as tx_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
 from .state import WEB_DIR, create_runtime, get_runtime
@@ -101,6 +102,7 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
     app.include_router(rx_router)
     app.include_router(tx_router)
+    app.include_router(session_router)
 
     # Auto-mount mission plugin routers
     import importlib

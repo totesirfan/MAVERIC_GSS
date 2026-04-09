@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useShortcuts } from '@/hooks/useShortcuts'
 import { motion, AnimatePresence } from 'framer-motion'
 import { colors } from '@/lib/colors'
 import {
@@ -52,14 +53,10 @@ export function CommandPalette({ open, onOpenChange, actions }: CommandPalettePr
   }, [open])
 
   // Escape closes
-  useEffect(() => {
-    if (!open) return
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { e.preventDefault(); onOpenChange(false) }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [open, onOpenChange])
+  useShortcuts(
+    [{ key: 'Escape', action: () => onOpenChange(false) }],
+    open,
+  )
 
   return (
     <AnimatePresence initial={false}>

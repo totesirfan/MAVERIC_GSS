@@ -16,7 +16,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       toastOptions={{
         classNames: {
-          error: '!bg-[#F06060] !text-[#080808] !border-[#F06060] font-semibold',
+          error: '!bg-[#FF3838] !text-[#080808] !border-[#FF3838] font-semibold',
           warning: '!bg-[#E8B83A] !text-[#080808] !border-[#E8B83A] font-semibold',
           success: '!bg-[#3CC98E] !text-[#080808] !border-[#3CC98E]',
           info: '!bg-[#0E0E0E] !text-[#E5E5E5] !border-[#222222]',

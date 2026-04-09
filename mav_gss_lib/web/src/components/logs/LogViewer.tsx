@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Search, Clock, ChevronDown, ChevronRight, AlertTriangle, Binary, ArrowDownToLine, ArrowUpFromLine, Play, ClipboardCopy, Braces } from 'lucide-react'
+import { X, Clock, ChevronDown, ChevronRight, AlertTriangle, Binary, ArrowDownToLine, ArrowUpFromLine, Play, ClipboardCopy, Braces } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Separator } from '@/components/ui/separator'
 import { colors } from '@/lib/colors'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { ContextMenuRoot, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@/components/shared/ContextMenu'
+import { LogFilterBar } from './LogFilterBar'
 import { CellValue, SemanticBlocks, ProtocolBlocks, IntegritySection, extractFromRendering } from '@/components/shared/RenderingBlocks'
 import type { ColumnDef, RenderingData } from '@/lib/types'
 
@@ -46,6 +48,9 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
   const [toTime, setToTime] = useState('')
   const [loading, setLoading] = useState(false)
   const [dateFilter, setDateFilter] = useState('')
+  const debouncedCmd = useDebouncedValue(cmdFilter, 300)
+  const debouncedFrom = useDebouncedValue(fromTime, 300)
+  const debouncedTo = useDebouncedValue(toTime, 300)
   const animateOnMount = hasLoadedLogViewer
   const [rxColumns, setRxColumns] = useState<ColumnDef[]>([])
   const [txColumns, setTxColumns] = useState<ColumnDef[]>([])
@@ -131,17 +136,17 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     setLoading(true)
     setExpandedSet(new Set())
     const params = new URLSearchParams()
-    if (cmdFilter) params.set('cmd', cmdFilter)
-    if (fromTime) params.set('from', fromTime)
-    if (toTime) params.set('to', toTime)
+    if (debouncedCmd) params.set('cmd', debouncedCmd)
+    if (debouncedFrom) params.set('from', debouncedFrom)
+    if (debouncedTo) params.set('to', debouncedTo)
     const qs = params.toString()
     fetch(`/api/logs/${sessionId}${qs ? `?${qs}` : ''}`)
       .then((r) => r.json())
       .then((data: LogEntry[]) => { setEntries(data); setLoading(false) })
       .catch(() => { setEntries([]); setLoading(false) })
-  }, [cmdFilter, fromTime, toTime])
+  }, [debouncedCmd, debouncedFrom, debouncedTo])
 
-  /* eslint-disable react-hooks/set-state-in-effect */
+  /* eslint-disable react-hooks/set-state-in-effect -- fetchEntries is triggered by selection/filter changes; reset on close is intentional */
   useEffect(() => {
     if (selected) fetchEntries(selected)
   }, [selected, fetchEntries])
@@ -309,16 +314,16 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
             {/* Right area */}
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* Search bar */}
-              <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ borderColor: colors.borderSubtle }}>
-                <Search className="size-3.5 shrink-0" style={{ color: colors.dim }} />
-                <input placeholder="Command..." className="flex-1 px-2 py-1 rounded text-xs outline-none border border-[#222222] focus:border-[#30C8E0] focus:ring-1 focus:ring-[#30C8E0]/20"
-                  style={{ backgroundColor: colors.bgApp, color: colors.value }} value={cmdFilter} onChange={(e) => setCmdFilter(e.target.value)} />
-                <input placeholder="From HH:MM" className="w-24 px-2 py-1 rounded text-xs outline-none border border-[#222222] focus:border-[#30C8E0] focus:ring-1 focus:ring-[#30C8E0]/20"
-                  style={{ backgroundColor: colors.bgApp, color: colors.value }} value={fromTime} onChange={(e) => setFromTime(e.target.value)} />
-                <input placeholder="To HH:MM" className="w-24 px-2 py-1 rounded text-xs outline-none border border-[#222222] focus:border-[#30C8E0] focus:ring-1 focus:ring-[#30C8E0]/20"
-                  style={{ backgroundColor: colors.bgApp, color: colors.value }} value={toTime} onChange={(e) => setToTime(e.target.value)} />
-                {selected && <span className="text-[11px] shrink-0" style={{ color: colors.dim }}>{entries.length} entries</span>}
-              </div>
+              <LogFilterBar
+                cmdFilter={cmdFilter}
+                fromTime={fromTime}
+                toTime={toTime}
+                entryCount={entries.length}
+                hasSelection={!!selected}
+                onCmdFilterChange={setCmdFilter}
+                onFromTimeChange={setFromTime}
+                onToTimeChange={setToTime}
+              />
 
               {/* Column headers — use TX columns for TX sessions, RX columns for RX */}
               {selected && entries.length > 0 && (() => {

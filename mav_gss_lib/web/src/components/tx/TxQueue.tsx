@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { QueueItem } from './QueueItem'
 import { DelayItem } from './DelayItem'
+import { NoteItem } from './NoteItem'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
 import type { TxQueueItem, TxQueueSummary, SendProgress, TxColumnDef } from '@/lib/types'
@@ -147,9 +148,11 @@ export function TxQueue({
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    const oldIdx = uidItems.findIndex(u => `uid-${u.uid}` === active.id)
-    const newIdx = uidItems.findIndex(u => `uid-${u.uid}` === over.id)
-    if (oldIdx === -1 || newIdx === -1) return
+    const oldUid = Number(String(active.id).replace('uid-', ''))
+    const newUid = Number(String(over.id).replace('uid-', ''))
+    const oldIdx = uidToIndex.get(oldUid)
+    const newIdx = uidToIndex.get(newUid)
+    if (oldIdx === undefined || newIdx === undefined) return
 
     // Optimistic: reorder locally with stable UIDs — card stays where dropped
     setUidItems(prev => arrayMove(prev, oldIdx, newIdx))
@@ -163,11 +166,16 @@ export function TxQueue({
       if (!col.hide_if_all?.length) return true
       const suppressSet = new Set(col.hide_if_all)
       return !queue.every(item => {
-        if (item.type === 'delay') return true
+        if (item.type === 'delay' || item.type === 'note') return true
         return suppressSet.has(String(item.display?.row?.[col.id] ?? ''))
       })
     })
   }, [txColumns, queue])
+
+  const uidToIndex = useMemo(
+    () => new Map(uidItems.map((u, i) => [u.uid, i])),
+    [uidItems],
+  )
 
   const estStr = summary.est_time_s > 0 ? `~${summary.est_time_s.toFixed(1)}s` : ''
 
@@ -201,13 +209,20 @@ export function TxQueue({
               <div className="mt-auto" />
               <AnimatePresence initial={false}>
               {[...uidItems].reverse().map(({ item, uid }) => {
-                const realIdx = uidItems.findIndex(u => u.uid === uid)
+                const realIdx = uidToIndex.get(uid)!
                 const isFlashing = flashUid === uid
                 if (item.type === 'delay') {
                   const delayActive = sendProgress !== null && sendProgress.waiting === true && realIdx === 0
                   return (
                     <motion.div key={uid} exit={{ opacity: 0, x: 30 }} transition={{ duration: 0.15 }} className={isFlashing ? 'animate-slide-in' : ''}>
                       <DelayItem delayMs={item.delay_ms} index={realIdx} sortId={`uid-${uid}`} isActive={delayActive} onEditDelay={onEditDelay} onDelete={onDelete} />
+                    </motion.div>
+                  )
+                }
+                if (item.type === 'note') {
+                  return (
+                    <motion.div key={uid} exit={{ opacity: 0, x: 30 }} transition={{ duration: 0.15 }}>
+                      <NoteItem text={item.text} index={realIdx} sortId={`uid-${uid}`} flash={isFlashing} onDelete={onDelete} />
                     </motion.div>
                   )
                 }
@@ -279,7 +294,7 @@ export function TxQueue({
               <Timer className="size-3" /> Delay
             </Button>
             <Button variant="ghost" size="sm" onClick={() => { setConfirmClear(true); setConfirmSend(false) }}
-              className="h-6 px-2 text-xs gap-1 hover:!text-[#F06060]" style={{ color: colors.dim }}>
+              className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }}>
               <Trash2 className="size-3" /> Clear
             </Button>
             <Button size="sm" onClick={() => { setConfirmSend(true); setConfirmClear(false) }}

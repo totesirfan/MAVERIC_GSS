@@ -58,7 +58,14 @@ def init_mission(cfg: dict) -> dict:
             path = config_path if os.path.isfile(config_path) else mission_path
 
     cmd_defs, cmd_warn = load_command_defs(path)
-    return {"cmd_defs": cmd_defs, "cmd_warn": cmd_warn, "image_assembler": _image_assembler}
+    cfg.setdefault("general", {})["command_defs_resolved"] = os.path.abspath(path)
+    cfg["general"]["command_defs_warning"] = cmd_warn or ""
+    return {
+        "cmd_defs": cmd_defs,
+        "cmd_warn": cmd_warn,
+        "cmd_path": os.path.abspath(path),
+        "image_assembler": _image_assembler,
+    }
 
 
 def get_plugin_routers():

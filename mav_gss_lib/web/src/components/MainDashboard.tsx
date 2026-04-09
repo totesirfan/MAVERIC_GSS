@@ -1,18 +1,17 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
+import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { GlobalHeader } from '@/components/layout/GlobalHeader'
 import { SplitPane } from '@/components/layout/SplitPane'
-import { useRxSocket } from '@/hooks/useRxSocket'
-import { useTxSocket } from '@/hooks/useTxSocket'
+import { useAppRx, useAppTx, useAppSession } from '@/hooks/useAppContext'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
 import { KeyboardHintBar } from '@/components/layout/KeyboardHintBar'
 import { showToast } from '@/components/shared/StatusToast'
 import { AlarmStrip } from '@/components/shared/AlarmStrip'
-import { PromptDialog } from '@/components/shared/PromptDialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { GssConfig } from '@/lib/types'
 import type { PluginPageDef } from '@/plugins/registry'
-import { authFetch } from '@/lib/auth'
+import { SessionBar } from '@/components/layout/SessionBar'
 
 const ConfigSidebar = lazy(() => import('@/components/config/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
 const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => ({ default: m.LogViewer })))
@@ -113,9 +112,10 @@ interface MainDashboardProps {
 }
 
 export function MainDashboard({ config, onConfigChange, missionName, version, plugins, onPluginClick }: MainDashboardProps) {
-  const rx = useRxSocket()
+  const rx = useAppRx()
   const columns = rx.columns
-  const tx = useTxSocket()
+  const tx = useAppTx()
+  const session = useAppSession()
 
   const [showLogs, setShowLogs] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
@@ -124,7 +124,10 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
   const [replaySession, setReplaySession] = useState<string | null>(null)
   const [confirmSendSignal, setConfirmSendSignal] = useState(0)
   const [confirmClearSignal, setConfirmClearSignal] = useState(0)
-  const [sessionPrompt, setSessionPrompt] = useState<'new' | 'tag' | null>(null)
+  const [rxShowHex, setRxShowHex] = useState(false)
+  const [rxShowFrame, setRxShowFrame] = useState(false)
+  const [rxShowWrapper, setRxShowWrapper] = useState(false)
+  const [rxHideUplink, setRxHideUplink] = useState(true)
 
   const startReplay = useCallback((sessionId: string) => {
     rx.enterReplay()
@@ -136,44 +139,19 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
     setReplaySession(null)
   }, [rx])
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-      e.preventDefault()
-      setShowCommand(v => !v)
-      return
-    }
-    if (e.ctrlKey && e.key === 's') {
-      e.preventDefault()
-      if (tx.queue.length > 0 && !tx.sendProgress) tx.sendAll()
-      return
-    }
-    if (e.ctrlKey && e.key === 'z') {
-      e.preventDefault()
-      tx.undoLast()
-      return
-    }
-    if (e.ctrlKey && e.key === 'x') {
-      e.preventDefault()
-      tx.clearQueue()
-      return
-    }
-    if (e.key === 'Escape') {
-      if (showConfig) { setShowConfig(false); return }
-      if (showLogs) { setShowLogs(false); return }
-      if (showHelp) { setShowHelp(false); return }
-      if (tx.sendProgress) { tx.abortSend(); return }
-      return
-    }
-    if (e.key === '?' && !isInputFocused()) {
-      setShowHelp((v) => !v)
-      return
-    }
-  }, [showConfig, showLogs, showHelp, tx])
+  const shortcuts = useMemo<Shortcut[]>(() => [
+    { key: 'k', ctrl: true, action: () => setShowCommand(v => !v) },
+    { key: 's', ctrl: true, action: () => { if (tx.queue.length > 0 && !tx.sendProgress) tx.sendAll() } },
+    { key: 'z', ctrl: true, action: () => tx.undoLast() },
+    { key: 'x', ctrl: true, action: () => tx.clearQueue() },
+    { key: 'Escape', action: () => setShowConfig(false), when: () => showConfig },
+    { key: 'Escape', action: () => setShowLogs(false), when: () => showLogs },
+    { key: 'Escape', action: () => setShowHelp(false), when: () => showHelp },
+    { key: 'Escape', action: () => tx.abortSend(), when: () => !!tx.sendProgress },
+    { key: '?', action: () => setShowHelp(v => !v), when: () => !isInputFocused() },
+  ], [showConfig, showLogs, showHelp, tx])
 
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleKeyDown])
+  useShortcuts(shortcuts)
 
   // Show TX errors as toasts
   useEffect(() => {
@@ -181,19 +159,19 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
   }, [tx.error])
 
   // Show RX CRC failures as toasts
-  // Using rx.packets.length as trigger; rx.packets would cause infinite re-renders
-  /* eslint-disable react-hooks/exhaustive-deps */
+  const lastCrcCheckedNum = useRef(-1)
   useEffect(() => {
     if (rx.packets.length === 0) return
     const last = rx.packets[rx.packets.length - 1]
+    if (last.num <= lastCrcCheckedNum.current) return
+    lastCrcCheckedNum.current = last.num
     const flags = last._rendering?.row?.values?.flags
     const hasCrcFail = Array.isArray(flags) && flags.some(
       (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
     )
     const cmdLabel = String(last._rendering?.row?.values?.cmd ?? 'unknown').split(' ')[0] || 'unknown'
     if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
-  }, [rx.packets.length])
-  /* eslint-enable react-hooks/exhaustive-deps */
+  }, [rx.packets])
 
   const uplinkMode = config?.tx?.uplink_mode ?? ''
 
@@ -208,7 +186,8 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
         onConfigClick={() => setShowConfig(v => !v)}
         onHelpClick={() => setShowHelp(v => !v)}
       />
-      <AlarmStrip status={rx.status} packets={rx.packets} replayMode={rx.replayMode} />
+      <SessionBar {...session} />
+      <AlarmStrip status={rx.status} packets={rx.packets} replayMode={rx.replayMode} sessionResetGen={rx.sessionResetGen} />
       <div className="flex-1 overflow-hidden p-4">
         <SplitPane
           left={
@@ -239,6 +218,16 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
               replaySession={replaySession}
               replacePackets={rx.replacePackets}
               onStopReplay={stopReplay}
+              sessionResetGen={rx.sessionResetGen}
+              sessionTag={rx.sessionResetTag || session.tag}
+              externalShowHex={rxShowHex}
+              externalShowFrame={rxShowFrame}
+              externalShowWrapper={rxShowWrapper}
+              externalHideUplink={rxHideUplink}
+              onToggleHex={() => setRxShowHex(v => !v)}
+              onToggleFrame={() => setRxShowFrame(v => !v)}
+              onToggleWrapper={() => setRxShowWrapper(v => !v)}
+              onToggleUplink={() => setRxHideUplink(v => !v)}
             />
           }
         />
@@ -268,57 +257,20 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
               confirmClear: () => setConfirmClearSignal(n => n + 1),
               undoLast: tx.undoLast,
               abortSend: tx.abortSend,
-              toggleHex: () => {},
-              toggleUplink: () => {},
-              toggleFrame: () => {},
-              toggleWrapper: () => {},
+              toggleHex: () => setRxShowHex(v => !v),
+              toggleUplink: () => setRxHideUplink(v => !v),
+              toggleFrame: () => setRxShowFrame(v => !v),
+              toggleWrapper: () => setRxShowWrapper(v => !v),
               openConfig: () => setShowConfig(true),
               openLogs: () => setShowLogs(true),
               openHelp: () => setShowHelp(true),
-              newSession: () => setSessionPrompt('new'),
-              tagSession: () => setSessionPrompt('tag'),
+              newSession: () => session.setOpenNewSession(true),
+              tagSession: () => session.setOpenRename(true),
             }}
           />
         </Suspense>
       )}
       <KeyboardHintBar />
-      {sessionPrompt === 'new' && (
-        <PromptDialog
-          open
-          title="New Log Session"
-          placeholder="Session tag (optional)"
-          onSubmit={(tag) => {
-            setSessionPrompt(null)
-            authFetch('/api/logs/new', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tag }),
-            }).then(r => r.json()).then(d => {
-              if (d.ok) showToast('New log session started', 'success')
-            }).catch(() => showToast('Failed to start new session', 'error'))
-          }}
-          onCancel={() => setSessionPrompt(null)}
-        />
-      )}
-      {sessionPrompt === 'tag' && (
-        <PromptDialog
-          open
-          title="Tag Session"
-          placeholder="Tag name"
-          required
-          onSubmit={(tag) => {
-            setSessionPrompt(null)
-            authFetch('/api/logs/tag', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tag }),
-            }).then(r => r.json()).then(d => {
-              if (d.ok) showToast(`Session tagged: ${tag}`, 'success')
-            }).catch(() => showToast('Failed to tag session', 'error'))
-          }}
-          onCancel={() => setSessionPrompt(null)}
-        />
-      )}
     </>
   )
 }

@@ -84,6 +84,11 @@ def make_delay(delay_ms):
     return {"type": "delay", "delay_ms": delay_ms}
 
 
+def make_note(text):
+    """Build one note queue item (from ``//`` comment lines in JSONL files)."""
+    return {"type": "note", "text": " ".join(str(text).split())}
+
+
 def make_mission_cmd(payload, adapter=None):
     """Build one mission-command queue item from a mission-specific payload.
 
@@ -129,17 +134,18 @@ def sanitize_queue_items(items, runtime: WebRuntime | None = None):
     accepted = []
     skipped = 0
     for item in items:
-        if item["type"] == "delay":
+        if item["type"] in ("delay", "note"):
             accepted.append(item)
             continue
         if item["type"] == "mission_cmd":
             try:
-                accepted.append(
-                    validate_mission_cmd(
-                        item.get("payload", {}),
-                        runtime=runtime,
-                    )
+                rebuilt = validate_mission_cmd(
+                    item.get("payload", {}),
+                    runtime=runtime,
                 )
+                if item.get("guard"):
+                    rebuilt["guard"] = True
+                accepted.append(rebuilt)
             except ValueError:
                 skipped += 1
             continue

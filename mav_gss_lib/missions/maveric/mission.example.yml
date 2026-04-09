@@ -57,6 +57,6 @@ tx:
   uplink_mode: ASM+Golay
 
 ui:
-  rx_title: Mission Downlink
-  tx_title: Mission Uplink
+  rx_title: RX DOWNLINK
+  tx_title: TX UPLINK
   splash_subtitle: Mission Ground Station

@@ -9,6 +9,7 @@ interface AlarmStripProps {
   status: RxStatus
   packets: RxPacket[]
   replayMode: boolean
+  sessionResetGen?: number
 }
 
 const severityColor: Record<string, string> = {
@@ -44,8 +45,8 @@ function formatAge(firstSeen: number): string {
   return `${Math.floor(m / 60)}h${m % 60}m`
 }
 
-export function AlarmStrip({ status, packets, replayMode }: AlarmStripProps) {
-  const { alarms, ackAll, ackOne } = useAlarms(status, packets, replayMode)
+export function AlarmStrip({ status, packets, replayMode, sessionResetGen = 0 }: AlarmStripProps) {
+  const { alarms, ackAll, ackOne } = useAlarms(status, packets, replayMode, sessionResetGen)
 
   // Highest severity drives the strip chrome
   const maxSeverity = alarms.length > 0

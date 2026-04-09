@@ -209,6 +209,122 @@ class _BaseLog:
         with self._q_lock:
             self._open_files(tag)
 
+    def prepare_new_session(self, tag=""):
+        """Open new log files WITHOUT closing old ones (prepare phase).
+
+        Returns a dict with new file handles and paths. On failure,
+        cleans up any partially created files and raises.
+        """
+        tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"{self._prefix}_{ts}_{tag}" if tag else f"{self._prefix}_{ts}"
+        new_text_path = os.path.join(self._log_dir, "text", f"{name}.txt")
+        new_jsonl_path = os.path.join(self._log_dir, "json", f"{name}.jsonl")
+        new_text_f = None
+        new_jsonl_f = None
+        try:
+            os.makedirs(os.path.join(self._log_dir, "text"), exist_ok=True)
+            os.makedirs(os.path.join(self._log_dir, "json"), exist_ok=True)
+            new_text_f = open(new_text_path, "w", buffering=1)
+            new_jsonl_f = open(new_jsonl_path, "a", buffering=1)
+            session_ts = datetime.now().astimezone().strftime(TS_FULL)
+            new_text_f.write(
+                f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
+                f"  {self._mission_name} Ground Station Log  v{self._version}\n"
+                f"  Mode:      {self._mode}\n"
+                f"  Session:   {session_ts}\n"
+                f"  ZMQ:       {self._zmq_addr}\n"
+                f"{HEADER_CHAR * LOG_LINE_WIDTH}\n\n"
+            )
+            new_text_f.flush()
+        except Exception:
+            # Clean up partial files on failure
+            if new_text_f:
+                try:
+                    new_text_f.close()
+                except Exception:
+                    pass
+            if new_jsonl_f:
+                try:
+                    new_jsonl_f.close()
+                except Exception:
+                    pass
+            for p in (new_text_path, new_jsonl_path):
+                try:
+                    if os.path.isfile(p):
+                        os.remove(p)
+                except OSError:
+                    pass
+            raise
+        return {
+            "text_path": new_text_path,
+            "jsonl_path": new_jsonl_path,
+            "text_f": new_text_f,
+            "jsonl_f": new_jsonl_f,
+        }
+
+    def commit_new_session(self, prepared):
+        """Swap to new file handles from *prepared* dict (commit phase).
+
+        Sends sentinel to old writer thread, joins it, closes old files,
+        auto-deletes empty old files, swaps to new handles, and starts a
+        new writer thread.
+        """
+        old_jsonl = self.jsonl_path
+        old_text = self.text_path
+        # Stop old writer thread
+        with self._q_lock:
+            self._q.put(self._SENTINEL)
+        self._writer.join(timeout=5.0)
+        if self._writer.is_alive():
+            # Writer didn't stop — close prepared files and abort
+            prepared["text_f"].close()
+            prepared["jsonl_f"].close()
+            raise RuntimeError("old writer thread did not stop within timeout — commit aborted")
+        self._text_f.close()
+        self._jsonl_f.close()
+        # Auto-delete empty old session files
+        try:
+            if os.path.isfile(old_jsonl) and os.path.getsize(old_jsonl) == 0:
+                os.remove(old_jsonl)
+                if os.path.isfile(old_text):
+                    os.remove(old_text)
+        except OSError:
+            pass
+        # Swap to new handles
+        self.text_path = prepared["text_path"]
+        self.jsonl_path = prepared["jsonl_path"]
+        self._text_f = prepared["text_f"]
+        self._jsonl_f = prepared["jsonl_f"]
+        self._q = queue.Queue()
+        self._writer = threading.Thread(target=self._writer_loop,
+                                        name="log-writer", daemon=True)
+        self._writer.start()
+
+    def compute_rename_paths(self, tag):
+        """Compute new file paths for a rename operation. Returns (new_text, new_jsonl)."""
+        tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_')
+        if not tag:
+            return None, None
+        def _new_path(path):
+            base, ext = os.path.splitext(path)
+            return f"{base}_{tag}{ext}"
+        return _new_path(self.text_path), _new_path(self.jsonl_path)
+
+    def rename_preflight(self, tag):
+        """Check that rename targets do not already exist.
+
+        Returns (new_text, new_jsonl) on success or raises FileExistsError.
+        """
+        new_text, new_jsonl = self.compute_rename_paths(tag)
+        if new_text is None:
+            raise ValueError("empty tag after sanitization")
+        if os.path.exists(new_text):
+            raise FileExistsError(f"target already exists: {new_text}")
+        if os.path.exists(new_jsonl):
+            raise FileExistsError(f"target already exists: {new_jsonl}")
+        return new_text, new_jsonl
+
     def rename(self, tag):
         """Rename log files by appending a sanitized tag before the extension."""
         tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_')

@@ -55,7 +55,7 @@
   --text-disabled: #777777;
 
   /* ── Semantic state tokens (restrained) ─────────────────── */
-  --state-danger: #F06060;
+  --state-danger: #FF3838;
   --state-danger-fill: #1A0E0E;
 
   --state-warning: #E8B83A;

@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import secrets
 import threading
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from mav_gss_lib.config import (
@@ -36,6 +39,14 @@ MAX_PACKETS = 500
 MAX_HISTORY = 500
 MAX_QUEUE = 200
 SHUTDOWN_DELAY = 15
+
+
+@dataclass
+class Session:
+    session_id: str
+    tag: str
+    started_at: str
+    generation: int
 
 
 # =============================================================================
@@ -66,6 +77,14 @@ class WebRuntime:
         self.shutdown_task = None
         self.had_clients = False
         self.cfg_lock = threading.Lock()
+        self.session = Session(
+            session_id=uuid.uuid4().hex,
+            tag="untitled",
+            started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            generation=1,
+        )
+        self.session_clients: list = []
+
         self.rx = RxService(self)
         self.tx = TxService(self)
 

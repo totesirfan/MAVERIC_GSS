@@ -16,6 +16,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -29,7 +32,7 @@ from mav_gss_lib.config import (
     load_gss_config,
     save_gss_config,
 )
-from .state import MAX_QUEUE, get_runtime
+from .state import MAX_QUEUE, Session, get_runtime
 from .runtime import deep_merge, make_delay, sanitize_queue_items, validate_mission_cmd
 from .security import require_api_token
 from .services import item_to_json
@@ -52,8 +55,10 @@ async def api_status(request: Request):
         "zmq_tx": runtime.tx.status[0],
         "uplink_mode": runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25"),
         "frequency": runtime.cfg.get("tx", {}).get("frequency", ""),
-        "schema_path": runtime.cfg.get("general", {}).get("command_defs", ""),
+        "schema_path": runtime.cfg.get("general", {}).get("command_defs_resolved", "")
+            or runtime.cfg.get("general", {}).get("command_defs", ""),
         "schema_count": len(runtime.cmd_defs),
+        "schema_warning": runtime.cfg.get("general", {}).get("command_defs_warning", ""),
         "auth_token": runtime.session_token,
         "log_dir": runtime.cfg.get("general", {}).get("log_dir", "logs"),
         "logging": runtime.rx.log is not None,
@@ -76,19 +81,8 @@ async def api_selfcheck(request: Request):
     config_exists = os.path.isfile(config_path)
 
     # Resolve command schema path
-    schema_rel = general.get("command_defs", "")
-    schema_resolved = ""
-    schema_exists = False
-    if schema_rel:
-        import importlib
-        mission_id = general.get("mission", "maveric")
-        try:
-            pkg = importlib.import_module(f"mav_gss_lib.missions.{mission_id}")
-            pkg_dir = os.path.dirname(os.path.abspath(pkg.__file__))
-            schema_resolved = os.path.join(pkg_dir, schema_rel)
-            schema_exists = os.path.isfile(schema_resolved)
-        except (ImportError, AttributeError):
-            pass
+    schema_resolved = general.get("command_defs_resolved", "")
+    schema_exists = os.path.isfile(schema_resolved) if schema_resolved else False
 
     # Web build presence
     from .state import WEB_DIR
@@ -104,6 +98,7 @@ async def api_selfcheck(request: Request):
         "schema_path": schema_resolved,
         "schema_exists": schema_exists,
         "schema_count": len(runtime.cmd_defs),
+        "schema_warning": general.get("command_defs_warning", ""),
         "web_build": web_build,
         "web_assets": asset_dir,
         "zmq_rx_addr": runtime.cfg.get("rx", {}).get("zmq_addr", ""),
@@ -216,11 +211,18 @@ async def list_import_files(request: Request):
 
 def parse_import_file(filepath, runtime=None):
     """Parse a queue import JSONL file into runtime queue items."""
+    from .runtime import make_note
+
     items = []
     skipped = 0
     for raw_line in filepath.read_text().strip().split("\n"):
         line = raw_line.strip()
-        if not line or line.startswith("//"):
+        if not line:
+            continue
+        if line.startswith("//"):
+            text = line.lstrip("/").strip()
+            if text:
+                items.append(make_note(text))
             continue
         in_str, escaped, out = False, False, []
         for index, ch in enumerate(line):
@@ -247,8 +249,15 @@ def parse_import_file(filepath, runtime=None):
             if isinstance(obj, dict):
                 if obj.get("type") == "delay":
                     items.append(make_delay(max(0, min(300_000, int(obj.get("delay_ms", 0))))))
+                elif obj.get("type") == "note":
+                    text = str(obj.get("text", "")).strip()
+                    if text:
+                        items.append(make_note(text))
                 elif obj.get("type") == "mission_cmd" and "payload" in obj:
-                    items.append(validate_mission_cmd(obj["payload"], runtime=runtime))
+                    item = validate_mission_cmd(obj["payload"], runtime=runtime)
+                    if obj.get("guard"):
+                        item["guard"] = True
+                    items.append(item)
                 else:
                     skipped += 1
             else:
@@ -274,6 +283,9 @@ async def preview_import(filename: str, request: Request):
     for item in items:
         if item["type"] == "delay":
             preview.append({"type": "delay", "delay_ms": item["delay_ms"]})
+            continue
+        if item["type"] == "note":
+            preview.append({"type": "note", "text": item["text"]})
             continue
         preview.append({
             "type": "mission_cmd",
@@ -336,7 +348,10 @@ async def export_queue(body: dict, request: Request):
         return JSONResponse(status_code=400, content={"error": "Invalid filename"})
     with runtime.tx.send_lock:
         items = list(runtime.tx.queue)
-    lines = [json.dumps(item_to_json(item)) for item in items]
+    lines = [
+        f"// {item['text']}" if item["type"] == "note" else json.dumps(item_to_json(item))
+        for item in items
+    ]
     filepath.write_text("\n".join(lines) + "\n")
     return {"ok": True, "filename": name, "count": len(items)}
 
@@ -482,35 +497,209 @@ async def api_log_entries(
     return entries
 
 
-@router.post("/api/logs/tag")
-async def tag_session(body: dict, request: Request):
+def _session_info(runtime) -> dict:
+    """Build session info dict from runtime state."""
+    s = runtime.session
+    return {
+        "session_id": s.session_id,
+        "tag": s.tag,
+        "started_at": s.started_at,
+        "generation": s.generation,
+    }
+
+
+@router.get("/api/session")
+async def api_session_get(request: Request):
+    """Return current session info and traffic status."""
+    runtime = get_runtime(request)
+    info = _session_info(runtime)
+    traffic_active = (
+        runtime.rx.last_rx_at > 0
+        and (time.time() - runtime.rx.last_rx_at) < 10.0
+    )
+    info["traffic_active"] = traffic_active
+    return info
+
+
+@router.post("/api/session/new")
+async def api_session_new(body: dict, request: Request):
+    """Create a new session with two-phase atomic log rotation."""
     runtime = get_runtime(request)
     denied = require_api_token(request)
     if denied:
         return denied
-    tag = body.get("tag", "")
-    if runtime.rx.log and tag:
-        runtime.rx.log.rename(tag)
-        return {"ok": True, "path": runtime.rx.log.jsonl_path}
-    return JSONResponse(status_code=400, content={"error": "No active session or empty tag"})
+
+    tag = body.get("tag", "") or "untitled"
+    if not runtime.rx.log and not runtime.tx.log:
+        return JSONResponse(status_code=400, content={"error": "No active session"})
+
+    old_gen = runtime.session.generation
+    new_session = Session(
+        session_id=uuid.uuid4().hex,
+        tag=tag,
+        started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        generation=old_gen + 1,
+    )
+
+    # -- Prepare phase: open new files without closing old ones --
+    rx_prepared = None
+    tx_prepared = None
+    try:
+        if runtime.rx.log:
+            rx_prepared = runtime.rx.log.prepare_new_session(tag)
+        if runtime.tx.log:
+            tx_prepared = runtime.tx.log.prepare_new_session(tag)
+    except Exception as exc:
+        # Cleanup any prepared files on failure
+        for prepared in (rx_prepared, tx_prepared):
+            if prepared is not None:
+                for key in ("text_f", "jsonl_f"):
+                    try:
+                        prepared[key].close()
+                    except Exception:
+                        pass
+                for key in ("text_path", "jsonl_path"):
+                    try:
+                        if os.path.isfile(prepared[key]):
+                            os.remove(prepared[key])
+                    except OSError:
+                        pass
+        logging.error("Session prepare failed: %s", exc)
+        return JSONResponse(status_code=500, content={"error": f"prepare failed: {exc}"})
+
+    # -- Commit phase: commit each log independently --
+    # True cross-log atomicity is not possible without a transaction manager.
+    # We commit each side independently and always update session state.
+    # If one side fails, we report partial success — the session is still valid
+    # but one log may be on the old files.
+    commit_errors = []
+    if rx_prepared:
+        try:
+            runtime.rx.log.commit_new_session(rx_prepared)
+        except Exception as exc:
+            logging.error("RX log commit failed: %s", exc)
+            commit_errors.append(f"RX: {exc}")
+    if tx_prepared:
+        try:
+            runtime.tx.log.commit_new_session(tx_prepared)
+        except Exception as exc:
+            logging.error("TX log commit failed: %s", exc)
+            commit_errors.append(f"TX: {exc}")
+    # Always update session — even partial rotation is better than stale state
+    runtime.session = new_session
+
+    # Broadcast session_new to all channels
+    event = {
+        "type": "session_new",
+        "session_id": new_session.session_id,
+        "tag": new_session.tag,
+        "started_at": new_session.started_at,
+    }
+    await runtime.rx.broadcast(event)
+    await runtime.tx.broadcast(event)
+    event_text = json.dumps(event)
+    for sc in list(runtime.session_clients):
+        try:
+            await sc.send_text(event_text)
+        except Exception:
+            pass
+
+    info = _session_info(runtime)
+    if commit_errors:
+        info["ok"] = False
+        info["partial"] = True
+        info["error"] = "; ".join(commit_errors)
+        return JSONResponse(status_code=207, content=info)
+    info["ok"] = True
+    return info
+
+
+@router.patch("/api/session")
+async def api_session_rename(body: dict, request: Request):
+    """Rename the current session tag and log files.
+
+    Rollback is supported on POSIX (synchronous rename). On Windows,
+    rename is queued to the writer thread so rollback is not reliable.
+    """
+    runtime = get_runtime(request)
+    denied = require_api_token(request)
+    if denied:
+        return denied
+
+    tag = body.get("tag", "").strip() or "untitled"
+    old_tag = runtime.session.tag
+
+    # Preflight: check both log rename targets
+    rx_new_text = rx_new_jsonl = None
+    tx_new_text = tx_new_jsonl = None
+    try:
+        if runtime.rx.log:
+            rx_new_text, rx_new_jsonl = runtime.rx.log.rename_preflight(tag)
+        if runtime.tx.log:
+            tx_new_text, tx_new_jsonl = runtime.tx.log.rename_preflight(tag)
+    except (FileExistsError, ValueError) as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+
+    # Save original paths for rollback
+    rx_old_text = runtime.rx.log.text_path if runtime.rx.log else None
+    rx_old_jsonl = runtime.rx.log.jsonl_path if runtime.rx.log else None
+
+    # Rename RX
+    try:
+        if runtime.rx.log:
+            runtime.rx.log.rename(tag)
+    except Exception as exc:
+        logging.error("RX rename failed: %s", exc)
+        return JSONResponse(status_code=500, content={"error": f"RX rename failed: {exc}"})
+
+    # Rename TX — rollback RX on failure
+    try:
+        if runtime.tx.log:
+            runtime.tx.log.rename(tag)
+    except Exception as exc:
+        logging.error("TX rename failed: %s, rolling back RX", exc)
+        if runtime.rx.log and rx_old_text and rx_old_jsonl:
+            try:
+                os.rename(runtime.rx.log.text_path, rx_old_text)
+                os.rename(runtime.rx.log.jsonl_path, rx_old_jsonl)
+                runtime.rx.log.text_path = rx_old_text
+                runtime.rx.log.jsonl_path = rx_old_jsonl
+            except Exception as rb_exc:
+                logging.error("RX rollback also failed: %s", rb_exc)
+        return JSONResponse(status_code=500, content={"error": f"TX rename failed: {exc}"})
+
+    # Update session tag
+    runtime.session.tag = tag
+
+    # Broadcast session_renamed
+    event = {
+        "type": "session_renamed",
+        "session_id": runtime.session.session_id,
+        "tag": tag,
+    }
+    await runtime.rx.broadcast(event)
+    await runtime.tx.broadcast(event)
+    event_text = json.dumps(event)
+    for sc in list(runtime.session_clients):
+        try:
+            await sc.send_text(event_text)
+        except Exception:
+            pass
+
+    info = _session_info(runtime)
+    info["ok"] = True
+    return info
+
+
+@router.post("/api/logs/tag")
+async def tag_session(body: dict, request: Request):
+    """Deprecated: use PATCH /api/session instead."""
+    logging.warning("POST /api/logs/tag is deprecated — use PATCH /api/session")
+    return await api_session_rename(body, request)
 
 
 @router.post("/api/logs/new")
 async def new_session(body: dict, request: Request):
-    runtime = get_runtime(request)
-    denied = require_api_token(request)
-    if denied:
-        return denied
-    tag = body.get("tag", "")
-    if not runtime.rx.log and not runtime.tx.log:
-        return JSONResponse(status_code=400, content={"error": "No active session"})
-    result: dict = {"ok": True}
-    if runtime.rx.log:
-        runtime.rx.log.new_session(tag)
-        result["rx_log_json"] = runtime.rx.log.jsonl_path
-        result["rx_log_text"] = runtime.rx.log.text_path
-    if runtime.tx.log:
-        runtime.tx.log.new_session(tag)
-        result["tx_log_json"] = runtime.tx.log.jsonl_path
-        result["tx_log_text"] = runtime.tx.log.text_path
-    return result
+    """Deprecated: use POST /api/session/new instead."""
+    logging.warning("POST /api/logs/new is deprecated — use POST /api/session/new")
+    return await api_session_new(body, request)

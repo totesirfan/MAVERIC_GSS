@@ -3,8 +3,9 @@ import { Send, Image, Grid3x3, FileText, Download, ChevronDown } from 'lucide-re
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { colors } from '@/lib/colors'
-import { createSocket } from '@/lib/ws'
 import { showToast } from '@/components/shared/StatusToast'
+import { GssInput } from '@/components/ui/gss-input'
+import { usePluginServices } from '@/hooks/usePluginServices'
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -51,6 +52,8 @@ function formatMissingRanges(missing: number[]): string[] {
 // ── Main Component ──────────────────────────────────────────────────
 
 export default function ImagingPage() {
+  const { packets: rxPackets, config, queueCommand, txConnected, subscribeRxCustom, sessionResetGen, fetchSchema } = usePluginServices()
+
   const [packets, setPackets] = useState<ImagingPacket[]>([])
   const [progress, setProgress] = useState<Record<string, ImagingProgress>>({})
   const [selectedFile, setSelectedFile] = useState<string>('')
@@ -58,8 +61,6 @@ export default function ImagingPage() {
   const [chunks, setChunks] = useState<number[]>([])
   const [receiving, setReceiving] = useState(false)
   const receivingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const rxRef = useRef<{ close: () => void } | null>(null)
-  const txRef = useRef<{ send: (msg: unknown) => void; close: () => void } | null>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
 
   // TX form state
@@ -71,27 +72,28 @@ export default function ImagingPage() {
   const [destNode, setDestNode] = useState('')
   const [nodes, setNodes] = useState<string[]>([])
 
-  // Load config + schema to find imaging-capable nodes
+  // Schema fetch via plugin services
+  const [schema, setSchema] = useState<Record<string, Record<string, unknown>> | null>(null)
   useEffect(() => {
-    Promise.all([
-      fetch('/api/config').then(r => r.json()),
-      fetch('/api/schema').then(r => r.json()),
-    ]).then(([cfg, schema]) => {
-      const imgCmd = schema?.img_get_chunk ?? schema?.img_cnt_chunks
-      const allowedNodes: string[] = imgCmd?.nodes ?? []
-      const nodeMap: Record<string, string> = cfg?.nodes ?? {}
-      let nodeNames: string[]
-      if (allowedNodes.length > 0) {
-        nodeNames = allowedNodes.filter(n => Object.values(nodeMap).includes(n))
-      } else {
-        const gsNode = cfg?.general?.gs_node ?? ''
-        nodeNames = Object.values(nodeMap).filter((n): n is string => n !== gsNode)
-      }
-      setNodes(nodeNames)
-      if (nodeNames.length > 0 && !destNode) setDestNode(nodeNames[0])
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    fetchSchema().then(setSchema).catch(() => {})
+  }, [fetchSchema])
+
+  // Resolve imaging-capable nodes from config + schema
+  useEffect(() => {
+    if (!config || !schema) return
+    const imgCmd = schema?.img_get_chunk ?? schema?.img_cnt_chunks
+    const allowedNodes: string[] = (imgCmd?.nodes as string[]) ?? []
+    const nodeMap: Record<string, string> = config?.nodes ?? {}
+    let nodeNames: string[]
+    if (allowedNodes.length > 0) {
+      nodeNames = allowedNodes.filter(n => Object.values(nodeMap).includes(n))
+    } else {
+      const gsNode = config?.general?.gs_node ?? ''
+      nodeNames = Object.values(nodeMap).filter((n): n is string => n !== gsNode)
+    }
+    setNodes(nodeNames)
+    if (nodeNames.length > 0) setDestNode(prev => prev || nodeNames[0])
+  }, [config, schema])
 
   // Fetch initial status
   useEffect(() => {
@@ -112,14 +114,12 @@ export default function ImagingPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // RX WebSocket — filter for imaging packets + progress messages
+  // Subscribe to custom RX messages (imaging_progress)
   useEffect(() => {
-    const sock = createSocket('/ws/rx', (msg: unknown) => {
-      const m = msg as Record<string, unknown>
-      if (m.type === 'imaging_progress') {
-        const p = m as unknown as ImagingProgress
+    return subscribeRxCustom((msg) => {
+      if (msg.type === 'imaging_progress') {
+        const p = msg as unknown as ImagingProgress
         setProgress(prev => ({ ...prev, [p.filename]: p }))
-        // Refresh file list
         setFiles(prev => {
           const existing = prev.find(f => f.filename === p.filename)
           if (existing) {
@@ -127,49 +127,60 @@ export default function ImagingPage() {
           }
           return [...prev, { filename: p.filename, received: p.received, total: p.total, complete: p.complete }]
         })
-        if (!selectedFile) setSelectedFile(p.filename)
-      }
-      if (m.type === 'packet') {
-        const data = m.data as Record<string, unknown>
-        const rendering = data?._rendering as Record<string, unknown> | undefined
-        const row = rendering?.row as Record<string, unknown> | undefined
-        const values = row?.values as Record<string, unknown> | undefined
-        const cmd = String(values?.cmd ?? '')
-        if (cmd.startsWith('img_cnt_chunks') || cmd.startsWith('img_get_chunk')) {
-          setPackets(prev => {
-            const next = [...prev, {
-              num: data.num as number,
-              time: data.time as string,
-              cmd: cmd.split(' ')[0],
-              args: cmd.split(' ').slice(1).join(' '),
-            }]
-            if (next.length > 500) return next.slice(-500)
-            return next
-          })
-          // Flash receiving indicator
-          setReceiving(true)
-          if (receivingTimer.current) clearTimeout(receivingTimer.current)
-          receivingTimer.current = setTimeout(() => setReceiving(false), 1500)
-        }
+        setSelectedFile(prev => prev || p.filename)
       }
     })
-    rxRef.current = sock
-    return () => sock.close()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [subscribeRxCustom])
 
-  // TX WebSocket — handle errors and connection status
-  const [txConnected, setTxConnected] = useState(false)
+  // Filter imaging packets from shared RX stream
+  const imagingPackets = useMemo(() => {
+    return rxPackets.filter(p => {
+      const cmd = String(p._rendering?.row?.values?.cmd ?? '')
+      return cmd.startsWith('img_cnt_chunks') || cmd.startsWith('img_get_chunk')
+    }).map(p => ({
+      num: p.num,
+      time: p.time,
+      cmd: String(p._rendering?.row?.values?.cmd ?? '').split(' ')[0],
+      args: String(p._rendering?.row?.values?.cmd ?? '').split(' ').slice(1).join(' '),
+    }))
+  }, [rxPackets])
+
+  // Session reset clears all imaging state and refetches fresh status
   useEffect(() => {
-    const sock = createSocket('/ws/tx', (msg: unknown) => {
-      const m = msg as Record<string, unknown>
-      if (m.type === 'error' || m.type === 'send_error') {
-        showToast(String(m.error ?? 'TX error'), 'error', 'tx')
-      }
-    }, setTxConnected)
-    txRef.current = sock
-    return () => sock.close()
-  }, [])
+    if (sessionResetGen > 0) {
+      setPackets([])
+      setReceiving(false)
+      setProgress({})
+      setSelectedFile('')
+      setFiles([])
+      setChunks([])
+      // Refetch current imaging status for the new session
+      fetch('/api/plugins/imaging/status')
+        .then(r => r.json())
+        .then(data => {
+          if (data.files) {
+            setFiles(data.files)
+            const prog: Record<string, ImagingProgress> = {}
+            for (const f of data.files) prog[f.filename] = f
+            setProgress(prog)
+            if (data.files.length > 0) setSelectedFile(data.files[0].filename)
+          }
+        })
+        .catch(() => {})
+    }
+  }, [sessionResetGen])
+
+  // Sync imaging packets to local state (for receiving indicator)
+  const prevImagingCount = useRef(0)
+  useEffect(() => {
+    if (imagingPackets.length > prevImagingCount.current) {
+      setPackets(imagingPackets.slice(-500))
+      setReceiving(true)
+      if (receivingTimer.current) clearTimeout(receivingTimer.current)
+      receivingTimer.current = setTimeout(() => setReceiving(false), 1500)
+    }
+    prevImagingCount.current = imagingPackets.length
+  }, [imagingPackets])
 
   // Auto-scroll RX log
   useEffect(() => {
@@ -195,7 +206,6 @@ export default function ImagingPage() {
   }, [selectedFile, selectedProgress?.received])
 
   const queueCmd = useCallback((cmdId: string, args: Record<string, string>) => {
-    if (!txRef.current) return
     if (!txConnected) {
       showToast('TX not connected', 'error', 'tx')
       return
@@ -204,17 +214,14 @@ export default function ImagingPage() {
       showToast('No destination node selected', 'error', 'tx')
       return
     }
-    txRef.current.send({
-      action: 'queue_mission_cmd',
-      payload: {
-        cmd_id: cmdId,
-        args,
-        dest: destNode,
-        echo: 'NONE',
-        ptype: 'CMD',
-      },
+    queueCommand({
+      cmd_id: cmdId,
+      args,
+      dest: destNode,
+      echo: (schema?.[cmdId] as Record<string, unknown>)?.echo as string ?? 'NONE',
+      ptype: (schema?.[cmdId] as Record<string, unknown>)?.ptype as string ?? 'CMD',
     })
-  }, [destNode, txConnected])
+  }, [destNode, txConnected, queueCommand, schema])
 
   const handleCntChunks = () => {
     if (!cntFilename.trim()) return
@@ -227,8 +234,6 @@ export default function ImagingPage() {
   }
 
   const prog = selectedFile ? progress[selectedFile] : null
-
-  const inputCls = "w-full bg-transparent border rounded px-2 py-1 text-xs outline-none focus:border-[#30C8E0] focus:ring-1 focus:ring-[#30C8E0]/20"
 
   return (
     <div className="flex-1 flex overflow-hidden p-4 gap-4">
@@ -329,17 +334,15 @@ export default function ImagingPage() {
             <div>
               <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Count Chunks</div>
               <div className="flex gap-2">
-                <input
-                  className={inputCls}
-                  style={{ color: colors.value, borderColor: colors.borderSubtle }}
+                <GssInput
+                  className="w-full"
                   placeholder="filename"
                   value={cntFilename}
                   onChange={e => setCntFilename(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleCntChunks() }}
                 />
-                <input
-                  className={`${inputCls} !w-20`}
-                  style={{ color: colors.value, borderColor: colors.borderSubtle }}
+                <GssInput
+                  className="!w-20"
                   placeholder="chunk size"
                   value={cntChunkSize}
                   onChange={e => setCntChunkSize(e.target.value)}
@@ -355,25 +358,22 @@ export default function ImagingPage() {
             <div>
               <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Get Chunk</div>
               <div className="flex gap-2">
-                <input
-                  className={inputCls}
-                  style={{ color: colors.value, borderColor: colors.borderSubtle }}
+                <GssInput
+                  className="w-full"
                   placeholder="filename"
                   value={getFilename}
                   onChange={e => setGetFilename(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleGetChunk() }}
                 />
-                <input
-                  className={`${inputCls} !w-20`}
-                  style={{ color: colors.value, borderColor: colors.borderSubtle }}
+                <GssInput
+                  className="!w-20"
                   placeholder="start #"
                   value={getStartChunk}
                   onChange={e => setGetStartChunk(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleGetChunk() }}
                 />
-                <input
-                  className={`${inputCls} !w-20`}
-                  style={{ color: colors.value, borderColor: colors.borderSubtle }}
+                <GssInput
+                  className="!w-20"
                   placeholder="count"
                   value={getNumChunks}
                   onChange={e => setGetNumChunks(e.target.value)}

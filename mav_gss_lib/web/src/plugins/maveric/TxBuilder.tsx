@@ -3,6 +3,7 @@ import { CornerDownLeft, X } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { PtypeBadge } from '@/components/shared/PtypeBadge'
 import type { MissionBuilderProps } from '@/lib/types'
+import { GssInput } from '@/components/ui/gss-input'
 
 interface CommandArg {
   name: string
@@ -110,8 +111,6 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
     setSearch('')
   }
 
-  const inputCls = "w-full bg-transparent border border-[#222222] rounded px-2 py-1 text-xs outline-none focus:border-[#30C8E0] focus:ring-1 focus:ring-[#30C8E0]/20"
-
   const preview = selectedCmd && destNode
     ? `${destNode} ${echo !== 'NONE' ? echo + ' ' : ''}${cmdDef?.ptype || 'CMD'} ${selectedCmd} ${Object.values(argValues).filter(Boolean).join(' ')}`.trim()
     : ''
@@ -159,11 +158,10 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
         {destNode && (
           <div>
             <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Command</div>
-            <input
+            <GssInput
               autoFocus={!selectedCmd}
               type="text"
-              className={`${inputCls} mb-1`}
-              style={{ color: colors.value }}
+              className="w-full mb-1"
               placeholder="Filter..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); if (selectedCmd) setSelectedCmd(null) }}
@@ -212,10 +210,9 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
                         <span className="text-[11px]" style={{ color: colors.dim }}>{arg.name}</span>
                         <span className="text-[11px]" style={{ color: colors.sep }}>{arg.type}</span>
                       </div>
-                      <input
+                      <GssInput
                         ref={i === 0 ? firstArgRef : undefined}
-                        className={inputCls}
-                        style={{ color: colors.value }}
+                        className="w-full"
                         value={argValues[arg.name] ?? ''}
                         onChange={(e) => setArgValues(prev => ({ ...prev, [arg.name]: e.target.value }))}
                         onKeyDown={(e) => { if (e.key === 'Enter') handleQueue() }}
@@ -233,9 +230,8 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
             {showEcho ? (
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-[11px]" style={{ color: colors.dim }}>Echo</span>
-                <input
-                  className={`${inputCls} !w-20`}
-                  style={{ color: colors.value }}
+                <GssInput
+                  className="!w-20"
                   value={echo}
                   onChange={(e) => setEcho(e.target.value)}
                   placeholder="NONE"

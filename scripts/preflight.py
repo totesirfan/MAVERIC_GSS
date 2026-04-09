@@ -41,6 +41,7 @@ print("\n── Python Dependencies ──")
 for mod, pkg, install in [
     ("fastapi", "fastapi", "pip install fastapi"),
     ("uvicorn", "uvicorn", "pip install uvicorn"),
+    ("websockets", "websockets", "pip install websockets"),
     ("yaml", "PyYAML", "pip install PyYAML"),
     ("zmq", "pyzmq", "pip install pyzmq"),
     ("crcmod", "crcmod", "pip install crcmod"),
