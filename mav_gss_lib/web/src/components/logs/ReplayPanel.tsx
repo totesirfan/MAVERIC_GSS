@@ -114,13 +114,6 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   const entriesRef = useRef<RxPacket[]>([])
   const intervalsRef = useRef<number[]>([])
 
-  // Smooth slider animation: interpolates between packet indices during playback
-  const [sliderPos, setSliderPos] = useState(0)
-  const rafRef = useRef<number>(0)
-  const tickStartRef = useRef(0)     // wall-clock time when current tick started
-  const tickFromPos = useRef(0)      // slider position at tick start (packet index)
-  const tickToPos = useRef(0)        // slider position at tick end (next packet index)
-  const tickDurationRef = useRef(0)  // actual delay duration for this tick (ms)
 
   // Sync refs
   useEffect(() => { playingRef.current = playing }, [playing])
@@ -170,37 +163,9 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
-      cancelAnimationFrame(rafRef.current)
     }
   }, [sessionId, replacePackets])
   /* eslint-enable react-hooks/set-state-in-effect */
-
-  // Smooth slider animation — interpolates between packet indices at constant visual rate
-  const animateSlider = useCallback(() => {
-    const now = performance.now()
-    const elapsed = now - tickStartRef.current
-    const from = tickFromPos.current
-    const to = tickToPos.current
-    const duration = tickDurationRef.current
-    const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1
-    setSliderPos(from + (to - from) * t)
-    if (t < 1 && playingRef.current) {
-      rafRef.current = requestAnimationFrame(animateSlider)
-    }
-  }, [])
-
-  const startSliderAnimation = useCallback((fromPos: number, toPos: number, delay: number) => {
-    cancelAnimationFrame(rafRef.current)
-    tickStartRef.current = performance.now()
-    tickFromPos.current = fromPos
-    tickToPos.current = toPos
-    tickDurationRef.current = delay
-    rafRef.current = requestAnimationFrame(animateSlider)
-  }, [animateSlider])
-
-  const stopSliderAnimation = useCallback(() => {
-    cancelAnimationFrame(rafRef.current)
-  }, [])
 
   // Replay tick engine — use ref for recursive call to avoid self-reference before declaration
   const scheduleNextRef = useRef<() => void>(() => {})
@@ -211,25 +176,18 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
     const entries = entriesRef.current
     const gaps = intervalsRef.current
 
-    if (pos >= entries.length - 1 || !playingRef.current) {
-      stopSliderAnimation()
-      return
-    }
+    if (pos >= entries.length - 1 || !playingRef.current) return
 
     const nextPos = pos + 1
     const delay = gaps[nextPos] / speedRef.current
 
-    // Smooth slider interpolation in position space — constant visual rate
-    startSliderAnimation(pos, nextPos, delay)
-
     timerRef.current = setTimeout(() => {
       posRef.current = nextPos
       setPosition(nextPos)
-      setSliderPos(nextPos)
       replacePackets(entries.slice(0, nextPos + 1))
       scheduleNextRef.current()
     }, delay)
-  }, [replacePackets, startSliderAnimation, stopSliderAnimation])
+  }, [replacePackets])
   useEffect(() => { scheduleNextRef.current = scheduleNext }, [scheduleNext])
 
   // Start/stop playback
@@ -245,18 +203,14 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   }, [playing, scheduleNext, allEntries.length, position])
 
   const handlePlayPause = useCallback(() => {
-    setPlaying((v) => {
-      if (v) stopSliderAnimation()
-      return !v
-    })
-  }, [stopSliderAnimation])
+    setPlaying((v) => !v)
+  }, [])
 
   const handleStop = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
-    stopSliderAnimation()
     setPlaying(false)
     onStop()
-  }, [onStop, stopSliderAnimation])
+  }, [onStop])
 
   const cycleSpeed = useCallback(() => {
     setSpeed((prev) => {
@@ -270,15 +224,13 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
     const idx = Math.round(raw)
     posRef.current = idx
     setPosition(idx)
-    setSliderPos(raw)
-    stopSliderAnimation()
     replacePackets(entriesRef.current.slice(0, idx + 1))
     // If playing, restart the schedule from the new position
     if (playingRef.current) {
       if (timerRef.current) clearTimeout(timerRef.current)
       scheduleNext()
     }
-  }, [replacePackets, scheduleNext, stopSliderAnimation])
+  }, [replacePackets, scheduleNext])
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (dragging) return // hide tooltip during drag — thumb position is sufficient
@@ -373,8 +325,8 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
         <Slider
           min={0}
           max={Math.max(allEntries.length - 1, 1)}
-          step={0.01}
-          value={[sliderPos]}
+          step={1}
+          value={[position]}
           onValueChange={handleScrub}
           onPointerDown={() => { setDragging(true); setTooltipTime(null) }}
           onValueCommitted={handleDragEnd}
