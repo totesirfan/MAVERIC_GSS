@@ -27,8 +27,8 @@ router.include_router(_session_router)
 
 # Re-export helpers that tests import directly from this package
 from .queue_io import list_import_files, preview_import, import_file, export_queue
-from .logs import parse_replay_entry, api_logs, api_log_entries
-from ..tx_queue import parse_import_file
+from .logs import parse_replay_entry, api_log_entries
+from .queue_io import parse_import_file
 
 __all__ = [
     "router",
@@ -38,6 +38,5 @@ __all__ = [
     "export_queue",
     "parse_import_file",
     "parse_replay_entry",
-    "api_logs",
     "api_log_entries",
 ]
