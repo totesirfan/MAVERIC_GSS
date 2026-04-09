@@ -220,9 +220,6 @@ def parse_import_file(filepath, runtime=None):
         if not line:
             continue
         if line.startswith("//"):
-            text = line.lstrip("/").strip()
-            if text:
-                items.append(make_note(text))
             continue
         in_str, escaped, out = False, False, []
         for index, ch in enumerate(line):

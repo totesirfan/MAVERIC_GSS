@@ -173,7 +173,14 @@ class TestMavericBuildTxCommand(unittest.TestCase):
         from mav_gss_lib.config import load_gss_config
         from mav_gss_lib.mission_adapter import load_mission_adapter
         cfg = load_gss_config()
-        return load_mission_adapter(cfg)
+        adapter = load_mission_adapter(cfg)
+        # Ensure com_ping has node restrictions for whitelist tests — the
+        # local commands.yml may include FTDI, which would defeat the test.
+        # Use setdefault so we only inject if the field is absent; if present
+        # we overwrite to the canonical set the test assumes.
+        if "com_ping" in adapter.cmd_defs:
+            adapter.cmd_defs["com_ping"]["nodes"] = ["LPPM", "EPS", "UPPM", "HLNV", "ASTR"]
+        return adapter
 
     def test_build_tx_command_returns_raw_cmd(self):
         adapter = self._make_adapter()
