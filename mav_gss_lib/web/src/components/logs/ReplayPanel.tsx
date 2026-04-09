@@ -247,7 +247,7 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
   }, [])
 
   const handleScrub = useCallback((_value: number | readonly number[]) => {
-    const offsetMs = (Array.isArray(_value) ? (_value as number[])[0] : _value as number) ?? 0
+    const offsetMs = Array.isArray(_value) ? _value[0] ?? 0 : _value
     const targetTime = startTimeRef.current + offsetMs
     const idx = findPacketIndexAtTime(entriesRef.current, targetTime)
     posRef.current = idx
@@ -325,7 +325,6 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
       <div
         ref={scrubberRef}
         className="relative flex-1 group"
-        data-dragging={dragging || undefined}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
         onPointerUp={handleDragEnd}
@@ -352,6 +351,7 @@ export function ReplayPanel({ sessionId, replacePackets, onStop }: ReplayPanelPr
           onValueChange={handleScrub}
           onPointerDown={() => { setDragging(true); setTooltipTime(null) }}
           onValueCommitted={handleDragEnd}
+          data-dragging={dragging || undefined}
           style={{ '--slider-track': colors.borderSubtle } as React.CSSProperties}
           className="w-full cursor-pointer [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:group-hover:h-1.5 [&_[data-slot=slider-track]]:transition-all [&_[data-slot=slider-track]]:bg-[var(--slider-track)] [&_[data-slot=slider-range]]:bg-amber-400 [&_[data-slot=slider-thumb]]:size-3 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:group-hover:opacity-100 [&[data-dragging]_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]]:transition-opacity [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-amber-400"
         />
