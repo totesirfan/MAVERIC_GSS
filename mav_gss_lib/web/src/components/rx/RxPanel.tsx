@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import { useRxToggles } from '@/hooks/useRxToggles'
+import { useReceivingDetection } from '@/hooks/useReceivingDetection'
 import { SessionBanner } from './SessionBanner'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ExternalLink, SlidersHorizontal, ArrowDownToLine, Download, X, ClipboardCopy, Binary } from 'lucide-react'
@@ -114,8 +116,6 @@ interface RxPanelProps {
   onToggleUplink?: () => void
 }
 
-const RECEIVE_TIMEOUT_MS = 2000
-
 function ageColor(s: number): string {
   if (s >= 60) return colors.danger
   if (s >= 30) return colors.warning
@@ -127,27 +127,16 @@ function hasEcho(packet: RxPacket): boolean {
 }
 
 export function RxPanel({ config, packets, status, packetStats, columns, replayMode, replaySession, replacePackets, onStopReplay, sessionResetGen, sessionTag, externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink, onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink }: RxPanelProps) {
-  const [localShowHex, setLocalShowHex] = useState(false)
-  const [localShowFrame, setLocalShowFrame] = useState(false)
-  const [localShowWrapper, setLocalShowWrapper] = useState(false)
-  const [localHideUplink, setLocalHideUplink] = useState(true)
-  const showHex = externalShowHex ?? localShowHex
-  const showFrame = externalShowFrame ?? localShowFrame
-  const showWrapper = externalShowWrapper ?? localShowWrapper
-  const hideUplink = externalHideUplink ?? localHideUplink
-  const toggleHex = onToggleHex ?? (() => setLocalShowHex(v => !v))
-  const toggleFrame = onToggleFrame ?? (() => setLocalShowFrame(v => !v))
-  const toggleWrapper = onToggleWrapper ?? (() => setLocalShowWrapper(v => !v))
-  const toggleUplink = onToggleUplink ?? (() => setLocalHideUplink(v => !v))
+  const { showHex, showFrame, showWrapper, hideUplink, toggleHex, toggleFrame, toggleWrapper, toggleUplink } = useRxToggles({
+    externalShowHex, externalShowFrame, externalShowWrapper, externalHideUplink,
+    onToggleHex, onToggleFrame, onToggleWrapper, onToggleUplink,
+  })
   const [autoScroll, setAutoScroll] = useState(true)
-  const [receiving, setReceiving] = useState(false)
   const [selectedNum, setSelectedNum] = useState<number | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailHeight, setDetailHeight] = useState(200)
   const [isDraggingState, setIsDraggingState] = useState(false)
   const isDragging = useRef(false)
-  const receiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const prevLastNum = useRef(-1)
   // Track whether user explicitly pinned a non-latest packet
   const pinned = useRef(false)
 
@@ -161,20 +150,7 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
   )
   const lastNum = filtered.length > 0 ? filtered[filtered.length - 1].num : null
   const lastPktNum = packets.length > 0 ? packets[packets.length - 1].num : -1
-
-  // Receiving detection — fire whenever a new packet number appears
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    if (lastPktNum > prevLastNum.current) {
-      setReceiving(true)
-      if (receiveTimer.current) clearTimeout(receiveTimer.current)
-      receiveTimer.current = setTimeout(() => setReceiving(false), RECEIVE_TIMEOUT_MS)
-    }
-    prevLastNum.current = lastPktNum
-  }, [lastPktNum])
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  useEffect(() => () => { if (receiveTimer.current) clearTimeout(receiveTimer.current) }, [])
+  const receiving = useReceivingDetection(lastPktNum)
 
   // Auto-follow latest
   /* eslint-disable react-hooks/set-state-in-effect */

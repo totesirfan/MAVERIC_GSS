@@ -2,11 +2,10 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useShortcuts } from '@/hooks/useShortcuts'
 import { AppProvider, useAppConfig, useAppRx, useAppSession } from '@/hooks/useAppContext'
 import { colors } from '@/lib/colors'
-import { GlobalHeader } from '@/components/layout/GlobalHeader'
-import { SessionBar } from '@/components/layout/SessionBar'
+import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
 import { useTxSocket } from '@/hooks/useTxSocket'
-import { useSession } from '@/hooks/useSession'
 import { useRxSocket } from '@/hooks/useRxSocket'
+import { usePopOutBootstrap } from '@/hooks/usePopOutBootstrap'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
 import { AlarmStrip } from '@/components/shared/AlarmStrip'
@@ -14,7 +13,6 @@ import { Toaster } from '@/components/ui/sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MainDashboard } from '@/components/MainDashboard'
 import { getPluginPages, type PluginPageDef } from '@/plugins/registry'
-import type { GssConfig } from '@/lib/types'
 
 /** Check if app is running in a pop-out panel mode */
 function getPanelMode(): 'tx' | 'rx' | null {
@@ -157,8 +155,9 @@ function PluginPageShell({ missionName, version, page, plugins, onBackClick, plu
         onLogsClick={() => {}}
         onConfigClick={() => {}}
         onHelpClick={() => {}}
+        session={session}
       />
-      <SessionBar {...session} />
+      <RenameSessionDialog session={session} />
       <AlarmStrip status={rx.status} packets={rx.packets} replayMode={false} sessionResetGen={rx.sessionResetGen} />
       {plugin ? (
         <Suspense fallback={
@@ -183,17 +182,12 @@ function PluginPageShell({ missionName, version, page, plugins, onBackClick, plu
 
 /** Pop-out TX panel — standalone window */
 function PopOutTx() {
-  const [config, setConfig] = useState<GssConfig | null>(null)
-  useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then(setConfig).catch(() => {})
-  }, [])
+  const { config } = usePopOutBootstrap()
   const tx = useTxSocket()
-  const session = useSession()
   const uplinkMode = config?.tx?.uplink_mode ?? ''
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
-      <SessionBar {...session} />
       <div className="flex-1 p-2">
       <TxPanel
         config={config}
@@ -218,16 +212,11 @@ function PopOutTx() {
 
 /** Pop-out RX panel — standalone window */
 function PopOutRx() {
-  const [config, setConfig] = useState<GssConfig | null>(null)
-  useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then(setConfig).catch(() => {})
-  }, [])
+  const { config } = usePopOutBootstrap()
   const rx = useRxSocket()
-  const session = useSession()
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
-      <SessionBar {...session} />
       <div className="flex-1 p-2">
         <RxPanel
           config={config}
@@ -239,7 +228,7 @@ function PopOutRx() {
           replacePackets={rx.replacePackets}
           onStopReplay={() => {}}
           sessionResetGen={rx.sessionResetGen}
-          sessionTag={rx.sessionResetTag || session.tag}
+          sessionTag={rx.sessionResetTag || ''}
         />
       </div>
     </div>
