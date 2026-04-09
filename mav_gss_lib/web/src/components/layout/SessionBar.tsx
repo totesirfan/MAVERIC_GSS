@@ -103,16 +103,17 @@ export function SessionBar(props: SessionState) {
 
   return (
     <div
-      className="h-7 flex items-center gap-2.5 px-4 shrink-0"
+      className="h-5 flex items-center gap-2.5 shrink-0"
       style={{
         backgroundColor: colors.bgApp,
-        borderBottom: `1px solid ${colors.borderSubtle}`,
+        paddingLeft: 'calc(1rem + 24px)', /* px-4 (16px) + icon (16px) + gap (8px) = align with title text */
+        paddingRight: '1rem',
       }}
     >
       {/* SESSION label */}
       <span
         style={{
-          fontSize: '11px',
+          fontSize: '12px',
           fontFamily: 'Inter, sans-serif',
           color: colors.textMuted,
           letterSpacing: '0.8px',
@@ -126,7 +127,7 @@ export function SessionBar(props: SessionState) {
       {/* Tag text */}
       <span
         style={{
-          fontSize: '12px',
+          fontSize: '13px',
           fontFamily: "'JetBrains Mono', monospace",
           color: isUntitled ? colors.textMuted : colors.textSecondary,
           fontStyle: isUntitled ? 'italic' : 'normal',
@@ -139,7 +140,7 @@ export function SessionBar(props: SessionState) {
       {elapsed && (
         <span
           style={{
-            fontSize: '11px',
+            fontSize: '12px',
             fontFamily: 'Inter, sans-serif',
             color: colors.textMuted,
           }}
@@ -154,13 +155,12 @@ export function SessionBar(props: SessionState) {
       {/* + New Session button */}
       <Popover open={openNewSession} onOpenChange={setOpenNewSession}>
         <PopoverTrigger
-          className="flex items-center gap-1 px-2 py-0.5 rounded border cursor-pointer"
+          className="flex items-center gap-1 px-2 py-0.5 rounded border cursor-pointer hover:bg-white/[0.04]"
           style={{
             fontSize: '11px',
             fontFamily: 'Inter, sans-serif',
-            color: colors.info,
-            borderColor: colors.borderStrong,
-            backgroundColor: colors.bgPanelRaised,
+            color: colors.textMuted,
+            borderColor: colors.borderSubtle,
           }}
         >
           + New Session
@@ -189,12 +189,8 @@ export function SessionBar(props: SessionState) {
             />
             <button
               type="submit"
-              className="self-end px-3 py-1 rounded text-[11px] font-medium border"
-              style={{
-                color: colors.info,
-                borderColor: colors.borderStrong,
-                backgroundColor: colors.bgPanelRaised,
-              }}
+              className="self-end px-3 py-1 rounded text-[11px] font-medium hover:bg-white/[0.04]"
+              style={{ color: colors.textMuted }}
             >
               Start
             </button>
@@ -276,12 +272,11 @@ export function SessionBar(props: SessionState) {
       {/* Caret dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex items-center justify-center px-1 py-0.5 rounded border cursor-pointer"
+          className="flex items-center justify-center px-1 py-0.5 rounded border cursor-pointer hover:bg-white/[0.04]"
           style={{
-            fontSize: '9px',
+            fontSize: '12px',
             color: colors.textMuted,
-            borderColor: colors.borderStrong,
-            backgroundColor: colors.bgPanelRaised,
+            borderColor: colors.borderSubtle,
           }}
         >
           &#9660;
@@ -335,12 +330,8 @@ export function SessionBar(props: SessionState) {
               </button>
               <button
                 type="submit"
-                className="px-3 py-1 rounded text-[11px] font-medium border"
-                style={{
-                  color: colors.info,
-                  borderColor: colors.borderStrong,
-                  backgroundColor: colors.bgPanelRaised,
-                }}
+                className="px-3 py-1 rounded text-[11px] font-medium hover:bg-white/[0.04]"
+                style={{ color: colors.textMuted }}
               >
                 Save
               </button>

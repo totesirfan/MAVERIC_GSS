@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from 'react'
-import { useAppRx, useAppTx, useAppSession, useAppConfig } from '@/hooks/useAppContext'
+import { useRx } from '@/hooks/RxProvider'
+import { useTx } from '@/hooks/TxProvider'
+import { useSessionContext, useConfig } from '@/hooks/SessionProvider'
 import type { RxPacket, RxStatus, GssConfig } from '@/lib/types'
 
 export type CommandSchema = Record<string, Record<string, unknown>>
@@ -18,10 +20,10 @@ export interface PluginServices {
 }
 
 export function usePluginServices(): PluginServices {
-  const rx = useAppRx()
-  const tx = useAppTx()
-  const session = useAppSession()
-  const { config } = useAppConfig()
+  const rx = useRx()
+  const tx = useTx()
+  const session = useSessionContext()
+  const { config } = useConfig()
 
   const filterPackets = useCallback(
     (predicate: (p: RxPacket) => boolean) => rx.packets.filter(predicate),

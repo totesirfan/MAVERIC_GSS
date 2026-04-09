@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } fro
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { GlobalHeader } from '@/components/layout/GlobalHeader'
 import { SplitPane } from '@/components/layout/SplitPane'
-import { useAppRx, useAppTx, useAppSession } from '@/hooks/useAppContext'
+import { useRx } from '@/hooks/RxProvider'
+import { useTx } from '@/hooks/TxProvider'
+import { useSessionContext } from '@/hooks/SessionProvider'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
 import { KeyboardHintBar } from '@/components/layout/KeyboardHintBar'
@@ -11,7 +13,7 @@ import { AlarmStrip } from '@/components/shared/AlarmStrip'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { GssConfig } from '@/lib/types'
 import type { PluginPageDef } from '@/plugins/registry'
-import { SessionBar } from '@/components/layout/SessionBar'
+import { RenameSessionDialog } from '@/components/layout/GlobalHeader'
 
 const ConfigSidebar = lazy(() => import('@/components/config/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
 const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => ({ default: m.LogViewer })))
@@ -112,10 +114,10 @@ interface MainDashboardProps {
 }
 
 export function MainDashboard({ config, onConfigChange, missionName, version, plugins, onPluginClick }: MainDashboardProps) {
-  const rx = useAppRx()
+  const rx = useRx()
   const columns = rx.columns
-  const tx = useAppTx()
-  const session = useAppSession()
+  const tx = useTx()
+  const session = useSessionContext()
 
   const [showLogs, setShowLogs] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
@@ -185,8 +187,9 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
         onLogsClick={() => setShowLogs(v => !v)}
         onConfigClick={() => setShowConfig(v => !v)}
         onHelpClick={() => setShowHelp(v => !v)}
+        session={session}
       />
-      <SessionBar {...session} />
+      <RenameSessionDialog session={session} />
       <AlarmStrip status={rx.status} packets={rx.packets} replayMode={rx.replayMode} sessionResetGen={rx.sessionResetGen} />
       <div className="flex-1 overflow-hidden p-4">
         <SplitPane

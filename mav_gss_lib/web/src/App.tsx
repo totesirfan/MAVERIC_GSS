@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useShortcuts } from '@/hooks/useShortcuts'
-import { AppProvider, useAppConfig, useAppRx, useAppSession } from '@/hooks/useAppContext'
+import { SessionProvider, useSessionContext, useConfig } from '@/hooks/SessionProvider'
+import { TxProvider } from '@/hooks/TxProvider'
+import { RxProvider, useRx } from '@/hooks/RxProvider'
 import { colors } from '@/lib/colors'
 import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
 import { useTxSocket } from '@/hooks/useTxSocket'
@@ -41,15 +43,19 @@ export default function App() {
   }
 
   return (
-    <AppProvider>
-      <AppShell />
-    </AppProvider>
+    <SessionProvider>
+      <TxProvider>
+        <RxProvider>
+          <AppShell />
+        </RxProvider>
+      </TxProvider>
+    </SessionProvider>
   )
 }
 
-/** Main app shell — lives inside AppProvider */
+/** Main app shell — lives inside Session/Tx/Rx providers */
 function AppShell() {
-  const { config, setConfig } = useAppConfig()
+  const { config, setConfig } = useConfig()
   const [panelMode, setPanelMode] = useState(() => getPanelMode())
   const [page, setPage] = useState<string | null>(() => panelMode ? null : getPageMode())
   const [plugins, setPlugins] = useState<PluginPageDef[]>([])
@@ -141,8 +147,8 @@ function PluginPageShell({ missionName, version, page, plugins, onBackClick, plu
   plugin: PluginPageDef | undefined
   configLoaded: boolean
 }) {
-  const rx = useAppRx()
-  const session = useAppSession()
+  const rx = useRx()
+  const session = useSessionContext()
 
   return (
     <>
