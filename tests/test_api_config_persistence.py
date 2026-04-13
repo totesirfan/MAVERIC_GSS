@@ -26,7 +26,7 @@ class TestStripPersistedJunk(unittest.TestCase):
         self.assertEqual(cleaned["ax25"], {"src_call": "WM2XBB"})
         self.assertEqual(cleaned["csp"], {"priority": 2})
 
-    def test_strips_runtime_derived_general_keys(self):
+    def test_strips_runtime_derived_and_platform_general_keys(self):
         update = {
             "general": {
                 "mission": "maveric",
@@ -46,8 +46,9 @@ class TestStripPersistedJunk(unittest.TestCase):
         cleaned = _strip_persisted_junk(copy.deepcopy(update))
         self.assertEqual(
             cleaned["general"],
-            {"mission": "maveric", "log_dir": "logs", "version": "5.0.0", "ui_scale": 100},
+            {"mission": "maveric", "log_dir": "logs", "ui_scale": 100},
         )
+        self.assertNotIn("version", cleaned["general"])
 
     def test_preserves_operator_keys(self):
         update = {
@@ -130,18 +131,21 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
             update = {
                 "ax25": {"src_call": "WM2XBC", "src_ssid": 98},
                 "csp": {"priority": 3},
-                "nodes": {"1": "LPPM"},
-                "ptypes": {"1": "CMD"},
-                "node_descriptions": {"LPPM": "Lower PPM"},
+                # Sentinel values: if stripping fails, these would appear
+                # in runtime.cfg and/or gss.yml.
+                "nodes": {"99": "SENTINEL_NODE"},
+                "ptypes": {"99": "SENTINEL_PTYPE"},
+                "node_descriptions": {"SENTINEL_NODE": "should not persist"},
                 "general": {
                     "mission": "maveric",
+                    "version": "0.0.1-sentinel",
                     "command_defs_resolved": "/abs/commands.yml",
                     "command_defs_warning": "",
-                    "mission_name": "MAVERIC",
-                    "gs_node": "GS",
-                    "rx_title": "RX DOWNLINK",
-                    "tx_title": "TX UPLINK",
-                    "splash_subtitle": "Mission Ground Station",
+                    "mission_name": "SENTINEL_MISSION_NAME",
+                    "gs_node": "SENTINEL_GS",
+                    "rx_title": "SENTINEL_RX_TITLE",
+                    "tx_title": "SENTINEL_TX_TITLE",
+                    "splash_subtitle": "SENTINEL_SUBTITLE",
                 },
             }
 
@@ -174,7 +178,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
             self.assertNotIn("ptypes", persisted)
             self.assertNotIn("node_descriptions", persisted)
 
-            # Runtime-derived / mission-only general keys stripped
+            # Runtime-derived, mission-only, and platform-derived general keys stripped
             for key in (
                 "command_defs_resolved",
                 "command_defs_warning",
@@ -183,8 +187,28 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
                 "rx_title",
                 "tx_title",
                 "splash_subtitle",
+                "version",
             ):
                 self.assertNotIn(key, persisted.get("general", {}))
+
+            # In-memory runtime state must also be clean — client payload
+            # must not pollute runtime.cfg with mission-owned or platform-
+            # derived keys. Original runtime nodes/ptypes should be intact.
+            self.assertEqual(runtime.cfg["nodes"], {"1": "LPPM"})
+            self.assertEqual(runtime.cfg["ptypes"], {"1": "CMD"})
+            self.assertNotIn("99", runtime.cfg.get("nodes", {}))
+            self.assertNotIn("node_descriptions", runtime.cfg)
+            for key in (
+                "mission_name",
+                "gs_node",
+                "command_defs_resolved",
+                "command_defs_warning",
+                "rx_title",
+                "tx_title",
+                "splash_subtitle",
+                "version",
+            ):
+                self.assertNotIn(key, runtime.cfg.get("general", {}))
 
     def test_put_rejects_missing_token(self):
         from fastapi.testclient import TestClient

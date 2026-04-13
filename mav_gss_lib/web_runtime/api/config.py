@@ -8,7 +8,6 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
-import copy
 import os
 
 from fastapi import APIRouter, Request
@@ -108,20 +107,25 @@ _STRICT_MISSION_GENERAL_KEYS = {
     "tx_title",
     "splash_subtitle",
 }
+_PLATFORM_DERIVED_GENERAL_KEYS = {"version"}
 
 
 def _strip_persisted_junk(update: dict) -> dict:
-    """Remove keys that must never be written to gss.yml.
+    """Remove keys the client must never influence.
 
-    Strips strictly mission-owned top-level sections and runtime-derived
-    fields inside `general`. Preserves `ax25`, `csp`, and `tx.*` because
-    those are operator-overridable per CLAUDE.md.
+    Strips strictly mission-owned top-level sections, runtime-derived and
+    mission-owned fields inside `general`, and platform-derived fields
+    (`version`) that are single-sourced from `web/package.json`. Preserves
+    `ax25`, `csp`, and `tx.*` because those are operator-overridable per
+    CLAUDE.md. Mutates and returns the input dict.
     """
     for key in _STRICT_MISSION_TOP_KEYS:
         update.pop(key, None)
     general = update.get("general")
     if isinstance(general, dict):
         for key in _STRICT_MISSION_GENERAL_KEYS:
+            general.pop(key, None)
+        for key in _PLATFORM_DERIVED_GENERAL_KEYS:
             general.pop(key, None)
     return update
 
@@ -144,6 +148,10 @@ async def api_config_put(update: dict, request: Request):
     if isinstance(update.get("general"), dict):
         update["general"].pop("mission", None)
 
+    # Strip mission-owned, runtime-derived, and platform-derived keys from
+    # the client payload before it reaches runtime state or disk.
+    _strip_persisted_junk(update)
+
     with runtime.cfg_lock:
         deep_merge(runtime.cfg, update)
         import yaml as _yaml
@@ -153,8 +161,7 @@ async def api_config_put(update: dict, request: Request):
         if os.path.isfile(gss_path):
             with open(gss_path) as _f:
                 raw_operator = _yaml.safe_load(_f) or {}
-        operator_update = _strip_persisted_junk(copy.deepcopy(update))
-        deep_merge(raw_operator, operator_update)
+        deep_merge(raw_operator, update)
         raw_operator = _strip_persisted_junk(raw_operator)
         save_gss_config(raw_operator)
         apply_csp(runtime.cfg, runtime.csp)
