@@ -630,5 +630,119 @@ class TestQueuePersistence(unittest.TestCase):
         self.assertEqual(result, {"type": "delay", "delay_ms": 2000})
 
 
+class TestImagingCommandsRoundtrip(unittest.TestCase):
+    """Round-trip every imaging/camera command through build_tx_command.
+
+    Mirrors the shape of TestMavericBuildTxCommand — ensures the schema
+    accepts the args we'll stage from the new imaging UI.
+    """
+
+    def _make_adapter(self):
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
+        return load_mission_adapter(load_gss_config())
+
+    def _assert_raw(self, result):
+        self.assertIn("raw_cmd", result)
+        self.assertIsInstance(result["raw_cmd"], bytes)
+        self.assertGreater(len(result["raw_cmd"]), 0)
+
+    def test_cam_capture_img_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "cam_capture_img",
+            "args": {"Filename": "limb_004.jpg"},
+            "dest": "HLNV",
+            "echo": "NONE",
+            "ptype": "CMD",
+        })
+        self._assert_raw(result)
+        self.assertEqual(result["display"]["title"], "cam_capture_img")
+
+    def test_cam_on_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "cam_on", "args": {}, "dest": "HLNV",
+            "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+    def test_cam_off_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "cam_off", "args": {}, "dest": "HLNV",
+            "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+    def test_cam_cleanup_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "cam_cleanup", "args": {}, "dest": "HLNV",
+            "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+    def test_img_compress_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "img_compress",
+            "args": {"Filename": "limb_003.jpg", "Quality": "80"},
+            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+    def test_img_resize_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "img_resize",
+            "args": {"Filename": "limb_003.jpg", "Width": "640", "Height": "480"},
+            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+    def test_img_dfl_thumb_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "img_dfl_thumb",
+            "args": {"Filename": "limb_003.jpg"},
+            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+    def test_img_delete_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "img_delete",
+            "args": {"Filepath": "/home/pi/full/limb_003.jpg"},
+            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+    def test_img_cnt_chunks_with_destination_target_roundtrip(self):
+        """The new UI sends Destination as '1' or '2' (target arg)."""
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "img_cnt_chunks",
+            "args": {"Filename": "limb_003.jpg", "Destination": "2", "Chunk Size": "150"},
+            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+    def test_img_get_chunk_with_destination_target_roundtrip(self):
+        adapter = self._make_adapter()
+        result = adapter.build_tx_command({
+            "cmd_id": "img_get_chunk",
+            "args": {
+                "Filename": "limb_003.jpg",
+                "Start Chunk": "5",
+                "Num Chunks": "3",
+                "Destination": "1",
+            },
+            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
+        })
+        self._assert_raw(result)
+
+
 if __name__ == "__main__":
     unittest.main()
