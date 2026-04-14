@@ -188,6 +188,7 @@ def apply_schema(cmd, cmd_defs):
     rx_args = defn["rx_args"]
     typed = []
     sat_time = None
+    blob_consumed_tail = False
 
     for i, arg_def in enumerate(rx_args):
         if arg_def["type"] == "blob":
@@ -200,6 +201,7 @@ def apply_schema(cmd, cmd_defs):
                 offset = sp + 1
             value = bytes(args_raw[offset:])
             typed.append({"name": arg_def["name"], "type": "blob", "value": value})
+            blob_consumed_tail = True
             break
         if i < len(raw_args):
             parser = _TYPE_PARSERS.get(arg_def["type"], str)
@@ -218,7 +220,7 @@ def apply_schema(cmd, cmd_defs):
             if arg_def["type"] == "epoch_ms" and isinstance(value, (_LazyEpochMs, dict)) and sat_time is None:
                 sat_time = (value["utc"], value["local"], value["ms"])
 
-    extra = raw_args[len(rx_args):]
+    extra = [] if blob_consumed_tail else raw_args[len(rx_args):]
 
     cmd["typed_args"]   = typed
     cmd["extra_args"]   = extra
