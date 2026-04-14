@@ -324,10 +324,10 @@ class TestTxQueueColumns(unittest.TestCase):
         self.assertIn("ptype", col_ids)
         self.assertIn("cmd", col_ids)
 
-    def test_src_column_has_hide_if_all(self):
+    def test_src_column_is_dropped(self):
         adapter = _make_maveric_adapter()
-        cols = {c["id"]: c for c in adapter.tx_queue_columns()}
-        self.assertIn("GS", cols["src"].get("hide_if_all", []))
+        col_ids = [c["id"] for c in adapter.tx_queue_columns()]
+        self.assertNotIn("src", col_ids)
 
     def test_echo_column_has_hide_if_all(self):
         adapter = _make_maveric_adapter()

@@ -210,7 +210,6 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
 def tx_queue_columns() -> list[dict]:
     """Return column definitions for the TX queue/history list."""
     return [
-        {"id": "src",   "label": "src",       "width": "w-[52px]", "hide_if_all": ["GS"]},
         {"id": "dest",  "label": "dest",      "width": "w-[52px]"},
         {"id": "echo",  "label": "echo",      "width": "w-[52px]", "hide_if_all": ["NONE"]},
         {"id": "ptype", "label": "type",      "width": "w-[52px]", "badge": True},
