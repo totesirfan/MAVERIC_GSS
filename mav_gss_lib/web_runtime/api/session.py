@@ -117,6 +117,11 @@ async def api_session_new(body: dict, request: Request):
     # Always update session — even partial rotation is better than stale state
     runtime.session = new_session
 
+    # Mirror the frontend's session_new clears so a hard refresh can't
+    # rehydrate stale state from the WS bootstrap path (rx.py:25, tx.py:35).
+    runtime.rx.packets.clear()
+    runtime.tx.history.clear()
+
     # Broadcast session_new to all channels
     event = {
         "type": "session_new",
