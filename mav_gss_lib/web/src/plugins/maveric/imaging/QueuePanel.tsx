@@ -17,7 +17,6 @@ interface ImagingRow {
   absoluteIndex: number;
   item: TxQueueCmd;
   cmdId: string;
-  destLabel: string;
   label: string;
 }
 
@@ -45,7 +44,6 @@ export function QueuePanel({
         absoluteIndex: idx,
         item,
         cmdId,
-        destLabel: String(payload.dest ?? ''),
         label: describeCmd(cmdId, payload.args as Record<string, string> | undefined, item),
       });
     });
@@ -143,12 +141,6 @@ export function QueuePanel({
                   {isSending ? 'SENDING' : isNext ? 'NEXT' : `#${idx + 1}`}
                 </span>
                 <span className="flex-1 truncate">{row.label}</span>
-                <span
-                  className="text-[10px]"
-                  style={{ color: colors.dim }}
-                >
-                  {row.destLabel}
-                </span>
                 {!sending && (
                   <button
                     onClick={() => removeQueueItem(row.absoluteIndex)}
