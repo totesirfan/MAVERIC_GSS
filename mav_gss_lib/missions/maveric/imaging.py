@@ -221,6 +221,74 @@ class ImageAssembler:
             })
         return {"files": files}
 
+    def paired_status(self, prefix: str | None):
+        """Return file list grouped into (full, thumb) pairs via prefix.
+
+        When ``prefix`` is empty/None, every file appears as its own
+        unpaired entry with ``thumb`` = None.
+
+        When ``prefix`` is set, every pair always has BOTH sides populated.
+        If the assembler has only seen one side (the common case for
+        scheduled captures where the GSS missed the cam_capture_img RX),
+        the other side is a placeholder leaf with ``total: None,
+        received: 0, complete: False`` and a filename derived from the
+        prefix. This lets the operator recover a paired view by running
+        ``img_cnt_chunks`` against either the real or derived filename.
+
+        Each leaf dict has: ``filename``, ``received``, ``total``,
+        ``complete``, ``chunk_size``. The outer dict has: ``stem``,
+        ``full``, ``thumb``.
+        """
+        all_filenames = (
+            set(self.totals.keys())
+            | set(self.received.keys())
+            | set(self.completed.keys())
+        )
+
+        def real_leaf(fn):
+            received, total = self.progress(fn)
+            return {
+                "filename": fn,
+                "received": received,
+                "total": total,
+                "complete": self.is_complete(fn),
+                "chunk_size": self.chunk_sizes.get(fn),
+            }
+
+        def placeholder_leaf(fn):
+            return {
+                "filename": fn,
+                "received": 0,
+                "total": None,
+                "complete": False,
+                "chunk_size": None,
+            }
+
+        if not prefix:
+            return {
+                "files": [
+                    {"stem": fn, "full": real_leaf(fn), "thumb": None}
+                    for fn in sorted(all_filenames)
+                ]
+            }
+
+        # First pass — collect the stems present in assembler state.
+        stems: set[str] = set()
+        for fn in all_filenames:
+            stem = fn[len(prefix):] if fn.startswith(prefix) else fn
+            stems.add(stem)
+
+        # Second pass — build each pair with real or placeholder leaves.
+        pairs = []
+        for stem in sorted(stems):
+            full_fn = stem
+            thumb_fn = f"{prefix}{stem}"
+            full = real_leaf(full_fn) if full_fn in all_filenames else placeholder_leaf(full_fn)
+            thumb = real_leaf(thumb_fn) if thumb_fn in all_filenames else placeholder_leaf(thumb_fn)
+            pairs.append({"stem": stem, "full": full, "thumb": thumb})
+
+        return {"files": pairs}
+
     def get_chunks(self, filename):
         """Return sorted list of received chunk indices."""
         if filename in self.completed:
