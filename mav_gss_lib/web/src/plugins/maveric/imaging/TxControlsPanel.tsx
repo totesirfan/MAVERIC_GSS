@@ -399,7 +399,7 @@ export function TxControlsPanel({
                     showToast('Filename required', 'error', 'tx');
                     return;
                   }
-                  stage('lcd_display_img', { Filename: withJpg(fn) });
+                  stage('lcd_display_img', { Filename: withJpg(fn), Destination: targetArg });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
               >

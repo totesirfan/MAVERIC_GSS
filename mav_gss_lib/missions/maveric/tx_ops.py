@@ -133,7 +133,7 @@ def build_tx_command(payload, cmd_defs: dict, nodes: NodeTable):
 
     display = {
         "title": cmd_id,
-        "subtitle": f"{nodes.node_name(src)} \u2192 {nodes.node_name(dest)}",
+        "subtitle": nodes.node_name(dest),
         "row": row,
         "detail_blocks": detail_blocks,
     }
