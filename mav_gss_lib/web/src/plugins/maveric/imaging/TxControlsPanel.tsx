@@ -8,6 +8,8 @@ import {
   PowerOff,
   Image,
   ImageMinus,
+  Monitor,
+  Eraser,
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -41,7 +43,7 @@ interface TxControlsPanelProps {
   txConnected: boolean;
 }
 
-type TabName = 'download' | 'camera' | 'edit';
+type TabName = 'download' | 'camera' | 'edit' | 'lcd';
 
 export function TxControlsPanel({
   nodes,
@@ -111,6 +113,9 @@ export function TxControlsPanel({
   const [rszH, setRszH] = useState('480');
   const [thmbFn, setThmbFn] = useState('');
   const [delFp, setDelFp] = useState('');
+
+  // LCD tab
+  const [lcdFn, setLcdFn] = useState('');
 
   // ── Stage helpers ──────────────────────────────────────────────
   const stage = (cmdId: string, args: Record<string, string>) => {
@@ -204,7 +209,7 @@ export function TxControlsPanel({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabName)} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="h-auto w-full grid grid-cols-3 gap-0 border-b rounded-none p-0" style={{ borderColor: colors.borderSubtle }}>
+        <TabsList className="h-auto w-full grid grid-cols-4 gap-0 border-b rounded-none p-0" style={{ borderColor: colors.borderSubtle }}>
           <TabsTrigger value="download" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
             <Download className="size-3" />Download
           </TabsTrigger>
@@ -213,6 +218,9 @@ export function TxControlsPanel({
           </TabsTrigger>
           <TabsTrigger value="edit" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
             <Wrench className="size-3" />Image Edit
+          </TabsTrigger>
+          <TabsTrigger value="lcd" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
+            <Monitor className="size-3" />LCD
           </TabsTrigger>
         </TabsList>
 
@@ -370,6 +378,49 @@ export function TxControlsPanel({
               <GssInput className="flex-1 font-mono" placeholder="filepath (full path on Pi)" value={delFp} onChange={e => setDelFp(e.target.value)} />
               <Button size="sm" onClick={() => stage('img_delete', { Filepath: delFp.trim() })} style={{ backgroundColor: colors.danger, color: colors.bgApp }}>
                 Stage
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* LCD */}
+        <TabsContent value="lcd" className="flex-1 overflow-y-auto p-3 space-y-3 mt-0">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              lcd_display_img
+            </div>
+            <div className="flex items-end gap-2">
+              <FilenameInput className="flex-1" value={lcdFn} onChange={setLcdFn} />
+              <Button
+                size="sm"
+                onClick={() => {
+                  const fn = lcdFn.trim();
+                  if (!fn) {
+                    showToast('Filename required', 'error', 'tx');
+                    return;
+                  }
+                  stage('lcd_display_img', { Filename: withJpg(fn) });
+                }}
+                style={{ backgroundColor: colors.active, color: colors.bgApp }}
+              >
+                Stage
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
+              Power / Clear
+            </div>
+            <div className="flex gap-1.5">
+              <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('lcd_on', {})}>
+                <Power className="size-3" /> lcd_on
+              </Button>
+              <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('lcd_off', {})}>
+                <PowerOff className="size-3" /> lcd_off
+              </Button>
+              <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('lcd_clear', {})}>
+                <Eraser className="size-3" /> lcd_clear
               </Button>
             </div>
           </div>
