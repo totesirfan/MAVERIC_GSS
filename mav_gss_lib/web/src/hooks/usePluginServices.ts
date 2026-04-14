@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useRx } from '@/hooks/RxProvider'
 import { useTx } from '@/hooks/TxProvider'
 import { useSessionContext, useConfig } from '@/hooks/SessionProvider'
-import type { RxPacket, RxStatus, GssConfig } from '@/lib/types'
+import type { RxPacket, RxStatus, GssConfig, SendProgress, GuardConfirm } from '@/lib/types'
 
 export type CommandSchema = Record<string, Record<string, unknown>>
 
@@ -11,6 +11,12 @@ export interface PluginServices {
   status: RxStatus
   filterPackets: (predicate: (p: RxPacket) => boolean) => RxPacket[]
   queueCommand: (payload: Record<string, unknown>) => void
+  sendAll: () => void
+  abortSend: () => void
+  sendProgress: SendProgress | null
+  guardConfirm: GuardConfirm | null
+  approveGuard: () => void
+  rejectGuard: () => void
   txConnected: boolean
   config: GssConfig | null
   fetchSchema: () => Promise<CommandSchema>
@@ -40,6 +46,12 @@ export function usePluginServices(): PluginServices {
     status: rx.status,
     filterPackets,
     queueCommand: tx.queueMissionCmd,
+    sendAll: tx.sendAll,
+    abortSend: tx.abortSend,
+    sendProgress: tx.sendProgress,
+    guardConfirm: tx.guardConfirm,
+    approveGuard: tx.approveGuard,
+    rejectGuard: tx.rejectGuard,
     txConnected: tx.connected,
     config,
     fetchSchema,
