@@ -16,6 +16,7 @@ import {
   ContextMenuItem,
 } from '@/components/shared/ContextMenu'
 import { Button } from '@/components/ui/button'
+import { ConfirmBar } from '@/components/shared/ConfirmBar'
 import { QueueItem } from './QueueItem'
 import { DelayItem } from './DelayItem'
 import { NoteItem } from './NoteItem'
@@ -326,34 +327,3 @@ export function TxQueue({
   )
 }
 
-function ConfirmBar({ label, color, onConfirm, onCancel }: {
-  label: string; color: string; onConfirm: () => void; onCancel: () => void
-}) {
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Enter') { e.preventDefault(); onConfirm() }
-      if (e.key === 'Escape') { e.preventDefault(); onCancel() }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [onConfirm, onCancel])
-
-  return (
-    <div
-      className="flex items-center justify-between px-3 py-1.5 border-t shrink-0 animate-pulse-action"
-      style={{ borderColor: color, backgroundColor: `${color}18` }}
-    >
-      <span className="text-xs font-bold" style={{ color }}>{label}</span>
-      <div className="flex items-center gap-2">
-        <button onClick={onCancel} className="text-[11px] px-2 py-0.5 rounded border btn-feedback"
-          style={{ color: colors.dim, borderColor: colors.borderSubtle }}>
-          Esc
-        </button>
-        <button onClick={onConfirm} className="text-[11px] px-3 py-0.5 rounded font-bold btn-feedback"
-          style={{ backgroundColor: color, color: colors.bgApp }}>
-          Confirm ↵
-        </button>
-      </div>
-    </div>
-  )
-}
