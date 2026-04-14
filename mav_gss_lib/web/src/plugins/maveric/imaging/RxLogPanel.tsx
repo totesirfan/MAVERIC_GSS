@@ -44,7 +44,7 @@ export function RxLogPanel({ packets, receiving }: RxLogPanelProps) {
           <FileText className="size-3.5" style={{ color: colors.dim }} />
         )}
         <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: receiving ? colors.success : colors.label }}>
-          {receiving ? 'Receiving' : 'RX Log'}
+          {receiving ? 'Receiving' : 'Imaging RX Log'}
         </span>
         <span className="text-[11px] ml-auto" style={{ color: colors.dim }}>{packets.length}</span>
       </div>

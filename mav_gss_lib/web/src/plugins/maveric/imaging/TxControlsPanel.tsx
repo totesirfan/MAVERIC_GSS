@@ -6,7 +6,6 @@ import {
   Download,
   Power,
   PowerOff,
-  Eraser,
   Image,
   ImageMinus,
 } from 'lucide-react';
@@ -151,7 +150,7 @@ export function TxControlsPanel({
           className="text-[11px] font-bold uppercase tracking-wider"
           style={{ color: colors.value }}
         >
-          TX Controls
+          Imaging TX Controls
         </span>
         <div className="flex-1" />
         <div className="flex items-center gap-1">
@@ -205,15 +204,15 @@ export function TxControlsPanel({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabName)} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="h-auto px-2 border-b rounded-none" style={{ borderColor: colors.borderSubtle }}>
-          <TabsTrigger value="download" className="gap-1.5 text-[10px] px-3 py-2 uppercase tracking-wider">
+        <TabsList className="h-auto w-full grid grid-cols-3 gap-0 border-b rounded-none p-0" style={{ borderColor: colors.borderSubtle }}>
+          <TabsTrigger value="download" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
             <Download className="size-3" />Download
           </TabsTrigger>
-          <TabsTrigger value="camera" className="gap-1.5 text-[10px] px-3 py-2 uppercase tracking-wider">
-            <Camera className="size-3" />Camera
+          <TabsTrigger value="camera" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
+            <Camera className="size-3" />Camera Control
           </TabsTrigger>
-          <TabsTrigger value="edit" className="gap-1.5 text-[10px] px-3 py-2 uppercase tracking-wider">
-            <Wrench className="size-3" />Edit on Pi
+          <TabsTrigger value="edit" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
+            <Wrench className="size-3" />Image Edit
           </TabsTrigger>
         </TabsList>
 
@@ -312,7 +311,7 @@ export function TxControlsPanel({
 
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              Power / Cleanup
+              Power
             </div>
             <div className="flex gap-1.5">
               <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('cam_on', {})}>
@@ -320,9 +319,6 @@ export function TxControlsPanel({
               </Button>
               <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('cam_off', {})}>
                 <PowerOff className="size-3" /> cam_off
-              </Button>
-              <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('cam_cleanup', {})}>
-                <Eraser className="size-3" /> cam_cleanup
               </Button>
             </div>
           </div>

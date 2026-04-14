@@ -1,7 +1,6 @@
-import { useMemo, useState } from 'react';
-import { Image as ImageIcon, Expand, X } from 'lucide-react';
+import { useMemo } from 'react';
+import { Image as ImageIcon } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { colors } from '@/lib/colors';
 import type { PairedFile, ImagingTab } from './types';
 
@@ -16,16 +15,15 @@ interface PreviewPanelProps {
 /**
  * Preview with [Thumb] [Full] tabs. The active tab selects which
  * filename is fetched from /api/plugins/imaging/preview. If the pair
- * has no thumb side (`pair.thumb === null`, i.e. prefix unset or
- * orphan), the tabs are hidden and only the full image is shown.
+ * has no thumb side, the tabs are hidden and only the full image is
+ * shown. Chunk size and byte count live in the header next to the
+ * filename — no separate metadata strip.
  */
 export function PreviewPanel({ selected, activeTab, onTabChange, version }: PreviewPanelProps) {
-  const [modalOpen, setModalOpen] = useState(false);
-
   const leaf = useMemo(() => {
     if (!selected) return null;
-    // When one side is null (prefix unset, or orphan pair that the backend
-    // happened to produce), fall back to whichever side exists.
+    // When one side is null (prefix unset, or orphan pair), fall back
+    // to whichever side exists.
     if (!selected.thumb) return selected.full;
     if (!selected.full) return selected.thumb;
     return activeTab === 'thumb' ? selected.thumb : selected.full;
@@ -37,7 +35,7 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
   }, [leaf, version]);
 
   const hasThumbSide = !!selected?.thumb;
-  const showTabs = hasThumbSide; // Single-file entries (no thumb) hide tabs entirely.
+  const showTabs = hasThumbSide;
 
   const chunkSize = leaf?.chunk_size ?? 150;
   const bytes = leaf ? leaf.received * chunkSize : 0;
@@ -76,36 +74,13 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
           </span>
         )}
         <div className="flex-1" />
-        <button
-          onClick={() => setModalOpen(true)}
-          className="p-1 rounded hover:bg-white/[0.03]"
-          aria-label="Fullscreen"
-          disabled={!leaf}
-        >
-          <Expand className="size-3.5" style={{ color: colors.dim }} />
-        </button>
+        {leaf && leaf.total !== null && (
+          <span className="text-[10px] font-mono" style={{ color: colors.dim }}>
+            {chunkSize} B/chunk · {(bytes / 1024).toFixed(1)} KB
+          </span>
+        )}
       </div>
 
-      {/* Metadata strip — derive the side label from the actual leaf
-           being displayed, not from activeTab. The leaf cascade can fall
-           back to the opposite side when one is missing, in which case
-           activeTab may not match what's on screen. */}
-      {leaf && (
-        <div
-          className="px-4 py-1.5 border-b font-mono text-[10px] flex items-center gap-3 flex-wrap"
-          style={{ borderColor: colors.borderSubtle, color: colors.dim }}
-        >
-          <span style={{ color: colors.value }}>
-            {selected?.thumb?.filename === leaf.filename ? 'thumb' : 'full'}
-          </span>
-          <span style={{ color: colors.borderStrong }}>·</span>
-          <span>{chunkSize} B/chunk</span>
-          <span style={{ color: colors.borderStrong }}>·</span>
-          <span>{(bytes / 1024).toFixed(1)} KB</span>
-        </div>
-      )}
-
-      {/* Image area */}
       <div className="flex-1 min-h-0 p-4 relative">
         {leaf && leaf.total !== null ? (
           <img
@@ -123,40 +98,6 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
           </div>
         )}
       </div>
-
-      {/* Fullscreen modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-[90vw] max-h-[90vh] p-6">
-          <div className="flex items-center gap-2 mb-3">
-            <ImageIcon className="size-4" style={{ color: colors.active }} />
-            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: colors.value }}>
-              Preview
-            </span>
-            {leaf && (
-              <span className="text-xs font-mono" style={{ color: colors.dim }}>
-                {leaf.filename}
-              </span>
-            )}
-            <div className="flex-1" />
-            <button
-              onClick={() => setModalOpen(false)}
-              className="p-1 rounded hover:bg-white/[0.04]"
-              aria-label="Close"
-            >
-              <X className="size-4" style={{ color: colors.dim }} />
-            </button>
-          </div>
-          <div className="flex items-center justify-center min-h-[60vh]">
-            {imgSrc && (
-              <img
-                src={imgSrc}
-                alt={leaf?.filename ?? ''}
-                className="max-w-full max-h-[70vh] object-contain"
-              />
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -41,7 +41,13 @@ export default function ImagingPage() {
 
   // ── Paired file state ───────────────────────────────────────────
   const [files, setFiles] = useState<PairedFile[]>([]);
+  /** What the Progress + Preview panels display. Auto-switches to
+   *  whichever file is actively downloading when chunks arrive. */
   const [selectedStem, setSelectedStem] = useState<string>('');
+  /** What the TX Controls auto-fill pulls from. Only changes when the
+   *  operator picks a file from the Progress dropdown — never follows
+   *  live downloads, and never populates from legacy files on mount. */
+  const [userSelectedStem, setUserSelectedStem] = useState<string>('');
   const [previewTab, setPreviewTab] = useState<ImagingTab>('thumb');
 
   // ── TX routing + schema ─────────────────────────────────────────
@@ -172,28 +178,21 @@ export default function ImagingPage() {
           next[idx] = nextPair;
           return next;
         });
-        // Auto-select only when the operator has no selection at all, or
-        // when the current selection no longer exists in the file list.
-        // Never stomp an intentional selection with a live chunk update
-        // from a different file.
-        setSelectedStem((prev) => {
-          if (!prev) return targetPair.stem;
-          const prevExists = snapshot.some((p) => p.stem === prev);
-          return prevExists ? prev : targetPair.stem;
-        });
+        // Always auto-switch display selection to whichever file is
+        // actively downloading. Progress + Preview follow live chunks.
+        // (TX Controls auto-fill uses userSelectedStem instead, so
+        // manual form state is NOT affected by this switch.)
+        setSelectedStem(targetPair.stem);
       } else {
         // Unknown filename — rare path (first touch of a scheduled-capture
-        // recovery file). Full refetch. Only auto-select if the operator
-        // has no current selection.
+        // recovery file). Full refetch, then auto-switch display selection
+        // to the new entry.
         fetchImagingStatus().then((fresh) => {
           setFiles(fresh);
-          setSelectedStem((prev) => {
-            if (prev) return prev;
-            const match = fresh.find(
-              (p) => p.full?.filename === fn || p.thumb?.filename === fn,
-            );
-            return match ? match.stem : prev;
-          });
+          const match = fresh.find(
+            (p) => p.full?.filename === fn || p.thumb?.filename === fn,
+          );
+          if (match) setSelectedStem(match.stem);
         });
       }
     });
@@ -231,10 +230,18 @@ export default function ImagingPage() {
     prevRxCount.current = imagingPackets.length;
   }, [imagingPackets]);
 
-  // Selected pair + preview version bump on progress
+  // Display selection — follows live downloads via the broadcast merge.
   const selected = useMemo(
     () => files.find((f) => f.stem === selectedStem) ?? null,
     [files, selectedStem],
+  );
+
+  // TX Controls auto-fill source — only changes when the operator picks
+  // a file from the Progress dropdown. Null until that happens, so the
+  // form inputs stay empty on mount and during passive live downloads.
+  const userSelected = useMemo(
+    () => (userSelectedStem ? files.find((f) => f.stem === userSelectedStem) ?? null : null),
+    [files, userSelectedStem],
   );
 
   useEffect(() => {
@@ -284,6 +291,9 @@ export default function ImagingPage() {
           setSelectedStem((prev) =>
             fresh.find((f) => f.stem === prev) ? prev : (fresh[0]?.stem ?? ''),
           );
+          setUserSelectedStem((prev) =>
+            fresh.find((f) => f.stem === prev) ? prev : '',
+          );
         });
         showToast(`Deleted ${filenames.join(' + ')}`, 'success', 'tx');
       })
@@ -304,7 +314,7 @@ export default function ImagingPage() {
           onDestNodeChange={setDestNode}
           targetArg={targetArg}
           onTargetChange={setTargetArg}
-          selected={selected}
+          selected={userSelected}
           previewTab={previewTab}
           queueCommand={queueCommand}
           schema={schema}
@@ -324,7 +334,11 @@ export default function ImagingPage() {
         <ProgressPanel
           files={files}
           selected={selected}
-          onSelect={setSelectedStem}
+          onSelect={(stem) => {
+            // Dropdown pick updates BOTH display and TxControls auto-fill.
+            setSelectedStem(stem);
+            setUserSelectedStem(stem);
+          }}
           onDelete={setDeleteTarget}
           onStageRerequest={stageRerequest}
         />

@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Grid3x3, ChevronDown, Trash2, RefreshCcw } from 'lucide-react';
+import { Grid3x3, ChevronDown, Trash2, RefreshCcw, Download } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -273,7 +273,28 @@ function ProgressRow({
         })}
       </div>
 
-      {ranges.length > 0 && !complete && (
+      {!complete && leaf.received === 0 && total > 0 && (
+        <div
+          className="flex items-center pt-2 border-t"
+          style={{ borderColor: colors.borderSubtle }}
+        >
+          <div className="flex-1" />
+          <button
+            onClick={() => onStageRerequest(side, leaf, ranges)}
+            className="inline-flex items-center gap-1 px-2 rounded-sm border font-medium text-[10px]"
+            style={{
+              height: 22,
+              color: colors.label,
+              borderColor: `${colors.label}66`,
+              backgroundColor: `${colors.label}0A`,
+            }}
+          >
+            <Download className="size-3" /> Request chunks ({total})
+          </button>
+        </div>
+      )}
+
+      {!complete && leaf.received > 0 && ranges.length > 0 && (
         <div
           className="flex items-center flex-wrap gap-1.5 pt-2 border-t"
           style={{ borderColor: colors.borderSubtle }}

@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ListChecks, Send, X, StopCircle, Radio } from 'lucide-react';
+import { ListChecks, Send, X, StopCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { colors } from '@/lib/colors';
 import type { TxQueueItem, TxQueueCmd, SendProgress } from '@/lib/types';
@@ -112,67 +111,56 @@ export function QueuePanel({
             No staged commands
           </div>
         ) : (
-          <AnimatePresence initial={false}>
-            {imagingRows.map((row, idx) => {
-              // NEXT / SENDING rails reflect the position in the REAL
-              // unfiltered queue — non-imaging commands may be ahead of
-              // this row, in which case the row is neither NEXT nor
-              // SENDING regardless of its filtered position.
-              const isQueueHead = row.absoluteIndex === 0;
-              const isNext = isQueueHead && !sending;
-              const isSending = sending && isQueueHead;
-              return (
-                <motion.div
-                  key={`${row.absoluteIndex}-${row.cmdId}-${idx}`}
-                  layout
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.18 }}
-                  className="flex items-center gap-2.5 px-3 py-1.5 border-b font-mono text-[11px]"
+          imagingRows.map((row, idx) => {
+            // NEXT / SENDING rails reflect the position in the REAL
+            // unfiltered queue — non-imaging commands may be ahead of
+            // this row, in which case the row is neither NEXT nor
+            // SENDING regardless of its filtered position.
+            const isQueueHead = row.absoluteIndex === 0;
+            const isNext = isQueueHead && !sending;
+            const isSending = sending && isQueueHead;
+            const railColor = isSending ? colors.info : isNext ? colors.active : null;
+            return (
+              <div
+                key={row.item.num}
+                className="flex items-center gap-2.5 px-3 py-1.5 border-b font-mono text-[11px]"
+                style={{
+                  borderColor: '#1A1A1A',
+                  color: colors.value,
+                  boxShadow: railColor ? `inset 2px 0 0 ${railColor}` : 'none',
+                  backgroundColor: isSending ? `${colors.info}08` : undefined,
+                }}
+              >
+                <span
+                  className="inline-flex items-center justify-center px-1.5 rounded-sm border text-[10px] font-medium"
                   style={{
-                    borderColor: '#1A1A1A',
-                    color: colors.value,
-                    boxShadow: isSending
-                      ? `inset 2px 0 0 ${colors.info}`
-                      : isNext
-                      ? `inset 2px 0 0 ${colors.active}`
-                      : 'none',
-                    backgroundColor: isSending ? `${colors.info}08` : undefined,
+                    height: 18,
+                    color: railColor ?? colors.dim,
+                    borderColor: `${railColor ?? colors.dim}40`,
+                    backgroundColor: `${railColor ?? colors.dim}0A`,
                   }}
                 >
-                  <span
-                    className="inline-flex items-center justify-center px-1.5 rounded-sm border text-[10px] font-medium"
-                    style={{
-                      height: 18,
-                      color: isSending ? colors.info : isNext ? colors.active : colors.dim,
-                      borderColor: `${isSending ? colors.info : isNext ? colors.active : colors.dim}40`,
-                      backgroundColor: `${isSending ? colors.info : isNext ? colors.active : colors.dim}0A`,
-                    }}
+                  {isSending ? 'SENDING' : isNext ? 'NEXT' : `#${idx + 1}`}
+                </span>
+                <span className="flex-1 truncate">{row.label}</span>
+                <span
+                  className="text-[10px]"
+                  style={{ color: colors.dim }}
+                >
+                  {row.destLabel}
+                </span>
+                {!sending && (
+                  <button
+                    onClick={() => removeQueueItem(row.absoluteIndex)}
+                    className="rounded hover:bg-white/[0.04] p-0.5"
+                    aria-label={`Remove ${row.cmdId}`}
                   >
-                    {isSending ? 'SENDING' : isNext ? 'NEXT' : `#${idx + 1}`}
-                  </span>
-                  <span className="flex-1 truncate">{row.label}</span>
-                  <span
-                    className="inline-flex items-center gap-1 text-[10px]"
-                    style={{ color: colors.dim }}
-                  >
-                    <Radio className="size-2.5" />
-                    {row.destLabel}
-                  </span>
-                  {!sending && (
-                    <button
-                      onClick={() => removeQueueItem(row.absoluteIndex)}
-                      className="rounded hover:bg-white/[0.04] p-0.5"
-                      aria-label={`Remove ${row.cmdId}`}
-                    >
-                      <X className="size-3" style={{ color: colors.danger }} />
-                    </button>
-                  )}
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
+                    <X className="size-3" style={{ color: colors.danger }} />
+                  </button>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
