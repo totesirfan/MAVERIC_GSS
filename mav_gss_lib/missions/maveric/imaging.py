@@ -19,6 +19,29 @@ import shutil
 from pathlib import Path
 
 
+def derive_thumb_filename(full_filename: str, prefix: str | None) -> str | None:
+    """Given a full image filename, return the thumb counterpart.
+
+    Returns None if the prefix is empty or None (pairing disabled).
+    """
+    if not prefix:
+        return None
+    return f"{prefix}{full_filename}"
+
+
+def derive_full_filename(thumb_filename: str, prefix: str | None) -> str | None:
+    """Given a thumb image filename, return the full counterpart.
+
+    Returns None if the prefix is empty, None, or the thumb filename
+    doesn't start with the prefix (i.e. it isn't actually a thumb).
+    """
+    if not prefix:
+        return None
+    if not thumb_filename.startswith(prefix):
+        return None
+    return thumb_filename[len(prefix):]
+
+
 class ImageAssembler:
     """Collects image chunks and reassembles them into files.
 
