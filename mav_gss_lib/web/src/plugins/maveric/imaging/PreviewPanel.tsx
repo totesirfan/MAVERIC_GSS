@@ -86,23 +86,22 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
         </button>
       </div>
 
-      {/* Metadata strip */}
+      {/* Metadata strip — derive the side label from the actual leaf
+           being displayed, not from activeTab. The leaf cascade can fall
+           back to the opposite side when one is missing, in which case
+           activeTab may not match what's on screen. */}
       {leaf && (
         <div
           className="px-4 py-1.5 border-b font-mono text-[10px] flex items-center gap-3 flex-wrap"
           style={{ borderColor: colors.borderSubtle, color: colors.dim }}
         >
-          <span style={{ color: colors.value }}>{activeTab === 'thumb' ? 'thumb' : 'full'}</span>
+          <span style={{ color: colors.value }}>
+            {selected?.thumb?.filename === leaf.filename ? 'thumb' : 'full'}
+          </span>
           <span style={{ color: colors.borderStrong }}>·</span>
           <span>{chunkSize} B/chunk</span>
           <span style={{ color: colors.borderStrong }}>·</span>
           <span>{(bytes / 1024).toFixed(1)} KB</span>
-          {leaf.total === null && (
-            <>
-              <span style={{ color: colors.borderStrong }}>·</span>
-              <span style={{ color: colors.warning }}>run img_cnt_chunks</span>
-            </>
-          )}
         </div>
       )}
 
@@ -120,11 +119,7 @@ export function PreviewPanel({ selected, activeTab, onTabChange, version }: Prev
             className="absolute inset-0 flex items-center justify-center text-[11px] px-6 text-center"
             style={{ color: colors.dim }}
           >
-            {!selected
-              ? 'Select a file to preview'
-              : leaf && leaf.total === null
-              ? `Run img_cnt_chunks against ${leaf.filename} to see the image`
-              : 'This file has no data'}
+            {!selected ? 'Select a file to preview' : 'No data'}
           </div>
         )}
       </div>

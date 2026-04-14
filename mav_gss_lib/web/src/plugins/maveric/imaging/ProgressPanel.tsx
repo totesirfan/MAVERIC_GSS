@@ -21,7 +21,9 @@ interface ProgressPanelProps {
   files: PairedFile[];
   selected: PairedFile | null;
   onSelect: (stem: string) => void;
-  onDelete: (filename: string) => void;
+  /** Delete every real leaf in the selected pair. Placeholder leaves
+   *  (total === null) are skipped — there's no file on disk to delete. */
+  onDelete: (filenames: string[]) => void;
   /** Stage contiguous re-request commands for a specific side. */
   onStageRerequest: (side: Side, leaf: FileLeaf, ranges: MissingRange[]) => void;
 }
@@ -121,16 +123,22 @@ export function ProgressPanel({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {selected?.full && (
-          <button
-            onClick={() => onDelete(selected.full!.filename)}
-            className="p-1 rounded border hover:bg-white/[0.04]"
-            style={{ borderColor: colors.borderSubtle }}
-            title={`Delete ${selected.full.filename}`}
-          >
-            <Trash2 className="size-3" style={{ color: colors.danger }} />
-          </button>
-        )}
+        {selected && (() => {
+          const realFiles: string[] = [];
+          if (selected.full && selected.full.total !== null) realFiles.push(selected.full.filename);
+          if (selected.thumb && selected.thumb.total !== null) realFiles.push(selected.thumb.filename);
+          if (realFiles.length === 0) return null;
+          return (
+            <button
+              onClick={() => onDelete(realFiles)}
+              className="p-1 rounded border hover:bg-white/[0.04]"
+              style={{ borderColor: colors.borderSubtle }}
+              title={`Delete ${realFiles.join(' + ')}`}
+            >
+              <Trash2 className="size-3" style={{ color: colors.danger }} />
+            </button>
+          );
+        })()}
       </div>
 
       {selected ? (
@@ -202,8 +210,8 @@ function ProgressRow({
         <div className="text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: colors.dim }}>
           {side}
         </div>
-        <div className="text-[11px] italic" style={{ color: colors.dim }}>
-          Not yet counted — run <span className="font-mono" style={{ color: colors.value }}>img_cnt_chunks</span>
+        <div className="text-[11px]" style={{ color: colors.dim }}>
+          Not counted
         </div>
       </div>
     );

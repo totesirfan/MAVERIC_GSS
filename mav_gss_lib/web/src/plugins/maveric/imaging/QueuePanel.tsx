@@ -106,7 +106,7 @@ export function QueuePanel({
       <div className="flex-1 min-h-0 overflow-y-auto relative">
         {count === 0 ? (
           <div
-            className="absolute inset-0 flex items-center justify-center text-[11px] italic"
+            className="absolute inset-0 flex items-center justify-center text-[11px]"
             style={{ color: colors.sep }}
           >
             No staged commands
@@ -114,8 +114,13 @@ export function QueuePanel({
         ) : (
           <AnimatePresence initial={false}>
             {imagingRows.map((row, idx) => {
-              const isNext = idx === 0 && !sending;
-              const isSending = sending && idx === 0;
+              // NEXT / SENDING rails reflect the position in the REAL
+              // unfiltered queue — non-imaging commands may be ahead of
+              // this row, in which case the row is neither NEXT nor
+              // SENDING regardless of its filtered position.
+              const isQueueHead = row.absoluteIndex === 0;
+              const isNext = isQueueHead && !sending;
+              const isSending = sending && isQueueHead;
               return (
                 <motion.div
                   key={`${row.absoluteIndex}-${row.cmdId}-${idx}`}

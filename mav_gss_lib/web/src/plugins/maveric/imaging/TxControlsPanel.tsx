@@ -297,11 +297,6 @@ export function TxControlsPanel({
                 Stage
               </Button>
             </div>
-            {!suggestedTotal && (
-              <div className="mt-1 text-[10px] italic" style={{ color: colors.dim }}>
-                Run <span className="font-mono" style={{ color: colors.value }}>img_cnt_chunks</span> or <span className="font-mono" style={{ color: colors.value }}>cam_capture_img</span> first.
-              </div>
-            )}
           </div>
         </TabsContent>
 

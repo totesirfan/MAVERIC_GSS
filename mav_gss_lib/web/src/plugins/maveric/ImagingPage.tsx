@@ -51,7 +51,7 @@ export default function ImagingPage() {
   const [schema, setSchema] = useState<Record<string, Record<string, unknown>> | null>(null);
 
   // ── Delete confirm ──────────────────────────────────────────────
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string[] | null>(null);
 
   // ── RX log state (imaging-filtered view of shared RX buffer) ────
   const [rxRows, setRxRows] = useState<ImagingLogRow[]>([]);
@@ -173,25 +173,28 @@ export default function ImagingPage() {
           next[idx] = nextPair;
           return next;
         });
-        // Auto-select the touched pair only if the operator isn't already
-        // looking at it — avoids stomping an intentional selection.
+        // Auto-select only when the operator has no selection at all, or
+        // when the current selection no longer exists in the file list.
+        // Never stomp an intentional selection with a live chunk update
+        // from a different file.
         setSelectedStem((prev) => {
-          if (prev === targetPair.stem) return prev;
-          const prevPair = snapshot.find((p) => p.stem === prev);
-          if (prevPair && (prevPair.full?.filename === fn || prevPair.thumb?.filename === fn)) {
-            return prev;
-          }
-          return targetPair.stem;
+          if (!prev) return targetPair.stem;
+          const prevExists = snapshot.some((p) => p.stem === prev);
+          return prevExists ? prev : targetPair.stem;
         });
       } else {
         // Unknown filename — rare path (first touch of a scheduled-capture
-        // recovery file). Full refetch, then auto-select from the new list.
+        // recovery file). Full refetch. Only auto-select if the operator
+        // has no current selection.
         fetchImagingStatus().then((fresh) => {
           setFiles(fresh);
-          const match = fresh.find(
-            (p) => p.full?.filename === fn || p.thumb?.filename === fn,
-          );
-          if (match) setSelectedStem(match.stem);
+          setSelectedStem((prev) => {
+            if (prev) return prev;
+            const match = fresh.find(
+              (p) => p.full?.filename === fn || p.thumb?.filename === fn,
+            );
+            return match ? match.stem : prev;
+          });
         });
       }
     });
@@ -266,11 +269,16 @@ export default function ImagingPage() {
     [destNode, queueCommand, schema],
   );
 
-  // Delete file (GSS local). After refetch, reset selection if the
-  // previously-selected stem no longer exists in the fresh list.
-  const performDelete = useCallback((filename: string) => {
-    fetch(`/api/plugins/imaging/file/${encodeURIComponent(filename)}`, { method: 'DELETE' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+  // Delete every real leaf in a pair (full side and thumb side). After
+  // refetch, reset selection if the previously-selected stem no longer
+  // exists in the fresh list.
+  const performDelete = useCallback((filenames: string[]) => {
+    Promise.all(
+      filenames.map((fn) =>
+        fetch(`/api/plugins/imaging/file/${encodeURIComponent(fn)}`, { method: 'DELETE' })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}: ${fn}`)))),
+      ),
+    )
       .then(() => {
         fetchImagingStatus().then((fresh) => {
           setFiles(fresh);
@@ -278,7 +286,7 @@ export default function ImagingPage() {
             fresh.find((f) => f.stem === prev) ? prev : (fresh[0]?.stem ?? ''),
           );
         });
-        showToast(`Deleted ${filename}`, 'success', 'tx');
+        showToast(`Deleted ${filenames.join(' + ')}`, 'success', 'tx');
       })
       .catch((err) => showToast(`Failed to delete: ${err.message}`, 'error', 'tx'));
   }, []);
@@ -334,7 +342,7 @@ export default function ImagingPage() {
         title="Delete image?"
         detail={
           deleteTarget
-            ? `${deleteTarget} and all its chunks will be removed from disk. This cannot be undone.`
+            ? `${deleteTarget.join(' + ')} and all chunks will be removed from disk. This cannot be undone.`
             : undefined
         }
         variant="destructive"

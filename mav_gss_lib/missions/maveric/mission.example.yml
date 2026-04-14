@@ -65,9 +65,9 @@ ui:
 # Imaging plugin configuration
 # --------------------------------------------------------------------
 # thumb_prefix controls how the GSS pairs thumbnail files with their
-# full-size counterparts. When set (e.g. "thumb_"), the GSS assumes
+# full-size counterparts. When set (e.g. "tn_"), the GSS assumes
 # every thumbnail filename is the full filename with this prefix
 # prepended. When empty, pairing is disabled and every file appears
 # as an unpaired single-file entry in the imaging UI.
 imaging:
-  thumb_prefix: "thumb_"
+  thumb_prefix: "tn_"
