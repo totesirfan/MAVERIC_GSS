@@ -210,7 +210,7 @@ def _merge_mission_metadata(cfg: dict, mission_meta: dict) -> None:
     values take precedence (they were already merged into cfg by
     load_gss_config).
     """
-    for key in ("nodes", "ptypes", "node_descriptions", "ax25", "csp"):
+    for key in ("nodes", "ptypes", "node_descriptions", "ax25", "csp", "imaging"):
         if key in mission_meta:
             existing = cfg.get(key, {})
             if isinstance(existing, dict) and existing:
