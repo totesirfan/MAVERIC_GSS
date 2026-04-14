@@ -139,6 +139,13 @@ class MavericMissionAdapter:
         if cmd_id not in ("img_cnt_chunks", "img_get_chunk"):
             return None
 
+        # Only feed the assembler from the real satellite response — skip
+        # uplink echoes (CMD) and ACKs, whose wire args alias rx_args and
+        # would poison chunk 0 before the real data arrives.
+        expected_ptype = "RES" if cmd_id == "img_cnt_chunks" else "FILE"
+        if self.nodes.ptype_name(cmd.get("pkt_type")) != expected_ptype:
+            return None
+
         if cmd.get("schema_match") and cmd.get("typed_args"):
             args_by_name = {ta["name"]: ta.get("value", "") for ta in cmd["typed_args"]}
         else:
@@ -163,6 +170,14 @@ class MavericMissionAdapter:
                     data = bytes.fromhex(data)
                 except ValueError:
                     data = data.encode()
+            # Truncate to declared Chunk Size — the OBC appends a trailing NUL
+            # to each blob (C-string terminator) that the generic blob parser
+            # otherwise includes in the chunk data.
+            try:
+                size_int = int(chunk_size) if chunk_size is not None else len(data)
+            except (ValueError, TypeError):
+                size_int = len(data)
+            data = data[:size_int]
             try:
                 self.image_assembler.feed_chunk(filename, int(chunk_num), data, chunk_size=chunk_size)
             except (ValueError, TypeError):

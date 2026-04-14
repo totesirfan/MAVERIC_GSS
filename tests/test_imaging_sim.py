@@ -34,7 +34,8 @@ from mav_gss_lib.protocols.crc import crc16, crc32c
 # -- Node / ptype IDs (from mission.example.yml) ----------------------------
 
 NODES = {"NONE": 0, "LPPM": 1, "EPS": 2, "UPPM": 3, "HLNV": 4, "ASTR": 5, "GS": 6, "FTDI": 7}
-PTYPE_RES = 2  # response
+PTYPE_RES = 2   # response (img_cnt_chunks)
+PTYPE_FILE = 5  # file data (img_get_chunk)
 
 
 # -- Packet builders ---------------------------------------------------------
@@ -119,7 +120,7 @@ def make_get_chunk_response(filename, chunk_num, chunk_size, data, src_node):
     """
     text_prefix = f"{filename} {chunk_num} {chunk_size} ".encode('ascii')
     args_bytes = text_prefix + data
-    cmd = build_command_frame(src_node, NODES["GS"], 0, PTYPE_RES,
+    cmd = build_command_frame(src_node, NODES["GS"], 0, PTYPE_FILE,
                               "img_get_chunk", args_bytes)
     return wrap_full_packet(cmd, src_node)
 

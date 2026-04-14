@@ -214,11 +214,29 @@ class ImageAssembler:
             and not f.endswith('.meta.json')
         )
 
+    def delete_file(self, filename):
+        """Remove all state for a file: image, meta, chunk dir, in-memory state."""
+        for path in (
+            os.path.join(self.output_dir, filename),
+            self._meta_path(filename),
+        ):
+            if os.path.isfile(path):
+                os.remove(path)
+        chunk_dir = self._chunks_dir(filename)
+        if os.path.isdir(chunk_dir):
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+        self.totals.pop(filename, None)
+        self.received.pop(filename, None)
+        self.chunk_sizes.pop(filename, None)
+        self.completed.pop(filename, None)
+
     def _assemble(self, filename):
         """Reassemble contiguous chunks from disk into the image file.
 
         Reads chunk files 0, 1, 2, ... until a gap. Appends JPEG EOI
-        marker if the data starts with a JPEG SOI.
+        marker if the data starts with a JPEG SOI and doesn't already
+        end with one (truncated/in-progress transfers get the safety EOI;
+        complete transfers where the OBC already wrote EOI stay intact).
         """
         chunk_dir = self._chunks_dir(filename)
         if not os.path.isdir(chunk_dir):
@@ -231,6 +249,7 @@ class ImageAssembler:
         with open(path, "wb") as out:
             i = 0
             first_bytes = None
+            last_bytes = b""
             while True:
                 cp = os.path.join(chunk_dir, f"{i}.bin")
                 if not os.path.isfile(cp):
@@ -239,10 +258,13 @@ class ImageAssembler:
                     data = cf.read()
                 if i == 0:
                     first_bytes = data[:2]
+                if data:
+                    last_bytes = (last_bytes + data)[-2:]
                 out.write(data)
                 i += 1
-            # Append JPEG EOI so viewers can open truncated files
-            if first_bytes == b"\xff\xd8":
+            # Append JPEG EOI so partial transfers are still viewable,
+            # unless the OBC already terminated the stream with one.
+            if first_bytes == b"\xff\xd8" and last_bytes != b"\xff\xd9":
                 out.write(b"\xff\xd9")
 
 
@@ -267,6 +289,11 @@ def get_imaging_router(assembler: "ImageAssembler"):
     @router.get("/chunks/{filename:path}")
     async def imaging_chunks(filename: str):
         return JSONResponse({"filename": filename, "chunks": assembler.get_chunks(filename)})
+
+    @router.delete("/file/{filename:path}")
+    async def imaging_delete(filename: str):
+        assembler.delete_file(filename)
+        return JSONResponse({"ok": True, "filename": filename})
 
     @router.get("/preview/{filename:path}")
     async def imaging_preview(filename: str):
