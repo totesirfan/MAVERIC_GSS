@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { showToast } from '@/components/shared/StatusToast';
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/ui/resizable';
 import { usePluginServices } from '@/hooks/usePluginServices';
+import type { ColumnDef, RxPacket, TxColumnDef } from '@/lib/types';
 
-import { RxLogPanel, type ImagingLogRow } from './imaging/RxLogPanel';
+import { RxLogPanel } from './imaging/RxLogPanel';
 import { TxControlsPanel } from './imaging/TxControlsPanel';
 import { ProgressPanel } from './imaging/ProgressPanel';
 import { PreviewPanel } from './imaging/PreviewPanel';
@@ -60,9 +66,16 @@ export default function ImagingPage() {
   const [deleteTarget, setDeleteTarget] = useState<string[] | null>(null);
 
   // ── RX log state (imaging-filtered view of shared RX buffer) ────
-  const [rxRows, setRxRows] = useState<ImagingLogRow[]>([]);
   const [receiving, setReceiving] = useState(false);
   const receivingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Column defs (shared with main dashboard) ────────────────────
+  const [rxColumns, setRxColumns] = useState<ColumnDef[]>([]);
+  const [txColumns, setTxColumns] = useState<TxColumnDef[]>([]);
+  useEffect(() => {
+    fetch('/api/columns').then(r => r.json()).then(setRxColumns).catch(() => {});
+    fetch('/api/tx-columns').then(r => r.json()).then(setTxColumns).catch(() => {});
+  }, []);
 
   // ── Preview refresh version ─────────────────────────────────────
   const [previewVersion, setPreviewVersion] = useState(0);
@@ -114,7 +127,6 @@ export default function ImagingPage() {
   const mountResetGen = useRef(sessionResetGen);
   useEffect(() => {
     if (sessionResetGen === mountResetGen.current) return;
-    setRxRows([]);
     setReceiving(false);
     setFiles([]);
     setSelectedStem('');
@@ -198,9 +210,10 @@ export default function ImagingPage() {
     });
   }, [subscribeRxCustom]);
 
-  // Imaging-filtered RX log
-  const imagingPackets = useMemo<ImagingLogRow[]>(() => {
-    const rows: ImagingLogRow[] = [];
+  // Imaging-filtered RX log — preserves full RxPacket so shared
+  // PacketList can render them with the same columns as the main dashboard.
+  const imagingPackets = useMemo<RxPacket[]>(() => {
+    const rows: RxPacket[] = [];
     for (const p of rxPackets) {
       const cmdRaw = String(p._rendering?.row?.values?.cmd ?? '');
       const ptype = String(p._rendering?.row?.values?.ptype ?? '').toUpperCase();
@@ -208,13 +221,7 @@ export default function ImagingPage() {
       const isImagingCmd = IMAGING_CMD_REGEX.test(cmdRaw);
       const isImagingError = ERROR_PTYPES.has(ptype) && imagingNodeSet.has(node);
       if (!isImagingCmd && !isImagingError) continue;
-      const parts = cmdRaw.split(' ');
-      rows.push({
-        num: p.num,
-        time: p.time,
-        cmd: parts[0] ?? '',
-        args: parts.slice(1).join(' '),
-      });
+      rows.push(p);
     }
     return rows;
   }, [rxPackets, imagingNodeSet]);
@@ -222,7 +229,6 @@ export default function ImagingPage() {
   const prevRxCount = useRef(0);
   useEffect(() => {
     if (imagingPackets.length > prevRxCount.current) {
-      setRxRows(imagingPackets.slice(-500));
       setReceiving(true);
       if (receivingTimer.current) clearTimeout(receivingTimer.current);
       receivingTimer.current = setTimeout(() => setReceiving(false), 1500);
@@ -301,54 +307,62 @@ export default function ImagingPage() {
   }, []);
 
   return (
-    <div className="flex-1 flex overflow-hidden p-4 gap-4">
-      {/* Left column — fixed 560px width (SplitPane integration deferred) */}
-      <div className="flex flex-col gap-4 shrink-0" style={{ width: 560 }}>
-        {/* RX Log — wrapper pins it to 200px so the internal flex-1 fills it */}
-        <div className="h-[200px] shrink-0 flex flex-col">
-          <RxLogPanel packets={rxRows} receiving={receiving} />
-        </div>
-        <TxControlsPanel
-          nodes={nodes}
-          destNode={destNode}
-          onDestNodeChange={setDestNode}
-          targetArg={targetArg}
-          onTargetChange={setTargetArg}
-          selected={userSelected}
-          previewTab={previewTab}
-          queueCommand={queueCommand}
-          schema={schema}
-          txConnected={txConnected}
+    <div className="flex-1 flex overflow-hidden p-4">
+      <ResizablePanelGroup className="flex-1 h-full">
+        <ResizablePanel defaultSize={42} minSize={25}>
+          <div className="flex flex-col gap-4 h-full min-w-0">
+            {/* RX Log — wrapper pins it to 200px so the internal flex-1 fills it */}
+            <div className="h-[200px] shrink-0 flex flex-col">
+              <RxLogPanel packets={imagingPackets} columns={rxColumns} receiving={receiving} />
+            </div>
+            <TxControlsPanel
+              nodes={nodes}
+              destNode={destNode}
+              onDestNodeChange={setDestNode}
+              targetArg={targetArg}
+              onTargetChange={setTargetArg}
+              selected={userSelected}
+              previewTab={previewTab}
+              queueCommand={queueCommand}
+              schema={schema}
+              txConnected={txConnected}
+            />
+            <QueuePanel
+              pendingQueue={pendingQueue}
+              txColumns={txColumns}
+              sendProgress={sendProgress}
+              sendAll={sendAll}
+              abortSend={abortSend}
+              removeQueueItem={removeQueueItem}
+            />
+          </div>
+        </ResizablePanel>
+        <ResizableHandle
+          withHandle
+          className="mx-2 w-1 rounded-full bg-transparent hover:bg-[#222222] data-[resize-handle-active]:bg-[#30C8E0] transition-colors"
         />
-        <QueuePanel
-          pendingQueue={pendingQueue}
-          sendProgress={sendProgress}
-          sendAll={sendAll}
-          abortSend={abortSend}
-          removeQueueItem={removeQueueItem}
-        />
-      </div>
-
-      {/* Right column */}
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        <ProgressPanel
-          files={files}
-          selected={selected}
-          onSelect={(stem) => {
-            // Dropdown pick updates BOTH display and TxControls auto-fill.
-            setSelectedStem(stem);
-            setUserSelectedStem(stem);
-          }}
-          onDelete={setDeleteTarget}
-          onStageRerequest={stageRerequest}
-        />
-        <PreviewPanel
-          selected={selected}
-          activeTab={previewTab}
-          onTabChange={setPreviewTab}
-          version={previewVersion}
-        />
-      </div>
+        <ResizablePanel defaultSize={58} minSize={25}>
+          <div className="flex flex-col gap-4 h-full min-w-0">
+            <ProgressPanel
+              files={files}
+              selected={selected}
+              onSelect={(stem) => {
+                // Dropdown pick updates BOTH display and TxControls auto-fill.
+                setSelectedStem(stem);
+                setUserSelectedStem(stem);
+              }}
+              onDelete={setDeleteTarget}
+              onStageRerequest={stageRerequest}
+            />
+            <PreviewPanel
+              selected={selected}
+              activeTab={previewTab}
+              onTabChange={setPreviewTab}
+              version={previewVersion}
+            />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <ConfirmDialog
         open={deleteTarget !== null}

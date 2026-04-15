@@ -104,6 +104,8 @@ export function TxControlsPanel({
 
   // Camera tab
   const [capFn, setCapFn] = useState('');
+  const [capFocus, setCapFocus] = useState('');
+  const [capExposure, setCapExposure] = useState('');
 
   // Edit on Pi tab
   const [compFn, setCompFn] = useState('');
@@ -112,7 +114,7 @@ export function TxControlsPanel({
   const [rszW, setRszW] = useState('640');
   const [rszH, setRszH] = useState('480');
   const [thmbFn, setThmbFn] = useState('');
-  const [delFp, setDelFp] = useState('');
+  const [delFn, setDelFn] = useState('');
 
   // LCD tab
   const [lcdFn, setLcdFn] = useState('');
@@ -214,13 +216,13 @@ export function TxControlsPanel({
             <Download className="size-3" />Download
           </TabsTrigger>
           <TabsTrigger value="camera" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
-            <Camera className="size-3" />Camera Control
+            <Camera className="size-3" />Cam
           </TabsTrigger>
           <TabsTrigger value="lcd" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
             <Monitor className="size-3" />LCD
           </TabsTrigger>
           <TabsTrigger value="edit" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
-            <Wrench className="size-3" />Image Edit
+            <Wrench className="size-3" />Img Edit
           </TabsTrigger>
         </TabsList>
 
@@ -300,6 +302,22 @@ export function TxControlsPanel({
             </div>
             <div className="flex items-end gap-2">
               <FilenameInput className="flex-1" value={capFn} onChange={setCapFn} />
+              <GssInput
+                className="w-[60px] font-mono"
+                placeholder="focus"
+                value={capFocus}
+                onChange={e => {
+                  setCapFocus(e.target.value);
+                  if (!e.target.value.trim()) setCapExposure('');
+                }}
+              />
+              <GssInput
+                className="w-[72px] font-mono"
+                placeholder="exposure"
+                value={capExposure}
+                onChange={e => setCapExposure(e.target.value)}
+                disabled={!capFocus.trim()}
+              />
               <Button
                 size="sm"
                 onClick={() => {
@@ -308,7 +326,12 @@ export function TxControlsPanel({
                     showToast('Filename required', 'error', 'tx');
                     return;
                   }
-                  stage('cam_capture_img', { Filename: withJpg(fn) });
+                  const args: Record<string, string> = { Filename: withJpg(fn) };
+                  const focus = capFocus.trim();
+                  const exposure = capExposure.trim();
+                  if (focus) args.Focus = focus;
+                  if (focus && exposure) args.Exposure = exposure;
+                  stage('cam_capture_img', args);
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
               >
@@ -375,8 +398,19 @@ export function TxControlsPanel({
               img_delete
             </div>
             <div className="flex items-end gap-2">
-              <GssInput className="flex-1 font-mono" placeholder="filepath (full path on Pi)" value={delFp} onChange={e => setDelFp(e.target.value)} />
-              <Button size="sm" onClick={() => stage('img_delete', { Filepath: delFp.trim() })} style={{ backgroundColor: colors.danger, color: colors.bgApp }}>
+              <FilenameInput className="flex-1" value={delFn} onChange={setDelFn} />
+              <Button
+                size="sm"
+                onClick={() => {
+                  const fn = delFn.trim();
+                  if (!fn) {
+                    showToast('Filename required', 'error', 'tx');
+                    return;
+                  }
+                  stage('img_delete', { Filename: withJpg(fn), Dest: targetArg });
+                }}
+                style={{ backgroundColor: colors.danger, color: colors.bgApp }}
+              >
                 Stage
               </Button>
             </div>

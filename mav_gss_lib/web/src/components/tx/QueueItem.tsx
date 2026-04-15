@@ -21,6 +21,7 @@ interface QueueItemProps {
   isSending: boolean
   isGuarding: boolean
   flash?: boolean
+  compact?: boolean
   visibleColumns: TxColumnDef[]
   onSelect: () => void
   onToggleGuard: (index: number) => void
@@ -30,7 +31,7 @@ interface QueueItemProps {
   onMoveToBottom: (index: number) => void
 }
 
-export function QueueItem({ item, index, sortId, expanded, isNext, isSending, isGuarding, flash, visibleColumns, onSelect, onToggleGuard, onDelete, onDuplicate, onMoveToTop, onMoveToBottom }: QueueItemProps) {
+export function QueueItem({ item, index, sortId, expanded, isNext, isSending, isGuarding, flash, compact, visibleColumns, onSelect, onToggleGuard, onDelete, onDuplicate, onMoveToTop, onMoveToBottom }: QueueItemProps) {
   const {
     attributes,
     listeners,
@@ -55,15 +56,21 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
       <ContextMenuTrigger>
         <div
           ref={setNodeRef}
-          style={{ ...style, borderLeftColor: borderColor, backgroundColor: isSending ? `${colors.info}08` : undefined }}
-          className={`color-transition rounded-md text-xs border-l-2 mb-0.5 hover:bg-white/[0.03] ${isSending ? 'animate-slide-in' : ''} ${flash ? 'animate-slide-in' : ''}`}
+          style={{
+            ...style,
+            ...(compact ? {} : { borderLeftColor: borderColor }),
+            backgroundColor: isSending ? `${colors.info}08` : undefined,
+          }}
+          className={`color-transition rounded-md text-xs ${compact ? '' : 'border-l-2'} mb-0.5 hover:bg-white/[0.03] ${isSending ? 'animate-slide-in' : ''} ${flash ? 'animate-slide-in' : ''}`}
         >
           {/* Main row */}
           <div className="flex items-center gap-1.5 px-1.5 py-1.5 cursor-pointer" onClick={onSelect}>
-            <span {...attributes} {...listeners} className="cursor-grab shrink-0 p-0.5 rounded hover:bg-white/[0.06]"
-              onClick={(e) => e.stopPropagation()}>
-              <GripVertical className="size-3.5" style={{ color: colors.dim }} />
-            </span>
+            {!compact && (
+              <span {...attributes} {...listeners} className="cursor-grab shrink-0 p-0.5 rounded hover:bg-white/[0.06]"
+                onClick={(e) => e.stopPropagation()}>
+                <GripVertical className="size-3.5" style={{ color: colors.dim }} />
+              </span>
+            )}
             <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.num}</span>
             {visibleColumns.length > 0 ? (
               visibleColumns.map(c => {
@@ -87,28 +94,32 @@ export function QueueItem({ item, index, sortId, expanded, isNext, isSending, is
                 <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{display.title ?? '?'}</span>
               </span>
             )}
-            {isGuarding && (
+            {!compact && isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
-            {isSending && !isGuarding && (
+            {!compact && isSending && !isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-text" style={{ backgroundColor: `${colors.infoFill}`, color: colors.info }}>SENDING</Badge>
             )}
-            {isNext && !isSending && !isGuarding && (
+            {!compact && isNext && !isSending && !isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.label}22`, color: colors.label }}>NEXT</Badge>
             )}
-            {item.guard && !isSending && !isGuarding && !isNext && (
+            {!compact && item.guard && !isSending && !isGuarding && !isNext && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
-            <span className={`${col.size} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.size}B</span>
+            {!compact && (
+              <span className={`${col.size} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{item.size}B</span>
+            )}
             <div className="flex items-center gap-0.5 shrink-0 ml-1">
-              <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
-                onClick={(e) => { e.stopPropagation(); onToggleGuard(index) }}
-                title={item.guard ? 'Remove guard' : 'Add guard'}>
-                {item.guard
-                  ? <ShieldCheck className="size-3.5" style={{ color: colors.warning }} />
-                  : <Shield className="size-3.5" style={{ color: colors.dim }} />
-                }
-              </Button>
+              {!compact && (
+                <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
+                  onClick={(e) => { e.stopPropagation(); onToggleGuard(index) }}
+                  title={item.guard ? 'Remove guard' : 'Add guard'}>
+                  {item.guard
+                    ? <ShieldCheck className="size-3.5" style={{ color: colors.warning }} />
+                    : <Shield className="size-3.5" style={{ color: colors.dim }} />
+                  }
+                </Button>
+              )}
               <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
                 onClick={(e) => { e.stopPropagation(); onDelete(index) }} title="Delete">
                 <Trash2 className="size-3.5" style={{ color: colors.dim }} />

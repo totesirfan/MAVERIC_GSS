@@ -1,11 +1,14 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Grid3x3, ChevronDown, Trash2, RefreshCcw, Download } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { colors } from '@/lib/colors';
 import {
   computeMissingRanges,
@@ -45,6 +48,7 @@ export function ProgressPanel({
   onDelete,
   onStageRerequest,
 }: ProgressPanelProps) {
+  const [pickerOpen, setPickerOpen] = useState(false);
   // Fetch per-chunk state for whichever leaves are present in the selected pair.
   const [chunkSets, setChunkSets] = useState<ChunkSetByFilename>({});
 
@@ -100,28 +104,42 @@ export function ProgressPanel({
         </span>
         <div className="flex-1" />
         {files.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
+          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+            <PopoverTrigger
               className="flex items-center gap-1.5 border rounded px-2 py-0.5 text-[11px] font-mono text-fg hover:bg-white/[0.04] outline-none transition-colors"
               style={{ borderColor: colors.borderSubtle }}
             >
               {selected?.stem ?? 'Select file'}
               <ChevronDown className="size-3" style={{ color: colors.dim }} />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[260px]">
-              {files.map(p => (
-                <DropdownMenuItem
-                  key={p.stem}
-                  onClick={() => onSelect(p.stem)}
-                  className="text-[11px] font-mono"
-                >
-                  <span className="flex-1 truncate">{p.stem}</span>
-                  <LeafState leaf={p.thumb} label="thumb" />
-                  <LeafState leaf={p.full} label="full" />
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="p-0 w-[320px]">
+              <Command>
+                <CommandInput placeholder="Search filename..." className="h-8 text-[11px]" />
+                <CommandList>
+                  <CommandEmpty className="py-4 text-center text-[11px]" style={{ color: colors.dim }}>
+                    No files
+                  </CommandEmpty>
+                  <CommandGroup>
+                    {files.map(p => (
+                      <CommandItem
+                        key={p.stem}
+                        value={p.stem}
+                        onSelect={() => {
+                          onSelect(p.stem);
+                          setPickerOpen(false);
+                        }}
+                        className="text-[11px] font-mono"
+                      >
+                        <span className="flex-1 truncate">{p.stem}</span>
+                        <LeafState leaf={p.thumb} label="thumb" />
+                        <LeafState leaf={p.full} label="full" />
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
         )}
         {selected && (() => {
           const realFiles: string[] = [];

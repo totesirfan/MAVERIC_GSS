@@ -17,6 +17,7 @@ interface PacketListProps {
   onScrolledUp: () => void
   zmqStatus?: string
   scrollSignal?: number
+  compact?: boolean
 }
 
 const MAX_DOM_PACKETS = 5000
@@ -26,7 +27,7 @@ const BOTTOM_UNLOCK_THRESHOLD_PX = BOTTOM_SCROLL_GUTTER_PX + 8
 
 export function PacketList({
   packets, columns, nodeDescriptions, showFrame, showEcho, flashPacketNum, selectedNum, onSelect,
-  autoScroll, onScrolledUp, zmqStatus, scrollSignal,
+  autoScroll, onScrolledUp, zmqStatus, scrollSignal, compact,
 }: PacketListProps) {
   const isStale = zmqStatus ? ['DOWN', 'OFFLINE'].includes(zmqStatus.toUpperCase()) : false
   const virtuosoRef = useRef<VirtuosoHandle | null>(null)
@@ -118,7 +119,7 @@ export function PacketList({
 
       {filtered.length > 0 && (
         <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
-          <span className="w-5 px-1" />
+          {!compact && <span className="w-5 px-1" />}
           {(columns ?? []).length > 0 ? (
             columns!.map(c => {
               if (c.toggle === 'showFrame' && !showFrame) return null
@@ -166,9 +167,12 @@ export function PacketList({
             }}
             computeItemKey={(_, pkt) => pkt.num}
             itemContent={(_, pkt) => {
-              const isActive = selectedNum === pkt.num
+              const isActive = !compact && selectedNum === pkt.num
+              const wrapClasses = compact
+                ? `${pkt.num === flashPacketNum ? 'pkt-flash' : ''}`
+                : `pkt-row-wrap ${pkt.num === flashPacketNum ? 'pkt-flash' : ''} ${isActive ? 'pkt-border-active' : 'pkt-border-inactive'}`
               return (
-                <div className={`pkt-row-wrap ${pkt.num === flashPacketNum ? 'pkt-flash' : ''} ${isActive ? 'pkt-border-active' : 'pkt-border-inactive'}`}>
+                <div className={wrapClasses}>
                   <PacketRow
                     packet={pkt}
                     columns={columns}
@@ -176,6 +180,7 @@ export function PacketList({
                     selected={isActive}
                     showFrame={showFrame}
                     showEcho={showEcho}
+                    compact={compact}
                     onClick={() => onSelect(pkt.num)}
                   />
                 </div>

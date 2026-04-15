@@ -1,231 +1,258 @@
-import { useMemo } from 'react';
-import { ListChecks, Send, X, StopCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { colors } from '@/lib/colors';
-import type { TxQueueItem, TxQueueCmd, SendProgress } from '@/lib/types';
+import { useMemo, useState, useEffect } from 'react'
+import {
+  DndContext, closestCenter,
+  PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { Trash2, Send, StopCircle, ChevronDown } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { QueueItem } from '@/components/tx/QueueItem'
+import { colors } from '@/lib/colors'
+import type {
+  TxQueueItem, TxQueueCmd, TxColumnDef, SendProgress,
+} from '@/lib/types'
+
+const ROW_HEIGHT_PX = 30
+const MAX_VISIBLE_ROWS = 4
 
 interface QueuePanelProps {
-  pendingQueue: TxQueueItem[];
-  sendProgress: SendProgress | null;
-  sendAll: () => void;
-  abortSend: () => void;
-  removeQueueItem: (index: number) => void;
+  pendingQueue: TxQueueItem[]
+  txColumns: TxColumnDef[]
+  sendProgress: SendProgress | null
+  sendAll: () => void
+  abortSend: () => void
+  removeQueueItem: (index: number) => void
 }
 
 interface ImagingRow {
   /** Index in the unfiltered pendingQueue — required for removeQueueItem */
-  absoluteIndex: number;
-  item: TxQueueCmd;
-  cmdId: string;
-  label: string;
+  absoluteIndex: number
+  item: TxQueueCmd
+  cmdId: string
 }
 
 /**
  * Imaging Queue — filtered, read-only view of the main TX pending queue
- * showing only img_* and cam_* commands. Send all fires the full main
- * queue exactly as the main TxPanel does; a footer hint warns when
- * non-imaging commands would also be sent so the click is never silent.
+ * showing only img_/cam_/lcd_ commands. Matches the main dashboard
+ * TxQueue layout (column header, QueueItem rows, footer bar) so the
+ * visual is identical; cosmetic-only drag + context menu handlers.
  */
 export function QueuePanel({
   pendingQueue,
+  txColumns,
   sendProgress,
   sendAll,
   abortSend,
   removeQueueItem,
 }: QueuePanelProps) {
   const imagingRows = useMemo<ImagingRow[]>(() => {
-    const rows: ImagingRow[] = [];
+    const rows: ImagingRow[] = []
     pendingQueue.forEach((item, idx) => {
-      if (item.type !== 'mission_cmd') return;
-      const payload = item.payload as Record<string, unknown>;
-      const cmdId = String(payload.cmd_id ?? '');
-      if (!/^(img|cam|lcd)_/.test(cmdId)) return;
-      rows.push({
-        absoluteIndex: idx,
-        item,
-        cmdId,
-        label: describeCmd(cmdId, payload.args as Record<string, string> | undefined, item),
-      });
-    });
-    return rows;
-  }, [pendingQueue]);
+      if (item.type !== 'mission_cmd') return
+      const payload = item.payload as Record<string, unknown>
+      const cmdId = String(payload.cmd_id ?? '')
+      if (!/^(img|cam|lcd)_/.test(cmdId)) return
+      rows.push({ absoluteIndex: idx, item, cmdId })
+    })
+    return rows
+  }, [pendingQueue])
 
-  const otherCount = pendingQueue.length - imagingRows.length;
-  const sending = !!sendProgress;
-  const count = imagingRows.length;
+  const visibleColumns = useMemo(() => {
+    return txColumns.filter(column => {
+      if (column.id === 'src') return false
+      if (!column.hide_if_all?.length) return true
+      const suppressSet = new Set(column.hide_if_all)
+      return !imagingRows.every(row =>
+        suppressSet.has(String(row.item.display?.row?.[column.id] ?? '')),
+      )
+    })
+  }, [txColumns, imagingRows])
+
+  const count = imagingRows.length
+  const otherCount = pendingQueue.length - count
+  const sending = sendProgress !== null
+  const noop = () => {}
+
+  // Auto-open when commands appear, auto-close when the queue empties.
+  const [open, setOpen] = useState(count > 0)
+  useEffect(() => {
+    if (count > 0) setOpen(true)
+    else setOpen(false)
+  }, [count])
+
+  const bodyMaxHeight = Math.min(count, MAX_VISIBLE_ROWS) * ROW_HEIGHT_PX
+
+  // Sortable context is required by useSortable inside QueueItem, even
+  // though compact mode hides the grip and drag never activates.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 99999 } }),
+  )
 
   const clearImaging = () => {
-    // Delete from the highest absolute index downward so earlier indices stay
-    // valid as the queue shrinks under us.
-    const sorted = [...imagingRows].sort((a, b) => b.absoluteIndex - a.absoluteIndex);
+    // Delete from highest absolute index downward so earlier indices
+    // stay valid as the queue shrinks under us.
+    const sorted = [...imagingRows].sort((a, b) => b.absoluteIndex - a.absoluteIndex)
     for (const row of sorted) {
-      removeQueueItem(row.absoluteIndex);
+      removeQueueItem(row.absoluteIndex)
     }
-  };
+  }
 
   return (
-    <div
-      className="rounded-lg border overflow-hidden flex flex-col shrink-0"
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="flex flex-col rounded-lg border overflow-hidden shadow-panel shrink-0"
       style={{
-        borderColor: sending ? `${colors.info}66` : colors.borderSubtle,
+        borderColor: colors.borderSubtle,
         backgroundColor: colors.bgPanel,
-        boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
-        height: 280,
       }}
     >
-      <div
-        className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0"
+      {/* Panel header — also the collapsible trigger */}
+      <CollapsibleTrigger
+        className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 w-full text-left hover:bg-white/[0.02] transition-colors outline-none"
         style={{ borderColor: colors.borderSubtle }}
       >
-        <ListChecks className="size-3.5" style={{ color: colors.dim }} />
+        <ChevronDown
+          className="size-3.5 transition-transform duration-200"
+          style={{
+            color: colors.dim,
+            transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+          }}
+        />
         <span
-          className="text-[11px] font-bold uppercase tracking-wider"
+          className="text-xs font-bold tracking-wide uppercase"
           style={{ color: colors.value }}
         >
           Imaging Queue
         </span>
+        <span className="text-[11px]" style={{ color: colors.dim }}>
+          {count} cmd{count !== 1 ? 's' : ''}
+          {otherCount > 0 ? ` · +${otherCount} other pending` : ''}
+        </span>
+        {sending && (
+          <Badge
+            className="text-[11px] px-1.5 py-0 h-5 animate-pulse-text"
+            style={{ backgroundColor: colors.infoFill, color: colors.info }}
+          >
+            SENDING {sendProgress.sent}/{sendProgress.total}
+          </Badge>
+        )}
+      </CollapsibleTrigger>
+
+      <CollapsibleContent>
+        {/* Column headers — compact: no grip, no size */}
         {count > 0 && (
-          <span
-            className="inline-flex items-center justify-center px-1.5 rounded-sm border text-[11px] font-medium"
-            style={{
-              height: 20,
-              color: sending ? colors.info : colors.active,
-              borderColor: `${sending ? colors.info : colors.active}40`,
-              backgroundColor: `${sending ? colors.info : colors.active}0A`,
-            }}
-          >
-            {count}
-          </span>
-        )}
-      </div>
-
-      {/* Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto relative">
-        {count === 0 ? (
           <div
-            className="absolute inset-0 flex items-center justify-center text-[11px]"
-            style={{ color: colors.sep }}
+            className="flex items-center gap-1.5 px-3.5 py-0.5 text-[11px] font-light shrink-0"
+            style={{ color: colors.dim }}
           >
-            No staged commands
-          </div>
-        ) : (
-          imagingRows.map((row, idx) => {
-            // NEXT / SENDING rails reflect the position in the REAL
-            // unfiltered queue — non-imaging commands may be ahead of
-            // this row, in which case the row is neither NEXT nor
-            // SENDING regardless of its filtered position.
-            const isQueueHead = row.absoluteIndex === 0;
-            const isNext = isQueueHead && !sending;
-            const isSending = sending && isQueueHead;
-            const railColor = isSending ? colors.info : isNext ? colors.active : null;
-            return (
-              <div
-                key={row.item.num}
-                className="flex items-center gap-2.5 px-3 py-1.5 border-b font-mono text-[11px]"
-                style={{
-                  borderColor: '#1A1A1A',
-                  color: colors.value,
-                  boxShadow: railColor ? `inset 2px 0 0 ${railColor}` : 'none',
-                  backgroundColor: isSending ? `${colors.info}08` : undefined,
-                }}
-              >
-                <span
-                  className="inline-flex items-center justify-center px-1.5 rounded-sm border text-[10px] font-medium"
-                  style={{
-                    height: 18,
-                    color: railColor ?? colors.dim,
-                    borderColor: `${railColor ?? colors.dim}40`,
-                    backgroundColor: `${railColor ?? colors.dim}0A`,
-                  }}
-                >
-                  {isSending ? 'SENDING' : isNext ? 'NEXT' : `#${idx + 1}`}
-                </span>
-                <span className="flex-1 truncate">{row.label}</span>
-                {!sending && (
-                  <button
-                    onClick={() => removeQueueItem(row.absoluteIndex)}
-                    className="rounded hover:bg-white/[0.04] p-0.5"
-                    aria-label={`Remove ${row.cmdId}`}
+            <span className="w-7 text-right">#</span>
+            {visibleColumns.length > 0
+              ? visibleColumns.map(c => (
+                  <span
+                    key={c.id}
+                    className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0' : 'shrink-0'} ${c.align === 'right' ? 'text-right' : ''}`}
                   >
-                    <X className="size-3" style={{ color: colors.danger }} />
-                  </button>
-                )}
-              </div>
-            );
-          })
+                    {c.label}
+                  </span>
+                ))
+              : <span className="flex-1">command</span>
+            }
+          </div>
         )}
-      </div>
 
-      {/* Footer — Send all / Clear */}
+        {/* Body — auto-sizes up to MAX_VISIBLE_ROWS, scrolls beyond */}
+        <div
+          className="overflow-y-auto overflow-x-hidden px-2 py-1 flex flex-col"
+          style={{ maxHeight: count > 0 ? bodyMaxHeight : undefined }}
+        >
+          {count === 0 ? (
+            <div
+              className="flex items-center justify-center py-3 text-xs"
+              style={{ color: colors.dim }}
+            >
+              No imaging commands staged
+            </div>
+          ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={noop}>
+              <SortableContext
+                items={[...imagingRows].reverse().map(r => `img-${r.item.num}`)}
+                strategy={verticalListSortingStrategy}
+              >
+                {[...imagingRows].reverse().map((row, reverseIdx) => {
+                  const displayNum = imagingRows.length - reverseIdx
+                  const isSending = sending && row.absoluteIndex === 0
+                  const isNext = !sending && row.absoluteIndex === 0
+                  return (
+                    <QueueItem
+                      key={`img-${row.item.num}`}
+                      item={{ ...row.item, num: displayNum }}
+                      index={row.absoluteIndex}
+                      sortId={`img-${row.item.num}`}
+                      expanded={false}
+                      isNext={isNext}
+                      isSending={isSending}
+                      isGuarding={false}
+                      compact
+                      visibleColumns={visibleColumns}
+                      onSelect={noop}
+                      onToggleGuard={noop}
+                      onDelete={removeQueueItem}
+                      onDuplicate={noop}
+                      onMoveToTop={noop}
+                      onMoveToBottom={noop}
+                    />
+                  )
+                })}
+              </SortableContext>
+            </DndContext>
+          )}
+        </div>
+      </CollapsibleContent>
+
+      {/* Footer — always visible so Send All / Clear stay reachable when collapsed */}
       <div
-        className="shrink-0 border-t flex items-center gap-2 px-3 py-2"
+        className="flex items-center justify-end gap-1.5 px-3 py-1 border-t shrink-0"
         style={{ borderColor: colors.borderSubtle }}
       >
-        <span
-          className="text-[10px] flex-1"
-          style={{ color: sending ? colors.info : colors.dim }}
-        >
-          {sending
-            ? `Sending ${sendProgress!.sent + 1}/${sendProgress!.total}`
-            : count === 0
-            ? 'No commands staged'
-            : `${count} command${count === 1 ? '' : 's'} staged${
-                otherCount > 0
-                  ? ` · +${otherCount} other command${otherCount === 1 ? '' : 's'} also pending`
-                  : ''
-              }`}
-        </span>
         {count > 0 && !sending && (
           <Button
-            size="sm"
             variant="ghost"
-            className="h-6 px-2 text-[10px]"
+            size="sm"
             onClick={clearImaging}
+            className="h-6 px-2 text-xs gap-1"
+            style={{ color: colors.dim }}
           >
-            <X className="size-3" /> Clear
+            <Trash2 className="size-3" /> Clear
           </Button>
         )}
         {sending ? (
           <Button
             size="sm"
-            className="h-6 px-3 text-[10px] font-semibold"
-            style={{ backgroundColor: colors.danger, color: colors.bgApp }}
             onClick={abortSend}
+            className="h-6 px-2 text-xs gap-1 btn-feedback"
+            style={{ color: colors.bgBase, backgroundColor: colors.error }}
           >
             <StopCircle className="size-3" /> Abort
           </Button>
         ) : (
           <Button
             size="sm"
-            className="h-6 px-3 text-[10px] font-semibold"
-            style={{ backgroundColor: colors.success, color: colors.bgApp }}
             onClick={sendAll}
             disabled={count === 0}
+            className="h-6 px-2 text-xs gap-1 btn-feedback"
+            style={{ color: colors.bgBase, backgroundColor: colors.success }}
           >
-            <Send className="size-3" /> Send all
+            <Send className="size-3" /> Send All
           </Button>
         )}
       </div>
-    </div>
-  );
-}
-
-/** Short human-readable label for an imaging command in the queue row. */
-function describeCmd(
-  cmdId: string,
-  args: Record<string, string> | undefined,
-  item: TxQueueCmd,
-): string {
-  // Prefer the item's own display title if one exists (matches main TxQueue).
-  if (item.display?.title) {
-    const subtitle = item.display.subtitle ? ` ${item.display.subtitle}` : '';
-    return `${item.display.title}${subtitle}`;
-  }
-  if (!args) return cmdId;
-  const fn = args.Filename ?? args.Filepath ?? '';
-  if (cmdId === 'img_get_chunk' && args['Start Chunk'] !== undefined) {
-    return `${cmdId} ${fn} start=${args['Start Chunk']} n=${args['Num Chunks']}`;
-  }
-  if (fn) return `${cmdId} ${fn}`;
-  return cmdId;
+    </Collapsible>
+  )
 }

@@ -1,29 +1,33 @@
-import { useEffect, useRef } from 'react'
-import { FileText, Download } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { Download } from 'lucide-react'
+import { PacketList } from '@/components/rx/PacketList'
 import { colors } from '@/lib/colors'
-
-export interface ImagingLogRow {
-  num: number
-  time: string
-  cmd: string
-  args: string
-}
+import type { ColumnDef, RxPacket } from '@/lib/types'
 
 interface RxLogPanelProps {
-  packets: ImagingLogRow[]
+  packets: RxPacket[]
+  columns?: ColumnDef[]
   receiving: boolean
 }
 
-/** Compact scrolling RX log filtered to imaging commands. */
-export function RxLogPanel({ packets, receiving }: RxLogPanelProps) {
-  const endRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [packets.length])
+/** Imaging-filtered RX log — mirrors the main dashboard RxPanel visually. */
+export function RxLogPanel({ packets, columns, receiving }: RxLogPanelProps) {
+  const [autoScroll, setAutoScroll] = useState(true)
+  const downlinkPackets = useMemo(
+    () => packets.filter(p => !p.is_echo),
+    [packets],
+  )
+  const compactColumns = useMemo(
+    () => (columns ?? []).filter(c => c.id !== 'src'),
+    [columns],
+  )
+
+  const lastNum = downlinkPackets.length > 0 ? downlinkPackets[downlinkPackets.length - 1].num : null
+  const handleScrolledUp = useCallback(() => setAutoScroll(false), [])
 
   return (
     <div
-      className="flex-1 flex flex-col rounded-lg border overflow-hidden"
+      className="flex flex-col flex-1 min-h-0 rounded-lg border overflow-hidden shadow-panel"
       style={{
         borderColor: receiving ? `${colors.success}55` : colors.borderSubtle,
         backgroundColor: colors.bgPanel,
@@ -31,59 +35,47 @@ export function RxLogPanel({ packets, receiving }: RxLogPanelProps) {
       }}
     >
       <div
-        className={`flex items-center gap-2 px-3 py-1.5 border-b shrink-0 ${receiving ? 'animate-sweep-green' : ''}`}
+        className={`flex items-center justify-between px-3 py-1.5 border-b shrink-0 ${receiving ? 'animate-sweep-green' : ''}`}
         style={{
           borderColor: colors.borderSubtle,
           backgroundColor: receiving ? `${colors.success}08` : 'transparent',
           transition: 'background-color 160ms ease',
         }}
       >
-        {receiving ? (
-          <Download className="size-3.5" style={{ color: colors.success }} />
-        ) : (
-          <FileText className="size-3.5" style={{ color: colors.dim }} />
-        )}
-        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: receiving ? colors.success : colors.label }}>
-          {receiving ? 'Receiving' : 'Imaging RX Log'}
-        </span>
-        <span className="text-[11px] ml-auto" style={{ color: colors.dim }}>{packets.length}</span>
-      </div>
-      <div className="flex-1 overflow-y-auto font-mono text-[11px]">
-        <div
-          className="flex items-center px-2 py-1 border-b sticky top-0"
-          style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel, color: colors.dim }}
-        >
-          <span className="w-9 text-right shrink-0">#</span>
-          <span className="w-[60px] ml-2 shrink-0">time</span>
-          <span className="w-[120px] ml-2 shrink-0">cmd</span>
-          <span className="flex-1 ml-2">args</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>
+            Imaging RX Log
+          </span>
+          {receiving ? (
+            <span className="text-[11px] font-bold animate-pulse-text flex items-center gap-1" style={{ color: colors.success }}>
+              <Download className="size-3" />
+              Received
+            </span>
+          ) : (
+            <span className="text-[11px] font-light" style={{ color: colors.textMuted }}>
+              Idle
+            </span>
+          )}
         </div>
-        {packets.length === 0 ? (
-          <div className="flex items-center justify-center py-8 text-[11px]" style={{ color: colors.dim }}>
-            Waiting for imaging packets...
-          </div>
-        ) : (
-          packets.map((p, i) => {
-            const isLatest = i === packets.length - 1 && receiving
-            return (
-              <div
-                key={p.num}
-                className="flex items-center px-2 py-0.5 hover:bg-white/[0.02]"
-                style={{
-                  color: colors.value,
-                  backgroundColor: isLatest ? `${colors.success}0A` : undefined,
-                }}
-              >
-                <span className="w-9 text-right shrink-0" style={{ color: colors.dim }}>{p.num}</span>
-                <span className="w-[60px] ml-2 shrink-0" style={{ color: colors.dim }}>{p.time}</span>
-                <span className="w-[120px] ml-2 shrink-0">{p.cmd}</span>
-                <span className="flex-1 ml-2 truncate">{p.args}</span>
-              </div>
-            )
-          })
+        {downlinkPackets.length > 0 && (
+          <span className="text-[11px] font-mono tabular-nums" style={{ color: colors.textMuted }}>
+            {downlinkPackets.length} pkt{downlinkPackets.length === 1 ? '' : 's'}
+          </span>
         )}
-        <div ref={endRef} />
       </div>
+
+      <PacketList
+        packets={downlinkPackets}
+        columns={compactColumns}
+        showFrame={false}
+        showEcho={false}
+        flashPacketNum={lastNum}
+        selectedNum={null}
+        onSelect={() => {}}
+        autoScroll={autoScroll}
+        onScrolledUp={handleScrolledUp}
+        compact
+      />
     </div>
   )
 }
