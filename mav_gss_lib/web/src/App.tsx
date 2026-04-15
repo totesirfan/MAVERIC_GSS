@@ -231,6 +231,9 @@ function PopOutTx() {
 /** Frosted overlay that blurs the dashboard during preflight, then lifts to reveal it */
 function PreflightOverlay() {
   const preflight = usePreflight()
+  const { config } = useConfig()
+  const version = config?.general?.version
+  const buildSha = typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : undefined
   const [dismissing, setDismissing] = useState(false)
   const [dismissed, setDismissed] = useState(false)
 
@@ -262,6 +265,8 @@ function PreflightOverlay() {
       onCancelConfirm={preflight.cancelConfirm}
       onApplyUpdate={preflight.applyUpdate}
       onReloadPage={preflight.reloadPage}
+      version={version}
+      buildSha={buildSha}
     />
   )
 }
