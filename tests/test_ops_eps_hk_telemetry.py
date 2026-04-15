@@ -155,5 +155,51 @@ class TestParsePacketAttachesTelemetry(unittest.TestCase):
         self.assertIsNone(parsed.mission_data.get("telemetry"))
 
 
+from ops_test_support import NODES  # noqa: E402
+from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter  # noqa: E402
+from mav_gss_lib.parsing import Packet  # noqa: E402
+
+
+def _make_pkt_from_payload(payload_hex: str) -> Packet:
+    """Build a minimal Packet whose mission_data comes from rx_ops."""
+    raw = bytes.fromhex(payload_hex)
+    parsed = rx_ops.parse_packet(raw, CMD_DEFS)
+    return Packet(
+        pkt_num=1,
+        gs_ts="2026-04-14 18:21:09 PDT",
+        gs_ts_short="18:21:09",
+        frame_type="ASM+GOLAY",
+        raw=raw,
+        inner_payload=raw,
+        mission_data=parsed.mission_data,
+    )
+
+
+class TestDetailBlocksReplayContract(unittest.TestCase):
+
+    def setUp(self):
+        self.adapter = MavericMissionAdapter(cmd_defs=CMD_DEFS, nodes=NODES)
+        self.pkt = _make_pkt_from_payload(PAYLOAD_HEX)
+
+    def test_eps_hk_detail_has_telemetry_block(self):
+        blocks = self.adapter.packet_detail_blocks(self.pkt)
+        labels = [b.get("label") for b in blocks]
+        self.assertIn("EPS_HK", labels, f"blocks were: {labels}")
+
+        hk = next(b for b in blocks if b.get("label") == "EPS_HK")
+        self.assertEqual(hk["kind"], "args")
+        self.assertEqual(len(hk["fields"]), 48)
+
+        by_name = {f["name"]: f["value"] for f in hk["fields"]}
+        self.assertEqual(by_name["V_BAT"], "7532")
+        self.assertEqual(by_name["V_BUS"], "9192")
+
+    def test_eps_hk_detail_hides_schema_arguments_block(self):
+        blocks = self.adapter.packet_detail_blocks(self.pkt)
+        labels = [b.get("label") for b in blocks]
+        self.assertNotIn("Arguments", labels,
+                         "hide_schema_args=True should suppress the schema Arguments block")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -180,24 +180,42 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
             {"name": "Cmd", "value": cmd["cmd_id"]},
         ]})
 
-    if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
-        args_fields = []
-        for ta in cmd["typed_args"]:
-            val = ta.get("value", "")
-            if ta["type"] == "epoch_ms":
-                val = val.ms if hasattr(val, "ms") else (val["ms"] if isinstance(val, dict) and "ms" in val else val)
-            if isinstance(val, (bytes, bytearray)):
-                val = val.hex()
-            args_fields.append({"name": ta["name"], "value": str(val)})
-        for i, extra in enumerate(cmd.get("extra_args", [])):
-            args_fields.append({"name": f"arg{len(cmd.get('typed_args', [])) + i}", "value": str(extra)})
-        if args_fields:
-            blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
-    elif cmd:
-        raw = cmd.get("args", [])
-        if raw:
-            args_fields = [{"name": f"arg{i}", "value": str(a)} for i, a in enumerate(raw)]
-            blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
+    telemetry = md.get("telemetry")
+    hide_args = bool(telemetry and telemetry.get("hide_schema_args"))
+
+    if not hide_args:
+        if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
+            args_fields = []
+            for ta in cmd["typed_args"]:
+                val = ta.get("value", "")
+                if ta["type"] == "epoch_ms":
+                    val = val.ms if hasattr(val, "ms") else (val["ms"] if isinstance(val, dict) and "ms" in val else val)
+                if isinstance(val, (bytes, bytearray)):
+                    val = val.hex()
+                args_fields.append({"name": ta["name"], "value": str(val)})
+            for i, extra in enumerate(cmd.get("extra_args", [])):
+                args_fields.append({"name": f"arg{len(cmd.get('typed_args', [])) + i}", "value": str(extra)})
+            if args_fields:
+                blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
+        elif cmd:
+            raw = cmd.get("args", [])
+            if raw:
+                args_fields = [{"name": f"arg{i}", "value": str(a)} for i, a in enumerate(raw)]
+                blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
+
+    if telemetry:
+        tel_fields = []
+        for f in telemetry["fields"]:
+            suffix = f" {f['unit']}" if f["unit"] else ""
+            tel_fields.append({
+                "name": f["name"],
+                "value": f"{f['value']}{suffix}",
+            })
+        blocks.append({
+            "kind": "args",
+            "label": telemetry["cmd_id"].upper(),
+            "fields": tel_fields,
+        })
 
     return blocks
 
