@@ -96,5 +96,38 @@ class TestDecodeEpsHk(unittest.TestCase):
         self.assertEqual(by_name["V_BAT"], 7532)
 
 
+from mav_gss_lib.missions.maveric.telemetry import decode_telemetry
+
+
+class TestRegistryDispatch(unittest.TestCase):
+
+    def _eps_cmd(self):
+        cmd = _parse_fixture_cmd()
+        return cmd  # has cmd_id=eps_hk, pkt_type=2, args_raw=96 bytes
+
+    def test_dispatch_returns_dict_shape(self):
+        result = decode_telemetry(self._eps_cmd())
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["cmd_id"], "eps_hk")
+        self.assertEqual(len(result["fields"]), 48)
+        self.assertTrue(result["hide_schema_args"])
+
+    def test_dispatch_fields_are_plain_dicts(self):
+        result = decode_telemetry(self._eps_cmd())
+        first = result["fields"][0]
+        self.assertIsInstance(first, dict)
+        self.assertEqual(set(first.keys()), {"name", "value", "unit"})
+
+    def test_dispatch_returns_none_for_unknown_cmd(self):
+        self.assertIsNone(
+            decode_telemetry({"cmd_id": "other", "pkt_type": 2, "args_raw": b""})
+        )
+
+    def test_dispatch_returns_none_for_wrong_pkt_type(self):
+        cmd = self._eps_cmd()
+        cmd_cmd = {**cmd, "pkt_type": 1}
+        self.assertIsNone(decode_telemetry(cmd_cmd))
+
+
 if __name__ == "__main__":
     unittest.main()
