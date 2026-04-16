@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { CornerDownLeft, X } from 'lucide-react'
+import { CornerDownLeft } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { PtypeBadge } from '@/components/shared/PtypeBadge'
 import type { MissionBuilderProps } from '@/lib/types'
@@ -66,6 +66,13 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
       .filter(n => n.id !== 0 && n.name !== String(gsNodeName))
   }, [config, gsNodeName])
 
+  // Auto-select first node so cmdk picker renders on builder open
+  useEffect(() => {
+    if (nodes.length > 0 && !destNode) {
+      setDestNode(nodes[0].name)
+    }
+  }, [nodes, destNode])
+
   const filteredCmds = useMemo(() => {
     if (!schema) return []
     let entries = Object.entries(schema).filter(([, def]) => !def.rx_only)
@@ -128,40 +135,45 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
   return (
     <div
       className="flex flex-col overflow-y-auto h-full"
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          if (search) {
+            setSearch('')
+            e.stopPropagation()
+          } else {
+            onClose()
+          }
+        }
+      }}
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
-        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: colors.label }}>Build Command</span>
-        <div className="flex-1" />
-        <button onClick={onClose} className="p-0.5 rounded hover:bg-white/5">
-          <X className="size-3" style={{ color: colors.dim }} />
-        </button>
-      </div>
-
       <div className="p-2 space-y-2">
-        {/* 1. Destination node */}
-        <div>
-          <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Destination</div>
-          <div className="flex flex-wrap gap-1">
-            {nodes.map((n) => {
-              const active = destNode === n.name
-              return (
-                <button
-                  key={n.id}
-                  onClick={() => pickNode(n.name)}
-                  className="px-2 py-0.5 rounded text-[11px] font-medium border color-transition btn-feedback"
-                  style={{
-                    borderColor: active ? colors.label : colors.borderSubtle,
-                    backgroundColor: active ? `${colors.label}18` : 'transparent',
-                    color: active ? colors.label : colors.dim,
-                  }}
-                >
-                  {n.name}
-                </button>
-              )
-            })}
-          </div>
+        {/* Node rail */}
+        <div
+          className="flex rounded-md p-0.5 gap-0.5"
+          style={{ background: colors.bgPanelRaised, border: `1px solid ${colors.borderSubtle}` }}
+          role="radiogroup"
+          aria-label="Destination node"
+        >
+          {nodes.map((n) => {
+            const active = destNode === n.name
+            return (
+              <button
+                key={n.id}
+                onClick={() => pickNode(n.name)}
+                role="radio"
+                aria-checked={active}
+                className="flex-1 text-center py-1.5 px-1 rounded text-[11px] font-semibold transition-all duration-150"
+                style={{
+                  background: active ? 'rgba(48,200,224,0.10)' : 'transparent',
+                  color: active ? colors.active : colors.dim,
+                  boxShadow: active ? '0 0 0 1px rgba(48,200,224,0.2)' : 'none',
+                }}
+              >
+                {n.name}
+              </button>
+            )
+          })}
         </div>
 
         {/* 2. Command picker */}
