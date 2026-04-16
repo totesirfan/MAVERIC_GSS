@@ -189,7 +189,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
         {/* Command picker */}
         {destNode && (
           <Command
-            className="!bg-transparent !p-0 !rounded-md !overflow-visible [&_*]:!ring-0 [&_*]:!outline-none"
+            className="!bg-transparent !p-0 !rounded-md !overflow-visible !h-auto !size-auto [&_*]:!ring-0 [&_*]:!outline-none"
             shouldFilter={true}
           >
             {/* Search input */}
