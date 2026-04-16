@@ -8,7 +8,7 @@ This document covers what a new maintainer needs to know to run, modify, and ext
 
 ```
 MAV_WEB.py
- └─ bootstrap_dependencies()             updater.py — self-install missing deps
+ └─ bootstrap_dependencies()             updater.py — zip auto-heal + self-install missing deps
  └─ create_app()                         web_runtime/app.py
      └─ create_runtime()                 web_runtime/state.py
          └─ WebRuntime.__init__()
