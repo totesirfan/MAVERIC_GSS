@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { CornerDownLeft, ShieldCheck } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { Command, CommandInput as CmdkInput, CommandList, CommandEmpty, CommandItem } from '@/components/ui/command'
+import { Switch } from '@/components/ui/switch'
 import type { MissionBuilderProps } from '@/lib/types'
 import { GssInput } from '@/components/ui/gss-input'
 
@@ -39,6 +40,8 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
   const [showEcho, setShowEcho] = useState(false)
   const [search, setSearch] = useState('')
   const firstArgRef = useRef<HTMLInputElement>(null)
+  const cmdkSearchRef = useRef<HTMLInputElement>(null)
+  const hasInitialFocused = useRef(false)
 
   useEffect(() => {
     fetch('/api/schema')
@@ -54,9 +57,13 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
       .catch(() => {})
   }, [])
 
+  // Focus cmdk search when picker first becomes available
   useEffect(() => {
-    if (selectedCmd) setTimeout(() => firstArgRef.current?.focus(), 50)
-  }, [selectedCmd])
+    if (destNode && !hasInitialFocused.current) {
+      hasInitialFocused.current = true
+      setTimeout(() => cmdkSearchRef.current?.focus(), 0)
+    }
+  }, [destNode])
 
   const gsNodeName = config?.general?.gs_node ?? ''
   const nodes = useMemo(() => {
@@ -98,6 +105,9 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
     const def = schema?.[name]
     setEcho(def?.echo ?? 'NONE')
     setSearch('')
+    if (def?.tx_args && def.tx_args.length > 0) {
+      setTimeout(() => firstArgRef.current?.focus(), 50)
+    }
   }
 
   function handleQueue() {
@@ -113,6 +123,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
     setArgValues({})
     setSelectedCmd(null)
     setSearch('')
+    setTimeout(() => cmdkSearchRef.current?.focus(), 50)
   }
 
   // Build preview args in schema order (not argValues insertion order).
@@ -125,7 +136,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
     previewArgs.push(val)
   }
   const preview = selectedCmd && destNode
-    ? `${destNode} ${echo !== 'NONE' ? echo + ' ' : ''}${cmdDef?.ptype || 'CMD'} ${selectedCmd} ${previewArgs.join(' ')}`.trim()
+    ? `${destNode} ${selectedCmd} ${previewArgs.join(' ')}`.trim()
     : ''
 
   return (
@@ -176,6 +187,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
         {destNode && (
           <Command className="!bg-transparent !p-0 !rounded-none !overflow-visible">
             <CmdkInput
+              ref={cmdkSearchRef}
               value={search}
               onValueChange={setSearch}
               placeholder="Search commands..."
@@ -217,85 +229,103 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
         {selectedCmd && (
           <div>
             {txArgs.length > 0 ? (
-              <>
-                <div className="text-[11px] font-medium mb-1" style={{ color: colors.dim }}>Arguments</div>
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                  {txArgs.map((arg, i) => {
-                    // Trailing-optional gate: an optional arg is only
-                    // enabled when every earlier arg has a value. This
-                    // prevents the operator from creating a gap that
-                    // the backend would reject at send time.
-                    const earlierFilled = txArgs
-                      .slice(0, i)
-                      .every(a => (argValues[a.name] ?? '').trim() !== '')
-                    const disabled = !!arg.optional && !earlierFilled
-                    return (
-                      <div key={arg.name} className="space-y-0.5">
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-[11px]" style={{ color: colors.dim }}>{arg.name}</span>
-                          <span className="text-[11px]" style={{ color: colors.sep }}>{arg.type}</span>
-                          {arg.optional && (
-                            <span className="text-[10px] italic" style={{ color: colors.sep }}>optional</span>
-                          )}
-                        </div>
-                        <GssInput
-                          ref={i === 0 ? firstArgRef : undefined}
-                          className="w-full"
-                          value={argValues[arg.name] ?? ''}
-                          disabled={disabled}
-                          onChange={(e) => {
-                            const next = e.target.value
-                            setArgValues(prev => {
-                              const updated: Record<string, string> = { ...prev, [arg.name]: next }
-                              // Clearing an optional clears every
-                              // downstream optional too, since later
-                              // optionals can't remain without it.
-                              if (arg.optional && !next.trim()) {
-                                for (let j = i + 1; j < txArgs.length; j++) {
-                                  if (txArgs[j].optional) updated[txArgs[j].name] = ''
-                                }
-                              }
-                              return updated
-                            })
-                          }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleQueue() }}
-                          placeholder={arg.type === 'epoch_ms' ? 'auto' : ''}
-                        />
+              <div className="grid grid-cols-2 gap-x-2 gap-y-2">
+                {txArgs.map((arg, i) => {
+                  // Trailing-optional gate: an optional arg is only
+                  // enabled when every earlier arg has a value. This
+                  // prevents the operator from creating a gap that
+                  // the backend would reject at send time.
+                  const earlierFilled = txArgs
+                    .slice(0, i)
+                    .every(a => (argValues[a.name] ?? '').trim() !== '')
+                  const disabled = !!arg.optional && !earlierFilled
+                  return (
+                    <div key={arg.name} className="space-y-1" style={{ opacity: disabled ? 0.35 : 1 }}>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-[11px] font-medium" style={{ color: colors.dim }}>{arg.name}</span>
+                        {arg.optional && (
+                          <span className="text-[10px]" style={{ color: colors.sep }}>optional</span>
+                        )}
                       </div>
-                    )
-                  })}
-                </div>
-              </>
-            ) : (
-              <div className="text-[11px]" style={{ color: colors.dim }}>No arguments</div>
-            )}
-
-            {/* Echo toggle */}
-            {showEcho ? (
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[11px]" style={{ color: colors.dim }}>Echo</span>
-                <GssInput
-                  className="!w-20"
-                  value={echo}
-                  onChange={(e) => setEcho(e.target.value)}
-                  placeholder="NONE"
-                />
-                <button onClick={() => { setEcho('NONE'); setShowEcho(false) }} className="text-[11px]" style={{ color: colors.sep }}>hide</button>
+                      <GssInput
+                        ref={i === 0 ? firstArgRef : undefined}
+                        className="w-full"
+                        style={arg.optional ? { borderStyle: 'dashed' } : undefined}
+                        value={argValues[arg.name] ?? ''}
+                        disabled={disabled}
+                        onChange={(e) => {
+                          const next = e.target.value
+                          setArgValues(prev => {
+                            const updated: Record<string, string> = { ...prev, [arg.name]: next }
+                            // Clearing an optional clears every
+                            // downstream optional too, since later
+                            // optionals can't remain without it.
+                            if (arg.optional && !next.trim()) {
+                              for (let j = i + 1; j < txArgs.length; j++) {
+                                if (txArgs[j].optional) updated[txArgs[j].name] = ''
+                              }
+                            }
+                            return updated
+                          })
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleQueue() }}
+                        placeholder={arg.type}
+                      />
+                    </div>
+                  )
+                })}
               </div>
             ) : (
-              <button onClick={() => setShowEcho(true)} className="text-[11px] mt-1" style={{ color: colors.sep }}>+ echo</button>
+              <div className="text-[11px]" style={{ color: colors.dim }}>No arguments</div>
             )}
           </div>
         )}
 
-        {/* Preview + Queue */}
+        {/* Echo switch */}
+        {selectedCmd && (
+          <div className="flex items-center gap-2">
+            <Switch
+              size="sm"
+              checked={showEcho}
+              onCheckedChange={(checked: boolean) => {
+                setShowEcho(checked)
+                if (checked) setTimeout(() => document.querySelector<HTMLInputElement>('[data-echo-input]')?.focus(), 50)
+              }}
+            />
+            <span className="text-[11px] font-medium" style={{ color: colors.dim }}>Echo</span>
+            {showEcho && (
+              <GssInput
+                data-echo-input
+                className="!w-[72px]"
+                value={echo}
+                onChange={(e) => setEcho(e.target.value)}
+                placeholder="NONE"
+              />
+            )}
+          </div>
+        )}
+
+        {/* Preview bar */}
         {selectedCmd && destNode && (
-          <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: colors.borderSubtle }}>
-            <code className="flex-1 text-[11px] truncate" style={{ color: colors.dim }}>{preview}</code>
+          <div
+            className="flex items-center gap-2 -mx-2 -mb-2 px-2.5 py-2 mt-auto"
+            style={{ background: colors.bgPanelRaised, borderTop: `1px solid ${colors.borderSubtle}` }}
+          >
+            <span className="font-mono text-xs select-none" style={{ color: colors.sep }} aria-hidden="true">❯</span>
+            <code className="flex-1 text-[11px] font-mono truncate" style={{ color: colors.value }}>{preview}</code>
             <button
               onClick={handleQueue}
-              className="flex items-center gap-1 px-3 py-1 rounded text-xs font-medium shrink-0 btn-feedback"
-              style={{ color: colors.bgApp, backgroundColor: colors.label }}
+              className="flex items-center gap-1.5 shrink-0 transition-all duration-150 btn-feedback"
+              style={{
+                padding: '6px 16px',
+                borderRadius: '6px',
+                border: `1px solid ${colors.active}`,
+                backgroundColor: 'rgba(48,200,224,0.08)',
+                color: colors.active,
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
             >
               <CornerDownLeft className="size-3" />
               Queue
