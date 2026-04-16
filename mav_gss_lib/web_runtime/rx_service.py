@@ -119,6 +119,8 @@ class RxService:
                     break
                 if item_gen < self.runtime.session.generation:
                     continue
+                if self._should_drop_noise(meta, raw):
+                    continue  # gr-satellites noise — behave as if never received
                 pkt = self.pipeline.process(meta, raw)
                 record = build_rx_log_record(pkt, version, meta, self.runtime.adapter)
                 try:
