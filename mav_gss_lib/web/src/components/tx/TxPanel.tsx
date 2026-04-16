@@ -169,7 +169,7 @@ export function TxPanel({
         <motion.div
           className="rounded-lg border overflow-hidden shadow-float"
           style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgApp }}
-          animate={{ height: showBuilder ? '65vh' : 62 }}
+          animate={{ height: showBuilder ? '50vh' : 62 }}
           transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
         >
           {showBuilder && hasCommandBuilder && MissionBuilder ? (

@@ -213,7 +213,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
               />
             </div>
             <CommandList
-              className="!max-h-28 !overflow-y-auto rounded-b-md"
+              className="!max-h-28 !min-h-28 !overflow-y-auto rounded-b-md"
               style={{ border: `1px solid ${colors.borderSubtle}`, borderTop: 'none' }}
             >
               <CommandEmpty>
