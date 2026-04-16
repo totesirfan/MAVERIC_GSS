@@ -102,6 +102,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
   function pickCmd(name: string) {
     setSelectedCmd(name)
     setArgValues({})
+    setShowEcho(false)
     const def = schema?.[name]
     setEcho(def?.echo ?? 'NONE')
     setSearch('')
@@ -122,6 +123,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
     })
     setArgValues({})
     setSelectedCmd(null)
+    setShowEcho(false)
     setSearch('')
     setTimeout(() => cmdkSearchRef.current?.focus(), 50)
   }
@@ -141,7 +143,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
 
   return (
     <div
-      className="flex flex-col overflow-y-auto h-full"
+      className="flex flex-col h-full"
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.preventDefault()
@@ -154,7 +156,8 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
         }
       }}
     >
-      <div className="p-2 space-y-2">
+      {/* Scrollable content */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
         {/* Node rail */}
         <div
           className="flex rounded-md p-0.5 gap-0.5"
@@ -305,34 +308,35 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
           </div>
         )}
 
-        {/* Preview bar */}
-        {selectedCmd && destNode && (
-          <div
-            className="flex items-center gap-2 -mx-2 -mb-2 px-2.5 py-2 mt-auto"
-            style={{ background: colors.bgPanelRaised, borderTop: `1px solid ${colors.borderSubtle}` }}
-          >
-            <span className="font-mono text-xs select-none" style={{ color: colors.sep }} aria-hidden="true">❯</span>
-            <code className="flex-1 text-[11px] font-mono truncate" style={{ color: colors.value }}>{preview}</code>
-            <button
-              onClick={handleQueue}
-              className="flex items-center gap-1.5 shrink-0 transition-all duration-150 btn-feedback"
-              style={{
-                padding: '6px 16px',
-                borderRadius: '6px',
-                border: `1px solid ${colors.active}`,
-                backgroundColor: 'rgba(48,200,224,0.08)',
-                color: colors.active,
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              <CornerDownLeft className="size-3" />
-              Queue
-            </button>
-          </div>
-        )}
       </div>
+
+      {/* Preview bar — pinned at bottom, outside scrollable area */}
+      {selectedCmd && destNode && (
+        <div
+          className="shrink-0 flex items-center gap-2 px-2.5 py-2"
+          style={{ background: colors.bgPanelRaised, borderTop: `1px solid ${colors.borderSubtle}` }}
+        >
+          <span className="font-mono text-xs select-none" style={{ color: colors.sep }} aria-hidden="true">❯</span>
+          <code className="flex-1 text-[11px] font-mono truncate" style={{ color: colors.value }}>{preview}</code>
+          <button
+            onClick={handleQueue}
+            className="flex items-center gap-1.5 shrink-0 transition-all duration-150 btn-feedback"
+            style={{
+              padding: '6px 16px',
+              borderRadius: '6px',
+              border: `1px solid ${colors.active}`,
+              backgroundColor: 'rgba(48,200,224,0.08)',
+              color: colors.active,
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <CornerDownLeft className="size-3" />
+            Queue
+          </button>
+        </div>
+      )}
     </div>
   )
 }
