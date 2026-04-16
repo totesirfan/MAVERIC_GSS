@@ -821,6 +821,27 @@ def bootstrap_dependencies() -> None:
     May os.execv if a re-install is needed. Guards against re-exec loops via
     MAV_BOOTSTRAP_ATTEMPTED env var. Prints terminal status on first bootstrap.
     """
+    # Step 0: zip-extract auto-heal — runs here (not inside check_for_updates)
+    # because a first-launch full clone can take 10–30s, which blows past the
+    # preflight WS's 2s wait for the update future and leaves the Updates row
+    # stuck at "Update check still running". Doing it synchronously at bootstrap
+    # means the event loop starts with a real .git directory in place.
+    if not (REPO_ROOT / ".git").exists() and not DEV_SENTINEL_PATH.exists():
+        print(
+            "[MAV GSS] initializing git repository from zip extract (first launch)...",
+            flush=True,
+        )
+        err = _ensure_git_repo(timeout_s=60.0)
+        if err:
+            print(f"[MAV GSS] git init failed: {err}", file=sys.stderr, flush=True)
+            print(
+                "[MAV GSS] self-updater disabled; reinstall via `git clone` to enable updates.",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print("[MAV GSS] git repository initialized.", flush=True)
+
     # Step 1: hard prerequisites — refuse to proceed if missing.
     for module, instructions in _HARD_PREREQUISITES:
         if importlib.util.find_spec(module) is None:
