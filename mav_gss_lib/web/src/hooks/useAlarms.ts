@@ -11,7 +11,7 @@ export interface Alarm {
   acked: boolean
 }
 
-const STALE_THRESHOLD_S = 60
+const STALE_THRESHOLD_S = 210
 const CRC_THRESHOLD = 3
 const NONE_THRESHOLD = 3
 const DUP_THRESHOLD = 5

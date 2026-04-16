@@ -99,7 +99,7 @@ commands:
   file_download:
     dest: 2          # EPS node ID
     echo: 0          # NONE
-    ptype: 4         # FILE
+    ptype: 4         # FILE  (future: 6 once flight software adds NACK at 4)
     guard: true      # Requires confirmation — initiates downlink session
     nodes: [EPS, UPPM]
     tx_args:

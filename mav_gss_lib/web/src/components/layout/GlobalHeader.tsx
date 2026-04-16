@@ -77,7 +77,7 @@ function useRxStateColor(): { label: string; color: string; borderColor: string 
   const rate = status.pkt_rate
   const silence = status.silence_s
   if (rate > 0) return { label: `${rate.toFixed(1)}/s`, color: colors.success, borderColor: `${colors.success}4D` }
-  if (silence >= 30) return { label: `SILENT ${Math.round(silence)}s`, color: colors.warning, borderColor: `${colors.warning}4D` }
+  if (silence >= 180) return { label: `SILENT ${Math.round(silence)}s`, color: colors.warning, borderColor: `${colors.warning}4D` }
   return { label: 'STANDBY', color: colors.dim, borderColor: colors.borderSubtle }
 }
 

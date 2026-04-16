@@ -119,8 +119,8 @@ interface RxPanelProps {
 }
 
 function ageColor(s: number): string {
-  if (s >= 60) return colors.danger
-  if (s >= 30) return colors.warning
+  if (s >= 210) return colors.danger
+  if (s >= 180) return colors.warning
   return colors.textMuted
 }
 

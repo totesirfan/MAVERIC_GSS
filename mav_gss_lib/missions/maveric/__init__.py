@@ -6,8 +6,8 @@ Mission package contract:
   - ADAPTER_CLASS: type — adapter class (MavericMissionAdapter)
   - init_mission(cfg): mission-specific initialization hook
   - get_plugin_routers(adapter): optional FastAPI routers for mission plugins
-  - mission.example.yml: tracked public-safe mission metadata baseline
-  - mission.yml: optional local mission metadata override
+  - mission.example.yml: tracked public-safe template for mission.yml
+  - mission.yml: local mission metadata (gitignored; nodes, ptypes, protocol defaults)
   - adapter.py: MissionAdapter implementation
   - nodes.py: NodeTable dataclass + init_nodes() factory
   - wire_format.py: CommandFrame encode/decode

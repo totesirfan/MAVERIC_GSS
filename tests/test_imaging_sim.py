@@ -31,11 +31,11 @@ from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.crc import crc16, crc32c
 
 
-# -- Node / ptype IDs (from mission.example.yml) ----------------------------
+# -- Node / ptype IDs (from mission.yml) ------------------------------------
 
 NODES = {"NONE": 0, "LPPM": 1, "EPS": 2, "UPPM": 3, "HLNV": 4, "ASTR": 5, "GS": 6, "FTDI": 7}
 PTYPE_RES = 2   # response (img_cnt_chunks)
-PTYPE_FILE = 5  # file data (img_get_chunk)
+PTYPE_FILE = 5  # file data (img_get_chunk)  — future: 6 after flight software adds NACK at 4
 
 
 # -- Packet builders ---------------------------------------------------------

@@ -18,7 +18,7 @@ from .types import TelemetryField
 from .eps import decode_eps_hk
 
 
-_PTYPE_RES = 2  # maveric mission.example.yml: 2 = RES
+_PTYPE_TLM = 4  # maveric mission.yml: 4 = TLM
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +31,7 @@ _REGISTRY: dict[tuple[str, int], _Entry] = {
     # eps_hk: args_raw is 96 bytes of binary int16. The schema parses
     # it as ASCII-space-split garbage extra_args — hide it everywhere
     # in favor of the decoded HK fields.
-    ("eps_hk", _PTYPE_RES): _Entry(fn=decode_eps_hk, hide_schema_args=True),
+    ("eps_hk", _PTYPE_TLM): _Entry(fn=decode_eps_hk, hide_schema_args=True),
 }
 
 

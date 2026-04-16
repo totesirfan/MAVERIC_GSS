@@ -37,18 +37,25 @@ from mav_gss_lib.missions.maveric.wire_format import try_parse_command
 
 
 PAYLOAD_HEX = (
-    "900600000206000206606570735f686b00b4000000e823220088266c"
+    "900600000206000406606570735f686b00b4000000e823220088266c"
     "1d2c2134023f00f50c8c00f40176132600c8000000feff00000000fe"
     "ff00000000feff00000000feff00000000000000000000feff000000"
     "00feff00000000feff00000000feff00000000000000000000feff00"
-    "000040a33bd839ce"
+    "0000c95d1cfcc76f"
 )
 
 GOLDEN_VALUES = {
-    "I_BUS": 180, "I_BAT": 0, "V_BUS": 9192, "V_AC1": 34, "V_AC2": 9864,
-    "V_BAT": 7532, "V_SYS": 8492, "TS_ADC": 564, "T_DIE": 63,
-    "V3V3": 3317, "I3V3": 140, "P3V3": 500,
-    "V5V0": 4982, "I5V0": 38, "P5V0": 200,
+    "I_BUS": 0.18, "I_BAT": 0.0, "V_BUS": 9.192, "V_AC1": 0.034, "V_AC2": 9.864,
+    "V_BAT": 7.532, "V_SYS": 8.492, "TS_ADC": 55.078153, "T_DIE": 31.5,
+    "V3V3": 3.317, "I3V3": 0.14, "P3V3": 0.5,
+    "V5V0": 4.982, "I5V0": 0.038, "P5V0": 0.2,
+}
+
+GOLDEN_UNITS = {
+    "I_BUS": "A", "I_BAT": "A", "V_BUS": "V", "V_AC1": "V", "V_AC2": "V",
+    "V_BAT": "V", "V_SYS": "V", "TS_ADC": "%", "T_DIE": "°C",
+    "V3V3": "V", "I3V3": "A", "P3V3": "W",
+    "V5V0": "V", "I5V0": "A", "P5V0": "W",
 }
 
 
@@ -72,14 +79,25 @@ class TestDecodeEpsHk(unittest.TestCase):
         self.assertEqual(len(fields), 48)
         by_name = {f.name: f.value for f in fields}
         for name, expected in GOLDEN_VALUES.items():
-            self.assertEqual(by_name[name], expected, f"{name} mismatch")
+            self.assertAlmostEqual(by_name[name], expected, places=6,
+                                   msg=f"{name} mismatch")
 
-    def test_v1_invariant_value_equals_raw_and_unit_is_empty(self):
+    def test_units_populated_per_field_kind(self):
         cmd = _parse_fixture_cmd()
         fields = decode_eps_hk(cmd)
-        for f in fields:
-            self.assertEqual(f.value, f.raw, f"{f.name}: value/raw diverged")
-            self.assertEqual(f.unit, "", f"{f.name}: unit should be empty in v1")
+        by_name = {f.name: f.unit for f in fields}
+        for name, expected_unit in GOLDEN_UNITS.items():
+            self.assertEqual(by_name[name], expected_unit,
+                             f"{name}: unit mismatch")
+
+    def test_raw_preserved_alongside_scaled_value(self):
+        cmd = _parse_fixture_cmd()
+        fields = decode_eps_hk(cmd)
+        by_name = {f.name: f for f in fields}
+        self.assertEqual(by_name["V_BAT"].raw, 7532)
+        self.assertAlmostEqual(by_name["V_BAT"].value, 7.532, places=6)
+        self.assertEqual(by_name["T_DIE"].raw, 63)
+        self.assertAlmostEqual(by_name["T_DIE"].value, 31.5, places=6)
 
     def test_short_payload_raises(self):
         with self.assertRaises(ValueError):
@@ -93,7 +111,7 @@ class TestDecodeEpsHk(unittest.TestCase):
         fields = decode_eps_hk(padded)
         self.assertEqual(len(fields), 48)
         by_name = {f.name: f.value for f in fields}
-        self.assertEqual(by_name["V_BAT"], 7532)
+        self.assertAlmostEqual(by_name["V_BAT"], 7.532, places=6)
 
 
 from mav_gss_lib.missions.maveric.telemetry import decode_telemetry
@@ -103,7 +121,7 @@ class TestRegistryDispatch(unittest.TestCase):
 
     def _eps_cmd(self):
         cmd = _parse_fixture_cmd()
-        return cmd  # has cmd_id=eps_hk, pkt_type=2, args_raw=96 bytes
+        return cmd  # has cmd_id=eps_hk, pkt_type=4 (TLM), args_raw=96 bytes
 
     def test_dispatch_returns_dict_shape(self):
         result = decode_telemetry(self._eps_cmd())
@@ -120,12 +138,12 @@ class TestRegistryDispatch(unittest.TestCase):
 
     def test_dispatch_returns_none_for_unknown_cmd(self):
         self.assertIsNone(
-            decode_telemetry({"cmd_id": "other", "pkt_type": 2, "args_raw": b""})
+            decode_telemetry({"cmd_id": "other", "pkt_type": 4, "args_raw": b""})
         )
 
     def test_dispatch_returns_none_for_wrong_pkt_type(self):
         cmd = self._eps_cmd()
-        cmd_cmd = {**cmd, "pkt_type": 1}
+        cmd_cmd = {**cmd, "pkt_type": 2}
         self.assertIsNone(decode_telemetry(cmd_cmd))
 
 
@@ -144,8 +162,8 @@ class TestParsePacketAttachesTelemetry(unittest.TestCase):
         self.assertEqual(len(tel["fields"]), 48)
         self.assertTrue(tel["hide_schema_args"])
         by_name = {f["name"]: f["value"] for f in tel["fields"]}
-        self.assertEqual(by_name["V_BAT"], 7532)
-        self.assertEqual(by_name["V_BUS"], 9192)
+        self.assertAlmostEqual(by_name["V_BAT"], 7.532, places=6)
+        self.assertAlmostEqual(by_name["V_BUS"], 9.192, places=6)
 
     def test_non_telemetry_packet_sets_none(self):
         from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
@@ -191,8 +209,8 @@ class TestDetailBlocksReplayContract(unittest.TestCase):
         self.assertEqual(len(hk["fields"]), 48)
 
         by_name = {f["name"]: f["value"] for f in hk["fields"]}
-        self.assertEqual(by_name["V_BAT"], "7532")
-        self.assertEqual(by_name["V_BUS"], "9192")
+        self.assertEqual(by_name["V_BAT"], "7.532 V")
+        self.assertEqual(by_name["V_BUS"], "9.192 V")
 
     def test_eps_hk_detail_hides_schema_arguments_block(self):
         blocks = self.adapter.packet_detail_blocks(self.pkt)
@@ -234,7 +252,7 @@ class TestDetailBlocksReplayContract(unittest.TestCase):
 
         hk = next(b for b in rendering["detail_blocks"] if b.get("label") == "EPS_HK")
         by_name = {f["name"]: f["value"] for f in hk["fields"]}
-        self.assertEqual(by_name["V_BAT"], "7532")
+        self.assertEqual(by_name["V_BAT"], "7.532 V")
 
 
 from mav_gss_lib.missions.maveric import log_format  # noqa: E402
@@ -251,7 +269,7 @@ class TestLogFormatTelemetry(unittest.TestCase):
         self.assertIn("I_BUS", text)
         self.assertIn("V_BAT", text)
         self.assertIn("V_BUS", text)
-        self.assertIn("7532", text)
+        self.assertIn("7.532 V", text)
 
     def test_eps_hk_log_lines_have_no_arg_plus_rows(self):
         lines = log_format.format_log_lines(self.pkt, NODES)
