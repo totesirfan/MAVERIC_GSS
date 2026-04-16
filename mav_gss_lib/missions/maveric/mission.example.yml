@@ -1,9 +1,7 @@
 # MAVERIC CubeSat Mission Metadata (Public Example)
-# This file defines the tracked/public-safe mission defaults that the platform
-# merges into runtime config at startup.
-#
-# For operational use, you may create a local `mission.yml` beside this file.
-# If present, `mission.yml` takes precedence over `mission.example.yml`.
+# Tracked template showing the expected structure of mission.yml.
+# Copy this file to `mission.yml` beside it and edit for operational use.
+# `mission.yml` is gitignored and is the file actually loaded at runtime.
 
 mission_name: MAVERIC
 
@@ -21,8 +19,9 @@ ptypes:
   1: CMD
   2: RES
   3: ACK
-  4: TLM
-  5: FILE
+  4: NACK
+  5: TLM
+  6: FILE
 
 node_descriptions:
   LPPM: Lower Pluggable Processor Module

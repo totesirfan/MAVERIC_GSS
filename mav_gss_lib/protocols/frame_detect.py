@@ -27,3 +27,16 @@ def normalize_frame(frame_type, raw):
     if frame_type != "ASM+GOLAY":
         warnings.append("Unknown frame type -- returning raw")
     return raw, None, warnings
+
+
+def is_noise_frame(frame_type: str, raw: bytes) -> bool:
+    """True if this PDU is gr-satellites AX.25 noise that should be dropped.
+
+    Detects one specific class: an AX.25-tagged frame whose payload
+    contains no 03 F0 UI control+PID byte pair anywhere. A valid AX.25
+    UI frame always carries these bytes at offsets 14-15 (after the
+    16-byte address header), so the check cannot reject real traffic.
+    """
+    if frame_type != "AX.25":
+        return False
+    return raw.find(b"\x03\xf0") == -1
