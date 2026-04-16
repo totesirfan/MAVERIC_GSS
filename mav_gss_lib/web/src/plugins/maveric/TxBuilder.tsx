@@ -189,7 +189,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
         {/* Command picker */}
         {destNode && (
           <Command
-            className="!bg-transparent !p-0 !rounded-md !overflow-visible"
+            className="!bg-transparent !p-0 !rounded-md !overflow-visible [&_*]:!ring-0 [&_*]:!outline-none"
             shouldFilter={true}
           >
             {/* Search input */}
@@ -208,12 +208,12 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
                 value={search}
                 onValueChange={setSearch}
                 placeholder="Search commands..."
-                className="flex-1 h-8 bg-transparent text-[11px] font-sans outline-none placeholder:text-[#777]"
+                className="flex-1 h-8 bg-transparent text-[11px] font-sans outline-none ring-0 focus:ring-0 focus:outline-none placeholder:text-[#777]"
                 style={{ color: colors.value }}
               />
             </div>
             <CommandList
-              className="!max-h-32 !overflow-y-auto rounded-b-md"
+              className="!max-h-28 !overflow-y-auto rounded-b-md"
               style={{ border: `1px solid ${colors.borderSubtle}`, borderTop: 'none' }}
             >
               <CommandEmpty>
@@ -233,11 +233,13 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
                       background: picked ? 'rgba(48,200,224,0.06)' : undefined,
                     }}
                   >
-                    <span className="font-medium" style={{ color: picked ? colors.active : colors.value }}>{name}</span>
-                    {def.guard && (
-                      <ShieldCheck className="size-[13px]" style={{ color: colors.warning, opacity: 0.5 }} />
-                    )}
-                    <span className="text-[10px] ml-auto" style={{ color: colors.sep, fontFamily: 'Inter, sans-serif' }}>
+                    <span className="flex-1 flex items-center gap-1.5 min-w-0">
+                      <span className="font-medium truncate" style={{ color: picked ? colors.active : colors.value }}>{name}</span>
+                      {def.guard && (
+                        <ShieldCheck className="size-[13px] shrink-0" style={{ color: colors.warning, opacity: 0.5 }} />
+                      )}
+                    </span>
+                    <span className="text-[10px] shrink-0" style={{ color: colors.sep, fontFamily: 'Inter, sans-serif' }}>
                       {(def.tx_args?.length ?? 0)} arg{(def.tx_args?.length ?? 0) !== 1 ? 's' : ''}
                     </span>
                   </CommandItem>
