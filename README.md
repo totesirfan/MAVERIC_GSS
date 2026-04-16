@@ -118,7 +118,7 @@ python3 MAV_WEB.py
 
 The web dashboard auto-opens at `http://127.0.0.1:8080`. The server shuts down 15 seconds after all browser tabs disconnect.
 
-Either a `git clone` or a GitHub "Download ZIP" extract works as a starting point — on first launch the updater bootstraps a real clone in place so the preflight Updates check and self-update flow stay functional.
+Either a `git clone` or a GitHub "Download ZIP" extract works as a starting point — on first launch from a zip, the updater prints `initializing git repository from zip extract (first launch)...` and bootstraps a real clone in place so the preflight Updates check and self-update flow stay functional.
 
 ### Web UI Development
 
