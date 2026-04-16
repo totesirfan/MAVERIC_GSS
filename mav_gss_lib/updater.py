@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -197,22 +198,45 @@ def _ensure_git_repo(timeout_s: float) -> Optional[str]:
     so the updater's git commands fail downstream with "not a git repository"
     and the preflight row renders as "could not reach origin". This helper
     detects that state and bootstraps a working clone in place: init, add
-    origin, fetch DEFAULT_BRANCH, then checkout -B so the local branch tracks
-    origin. Tracked files are overwritten (they match the zip anyway on first
-    launch, or get updated to latest if the zip is stale). Untracked operator
-    files (gss.yml, commands.yml, .mav_dev, logs) are preserved.
+    origin, fetch DEFAULT_BRANCH, then force-checkout so the local branch
+    tracks origin. Tracked files are overwritten (they match the zip anyway
+    on first launch, or get updated to latest if the zip is stale). Untracked
+    operator files (gss.yml, commands.yml, .mav_dev, logs) are gitignored
+    and therefore absent from origin/main's tree, so they are preserved.
 
-    Returns None on success or when .git already exists (idempotent). On any
-    failure returns a short error string suitable for UpdateStatus.fetch_error.
+    If a prior run left a partial .git (e.g., init succeeded but checkout
+    bailed on untracked files), rev-parse HEAD will fail — in that case we
+    wipe .git and retry the full sequence rather than silently skipping.
+
+    Returns None on success or when .git already resolves HEAD (idempotent).
+    On any failure returns a short error string suitable for
+    UpdateStatus.fetch_error.
     """
-    if (REPO_ROOT / ".git").exists():
-        return None
+    git_dir = REPO_ROOT / ".git"
+    if git_dir.exists():
+        # Validate — a half-initialized .git from a prior failed heal has no
+        # HEAD commit, and leaving it in place would dead-lock every future
+        # launch at "could not reach origin".
+        try:
+            r = _run_git(["rev-parse", "HEAD"], timeout=5.0)
+            if r.returncode == 0:
+                return None
+        except Exception:
+            pass
+        try:
+            shutil.rmtree(git_dir)
+        except Exception as exc:
+            return f"could not remove partial .git: {exc}"
 
+    # --force on checkout bypasses the "untracked working tree files would
+    # be overwritten" guard. Necessary here because the zip's files are all
+    # untracked until the first commit lands, and they collide with every
+    # path in origin/main's tree.
     steps: list[tuple[list[str], float]] = [
         (["init"], 5.0),
         (["remote", "add", "origin", REPO_URL], 5.0),
         (["fetch", "origin", DEFAULT_BRANCH], timeout_s),
-        (["checkout", "-B", DEFAULT_BRANCH, f"origin/{DEFAULT_BRANCH}"], 10.0),
+        (["checkout", "--force", "-B", DEFAULT_BRANCH, f"origin/{DEFAULT_BRANCH}"], 10.0),
         (["branch", f"--set-upstream-to=origin/{DEFAULT_BRANCH}", DEFAULT_BRANCH], 5.0),
     ]
     for args, tmo in steps:
@@ -826,21 +850,41 @@ def bootstrap_dependencies() -> None:
     # preflight WS's 2s wait for the update future and leaves the Updates row
     # stuck at "Update check still running". Doing it synchronously at bootstrap
     # means the event loop starts with a real .git directory in place.
-    if not (REPO_ROOT / ".git").exists() and not DEV_SENTINEL_PATH.exists():
-        print(
-            "[MAV GSS] initializing git repository from zip extract (first launch)...",
-            flush=True,
-        )
-        err = _ensure_git_repo(timeout_s=60.0)
-        if err:
-            print(f"[MAV GSS] git init failed: {err}", file=sys.stderr, flush=True)
+    #
+    # A prior run that bailed mid-heal (e.g., checkout aborted on untracked
+    # files) leaves a .git that exists but has no HEAD commit — detect that
+    # via rev-parse and retry, so the laptop doesn't permanently dead-lock
+    # at "could not reach origin" until the operator manually `rm -rf .git`s.
+    if not DEV_SENTINEL_PATH.exists():
+        needs_heal = not (REPO_ROOT / ".git").exists()
+        if not needs_heal:
+            try:
+                r = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=str(REPO_ROOT),
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
+                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                )
+                needs_heal = r.returncode != 0
+            except Exception:
+                needs_heal = True
+        if needs_heal:
             print(
-                "[MAV GSS] self-updater disabled; reinstall via `git clone` to enable updates.",
-                file=sys.stderr,
+                "[MAV GSS] initializing git repository from zip extract (first launch)...",
                 flush=True,
             )
-        else:
-            print("[MAV GSS] git repository initialized.", flush=True)
+            err = _ensure_git_repo(timeout_s=60.0)
+            if err:
+                print(f"[MAV GSS] git init failed: {err}", file=sys.stderr, flush=True)
+                print(
+                    "[MAV GSS] self-updater disabled; reinstall via `git clone` to enable updates.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print("[MAV GSS] git repository initialized.", flush=True)
 
     # Step 1: hard prerequisites — refuse to proceed if missing.
     for module, instructions in _HARD_PREREQUISITES:
