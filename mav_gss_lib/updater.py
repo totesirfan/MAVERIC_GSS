@@ -640,16 +640,53 @@ def _run_pip_install(broadcast: Callable[[dict], None]) -> None:
         try:
             venv_python = _ensure_venv()
         except VenvUnavailableError as exc:
+            # Third-tier fallback: when python3-venv isn't installed, retry
+            # the pip install with --break-system-packages --user so we write
+            # to the operator's ~/.local site-packages instead of the
+            # apt-managed system site. This preserves PEP 668's intent for
+            # system Python (nothing ends up in /usr) while still getting
+            # the update through without requiring sudo + apt intervention.
             broadcast({
                 "type": "update_phase",
                 "phase": "bootstrap_venv",
-                "status": "fail",
+                "status": "running",
                 "detail": (
-                    "python3-venv not installed. On Debian/Ubuntu, run: "
-                    "sudo apt install python3-venv, then reload."
+                    "python3-venv unavailable; retrying pip with "
+                    "--break-system-packages --user"
                 ),
             })
-            raise
+            cmd2 = [
+                sys.executable, "-m", "pip", "install",
+                "--break-system-packages", "--user",
+                "-r", str(REQUIREMENTS_PATH),
+            ]
+            broadcast({
+                "type": "update_phase",
+                "phase": "pip_install",
+                "status": "running",
+                "detail": "retrying with --break-system-packages --user...",
+            })
+            try:
+                _stream_subprocess(cmd2, broadcast, phase="pip_install", timeout=180.0)
+            except (PipBlockedError, SubprocessFailed) as exc2:
+                broadcast({
+                    "type": "update_phase",
+                    "phase": "pip_install",
+                    "status": "fail",
+                    "detail": f"--break-system-packages retry failed: {exc2}",
+                })
+                raise PipBlockedError(str(exc2)) from exc2
+            try:
+                _write_persisted_hash()
+            except Exception:
+                pass
+            broadcast({
+                "type": "update_phase",
+                "phase": "pip_install",
+                "status": "ok",
+                "detail": "installed to user site-packages",
+            })
+            return
         except Exception as exc:
             broadcast({
                 "type": "update_phase",
@@ -919,15 +956,49 @@ def bootstrap_dependencies() -> None:
         try:
             venv_python = _ensure_venv()
         except VenvUnavailableError as exc:
+            # Third-tier fallback for system-Python / no-python3-venv combos
+            # (Debian 12 default). Retry with --break-system-packages --user
+            # so the install lands in the operator's ~/.local site. PEP 668's
+            # system-package intent is still honored; nothing hits /usr.
             print(
-                f"[MAV GSS] Python venv module unavailable (needed for "
-                f"dependency fallback).\n"
-                f"          On Debian/Ubuntu: sudo apt install python3-venv\n"
-                f"          Detail: {exc}",
-                file=sys.stderr,
+                f"[MAV GSS] python3-venv unavailable ({exc}); "
+                f"retrying pip with --break-system-packages --user...",
                 flush=True,
             )
-            sys.exit(3)
+            cmd2 = [
+                sys.executable, "-m", "pip", "install",
+                "--break-system-packages", "--user",
+                "-r", str(REQUIREMENTS_PATH),
+            ]
+            try:
+                result = subprocess.run(
+                    cmd2,
+                    cwd=str(REPO_ROOT),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=300,
+                )
+            except subprocess.TimeoutExpired:
+                print("[MAV GSS] pip --break-system-packages retry timed out", file=sys.stderr, flush=True)
+                sys.exit(3)
+            if result.stdout:
+                print(result.stdout, flush=True)
+            if result.returncode != 0:
+                print(
+                    "[MAV GSS] pip --break-system-packages --user also failed.\n"
+                    "          Install python3-venv (sudo apt install python3-venv)\n"
+                    "          or activate the radioconda env, then relaunch.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                sys.exit(3)
+            try:
+                _write_persisted_hash()
+            except Exception:
+                pass
+            os.environ.pop("MAV_BOOTSTRAP_ATTEMPTED", None)
+            _reexec(python=sys.executable)  # never returns; picks up ~/.local deps
         # Clear the attempt marker — the venv python is a DIFFERENT interpreter
         # and gets its own fresh bootstrap attempt.
         os.environ.pop("MAV_BOOTSTRAP_ATTEMPTED", None)
