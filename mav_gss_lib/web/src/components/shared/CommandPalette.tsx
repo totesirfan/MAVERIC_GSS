@@ -10,31 +10,36 @@ import {
   Send, Trash2, Undo, Binary, Radio, Shield,
   Settings, FileText, HelpCircle, Eye, Plus, Tag,
 } from 'lucide-react'
+import type { NavigationTabDef } from '@/components/layout/navigation'
 
-interface CommandPaletteProps {
+export interface CommandPaletteActions {
+  toggleHex: () => void
+  toggleUplink: () => void
+  toggleFrame: () => void
+  toggleWrapper: () => void
+  openConfig: () => void
+  openLogs: () => void
+  openHelp: () => void
+  newSession: () => void
+  tagSession: () => void
+  confirmSend?: () => void
+  confirmClear?: () => void
+  undoLast?: () => void
+  abortSend?: () => void
+}
+
+export interface CommandPaletteProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  actions: {
-    confirmSend: () => void
-    confirmClear: () => void
-    undoLast: () => void
-    abortSend: () => void
-    toggleHex: () => void
-    toggleUplink: () => void
-    toggleFrame: () => void
-    toggleWrapper: () => void
-    openConfig: () => void
-    openLogs: () => void
-    openHelp: () => void
-    newSession: () => void
-    tagSession: () => void
-  }
+  navigationTabs: NavigationTabDef[]
+  onNavigate: (tabId: string) => void
+  actions: CommandPaletteActions
 }
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 let hasLoadedCommandPalette = false
 
-export function CommandPalette({ open, onOpenChange, actions }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, navigationTabs, onNavigate, actions }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const animateOnMount = hasLoadedCommandPalette
 
@@ -84,28 +89,38 @@ export function CommandPalette({ open, onOpenChange, actions }: CommandPalettePr
               <CommandList>
                 <CommandEmpty>No results found.</CommandEmpty>
 
-                <CommandGroup heading="Uplink">
-                  <CommandItem onSelect={() => run(actions.confirmSend)}>
-                    <Send className="size-4" />
-                    <span>Send All...</span>
-                    <CommandShortcut>Ctrl+S</CommandShortcut>
-                  </CommandItem>
-                  <CommandItem onSelect={() => run(actions.confirmClear)}>
-                    <Trash2 className="size-4" />
-                    <span>Clear Queue...</span>
-                    <CommandShortcut>Ctrl+X</CommandShortcut>
-                  </CommandItem>
-                  <CommandItem onSelect={() => run(actions.undoLast)}>
-                    <Undo className="size-4" />
-                    <span>Undo Last</span>
-                    <CommandShortcut>Ctrl+Z</CommandShortcut>
-                  </CommandItem>
-                  <CommandItem onSelect={() => run(actions.abortSend)}>
-                    <Shield className="size-4" />
-                    <span>Abort Send</span>
-                    <CommandShortcut>Esc</CommandShortcut>
-                  </CommandItem>
-                </CommandGroup>
+                {(actions.confirmSend || actions.confirmClear || actions.undoLast || actions.abortSend) && (
+                  <CommandGroup heading="Uplink">
+                    {actions.confirmSend && (
+                      <CommandItem onSelect={() => run(actions.confirmSend!)}>
+                        <Send className="size-4" />
+                        <span>Send All...</span>
+                        <CommandShortcut>Ctrl+S</CommandShortcut>
+                      </CommandItem>
+                    )}
+                    {actions.confirmClear && (
+                      <CommandItem onSelect={() => run(actions.confirmClear!)}>
+                        <Trash2 className="size-4" />
+                        <span>Clear Queue...</span>
+                        <CommandShortcut>Ctrl+X</CommandShortcut>
+                      </CommandItem>
+                    )}
+                    {actions.undoLast && (
+                      <CommandItem onSelect={() => run(actions.undoLast!)}>
+                        <Undo className="size-4" />
+                        <span>Undo Last</span>
+                        <CommandShortcut>Ctrl+Z</CommandShortcut>
+                      </CommandItem>
+                    )}
+                    {actions.abortSend && (
+                      <CommandItem onSelect={() => run(actions.abortSend!)}>
+                        <Shield className="size-4" />
+                        <span>Abort Send</span>
+                        <CommandShortcut>Esc</CommandShortcut>
+                      </CommandItem>
+                    )}
+                  </CommandGroup>
+                )}
 
                 <CommandGroup heading="Downlink Display">
                   <CommandItem onSelect={() => run(actions.toggleHex)}>
@@ -151,6 +166,15 @@ export function CommandPalette({ open, onOpenChange, actions }: CommandPalettePr
                     <span>Help & Shortcuts</span>
                     <CommandShortcut>?</CommandShortcut>
                   </CommandItem>
+                </CommandGroup>
+
+                <CommandGroup heading="Navigation">
+                  {navigationTabs.map(t => (
+                    <CommandItem key={t.id} onSelect={() => run(() => onNavigate(t.id))}>
+                      <t.icon className="size-4" />
+                      <span>Go to {t.name}</span>
+                    </CommandItem>
+                  ))}
                 </CommandGroup>
               </CommandList>
             </Command>

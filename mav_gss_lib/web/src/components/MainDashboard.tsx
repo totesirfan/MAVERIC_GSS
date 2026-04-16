@@ -1,27 +1,56 @@
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense, type ComponentProps } from 'react'
+import { useEffect, useMemo, useRef, type ComponentProps } from 'react'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
-import { GlobalHeader } from '@/components/layout/GlobalHeader'
 import { SplitPane } from '@/components/layout/SplitPane'
 import { useRxStatus, useRxPackets, useRxStats, useRxDisplayToggles } from '@/hooks/RxProvider'
 import { useTx } from '@/hooks/TxProvider'
 import { useSessionContext } from '@/hooks/SessionProvider'
+import { useTabActive } from '@/components/layout/TabActiveContext'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
-import { KeyboardHintBar } from '@/components/layout/KeyboardHintBar'
 import { showToast } from '@/components/shared/StatusToast'
 import { AlarmStrip } from '@/components/shared/AlarmStrip'
 import { Skeleton } from '@/components/ui/skeleton'
-import { isInputFocused } from '@/lib/utils'
 import type { GssConfig } from '@/lib/types'
-import type { PluginPageDef } from '@/plugins/registry'
-import { RenameSessionDialog } from '@/components/layout/GlobalHeader'
 
-const ConfigSidebar = lazy(() => import('@/components/config/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
-const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => ({ default: m.LogViewer })))
-const HelpModal = lazy(() => import('@/components/shared/HelpModal').then((m) => ({ default: m.HelpModal })))
-const CommandPalette = lazy(() => import('@/components/shared/CommandPalette').then((m) => ({ default: m.CommandPalette })))
+/** Sentinel that watches the packet stream for CRC failures and toasts them.
+ *  Rendered at the dashboard root so only this tiny node rerenders per flush. */
+export function RxCrcToastSentinel() {
+  const packets = useRxPackets()
+  const lastCheckedNum = useRef(-1)
+  useEffect(() => {
+    if (packets.length === 0) return
+    const last = packets[packets.length - 1]
+    if (last.num <= lastCheckedNum.current) return
+    lastCheckedNum.current = last.num
+    const flags = last._rendering?.row?.values?.flags
+    const hasCrcFail = Array.isArray(flags) && flags.some(
+      (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
+    )
+    const cmdLabel = String(last._rendering?.row?.values?.cmd ?? 'unknown').split(' ')[0] || 'unknown'
+    if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
+  }, [packets])
+  return null
+}
 
-function ConfigSidebarSkeleton() {
+/** Wraps AlarmStrip with a packets subscription so MainDashboard doesn't need one. */
+export function AlarmStripWithPackets({ status, replayMode, sessionResetGen }: {
+  status: ReturnType<typeof useRxStatus>['status']
+  replayMode: boolean
+  sessionResetGen?: number
+}) {
+  const packets = useRxPackets()
+  return <AlarmStrip status={status} packets={packets} replayMode={replayMode} sessionResetGen={sessionResetGen} />
+}
+
+/** Wraps RxPanel with packets + stats subscriptions, keeping RxPanel's API unchanged. */
+function RxPanelWithPackets(props: Omit<ComponentProps<typeof RxPanel>, 'packets' | 'packetStats'>) {
+  const packets = useRxPackets()
+  const stats = useRxStats()
+  return <RxPanel {...props} packets={packets} packetStats={stats} />
+}
+
+// Lazy-load skeletons are kept here for the Suspense fallbacks used at the shell level
+export function ConfigSidebarSkeleton() {
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/70" />
@@ -41,7 +70,7 @@ function ConfigSidebarSkeleton() {
   )
 }
 
-function LogViewerSkeleton() {
+export function LogViewerSkeleton() {
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex flex-1 m-4 rounded-lg border overflow-hidden shadow-overlay bg-card border-border">
@@ -65,7 +94,7 @@ function LogViewerSkeleton() {
   )
 }
 
-function HelpModalSkeleton() {
+export function HelpModalSkeleton() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
       <div className="w-[640px] max-h-[80vh] rounded-lg border p-5 shadow-overlay bg-card border-border">
@@ -84,7 +113,7 @@ function HelpModalSkeleton() {
   )
 }
 
-function CommandPaletteSkeleton() {
+export function CommandPaletteSkeleton() {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
       <div className="absolute inset-0 bg-black/70" />
@@ -99,92 +128,30 @@ function CommandPaletteSkeleton() {
   )
 }
 
-// isInputFocused imported from @/lib/utils
-
 interface MainDashboardProps {
   config: GssConfig | null
-  onConfigChange: (cfg: GssConfig) => void
-  missionName: string
-  version: string
-  plugins: PluginPageDef[]
-  onPluginClick: (id: string) => void
+  confirmSendSignal: number
+  confirmClearSignal: number
+  replaySession: string | null
+  onStopReplay: () => void
 }
 
-/** Sentinel that watches the packet stream for CRC failures and toasts them.
- *  Rendered at the dashboard root so only this tiny node rerenders per flush. */
-function RxCrcToastSentinel() {
-  const packets = useRxPackets()
-  const lastCheckedNum = useRef(-1)
-  useEffect(() => {
-    if (packets.length === 0) return
-    const last = packets[packets.length - 1]
-    if (last.num <= lastCheckedNum.current) return
-    lastCheckedNum.current = last.num
-    const flags = last._rendering?.row?.values?.flags
-    const hasCrcFail = Array.isArray(flags) && flags.some(
-      (f: unknown) => typeof f === 'object' && f !== null && (f as Record<string, string>).tag === 'CRC',
-    )
-    const cmdLabel = String(last._rendering?.row?.values?.cmd ?? 'unknown').split(' ')[0] || 'unknown'
-    if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
-  }, [packets])
-  return null
-}
-
-/** Wraps AlarmStrip with a packets subscription so MainDashboard doesn't need one. */
-function AlarmStripWithPackets({ status, replayMode, sessionResetGen }: {
-  status: ReturnType<typeof useRxStatus>['status']
-  replayMode: boolean
-  sessionResetGen?: number
-}) {
-  const packets = useRxPackets()
-  return <AlarmStrip status={status} packets={packets} replayMode={replayMode} sessionResetGen={sessionResetGen} />
-}
-
-/** Wraps RxPanel with packets + stats subscriptions, keeping RxPanel's API unchanged. */
-function RxPanelWithPackets(props: Omit<ComponentProps<typeof RxPanel>, 'packets' | 'packetStats'>) {
-  const packets = useRxPackets()
-  const stats = useRxStats()
-  return <RxPanel {...props} packets={packets} packetStats={stats} />
-}
-
-export function MainDashboard({ config, onConfigChange, missionName, version, plugins, onPluginClick }: MainDashboardProps) {
+export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, replaySession, onStopReplay }: MainDashboardProps) {
   const rx = useRxStatus()
   const columns = rx.columns
   const tx = useTx()
   const session = useSessionContext()
-
-  const [showLogs, setShowLogs] = useState(false)
-  const [showConfig, setShowConfig] = useState(false)
-  const [showHelp, setShowHelp] = useState(false)
-  const [showCommand, setShowCommand] = useState(false)
-  const [replaySession, setReplaySession] = useState<string | null>(null)
-  const [confirmSendSignal, setConfirmSendSignal] = useState(0)
-  const [confirmClearSignal, setConfirmClearSignal] = useState(0)
+  const tabActive = useTabActive()
   const rxToggles = useRxDisplayToggles()
 
-  const startReplay = useCallback((sessionId: string) => {
-    rx.enterReplay()
-    setReplaySession(sessionId)
-  }, [rx])
-
-  const stopReplay = useCallback(() => {
-    rx.exitReplay()
-    setReplaySession(null)
-  }, [rx])
-
   const shortcuts = useMemo<Shortcut[]>(() => [
-    { key: 'k', ctrl: true, action: () => setShowCommand(v => !v) },
     { key: 's', ctrl: true, action: () => { if (tx.queue.length > 0 && !tx.sendProgress) tx.sendAll() } },
     { key: 'z', ctrl: true, action: () => tx.undoLast() },
     { key: 'x', ctrl: true, action: () => tx.clearQueue() },
-    { key: 'Escape', action: () => setShowConfig(false), when: () => showConfig },
-    { key: 'Escape', action: () => setShowLogs(false), when: () => showLogs },
-    { key: 'Escape', action: () => setShowHelp(false), when: () => showHelp },
     { key: 'Escape', action: () => tx.abortSend(), when: () => !!tx.sendProgress },
-    { key: '?', action: () => setShowHelp(v => !v), when: () => !isInputFocused() },
-  ], [showConfig, showLogs, showHelp, tx])
+  ], [tx])
 
-  useShortcuts(shortcuts)
+  useShortcuts(shortcuts, tabActive)
 
   // Show TX errors as toasts
   useEffect(() => {
@@ -194,103 +161,49 @@ export function MainDashboard({ config, onConfigChange, missionName, version, pl
   const uplinkMode = config?.tx?.uplink_mode ?? ''
 
   return (
-    <>
-      <GlobalHeader
-        missionName={missionName}
-        version={version}
-        plugins={plugins}
-        onPluginClick={onPluginClick}
-        onLogsClick={() => setShowLogs(v => !v)}
-        onConfigClick={() => setShowConfig(v => !v)}
-        onHelpClick={() => setShowHelp(v => !v)}
-        session={session}
-      />
-      <RenameSessionDialog session={session} />
-      <RxCrcToastSentinel />
-      <AlarmStripWithPackets status={rx.status} replayMode={rx.replayMode} sessionResetGen={rx.sessionResetGen} />
-      <div className="flex-1 overflow-hidden p-4">
-        <SplitPane
-          left={
-            <TxPanel
-              config={config}
-              queue={tx.queue} summary={tx.summary} history={tx.history}
-              sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
-              uplinkMode={uplinkMode} connected={tx.connected}
-              queueCommand={tx.queueCommand}
-              deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
-              undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
-              reorder={tx.reorder} addDelay={tx.addDelay}
-              editDelay={tx.editDelay} sendAll={tx.sendAll}
-              abortSend={tx.abortSend} approveGuard={tx.approveGuard}
-              rejectGuard={tx.rejectGuard}
-              queueTemplate={tx.queueMissionCmd}
-              triggerConfirmSend={confirmSendSignal}
-              triggerConfirmClear={confirmClearSignal}
-            />
-          }
-          right={
-            <RxPanelWithPackets
-              config={config}
-              status={rx.status}
-              columns={columns}
-              replayMode={rx.replayMode}
-              replaySession={replaySession}
-              replacePackets={rx.replacePackets}
-              onStopReplay={stopReplay}
-              sessionResetGen={rx.sessionResetGen}
-              sessionTag={rx.sessionResetTag || session.tag}
-              blackoutUntil={rx.blackoutUntil}
-              externalShowHex={rxToggles.showHex}
-              externalShowFrame={rxToggles.showFrame}
-              externalShowWrapper={rxToggles.showWrapper}
-              externalHideUplink={rxToggles.hideUplink}
-              onToggleHex={rxToggles.toggleHex}
-              onToggleFrame={rxToggles.toggleFrame}
-              onToggleWrapper={rxToggles.toggleWrapper}
-              onToggleUplink={rxToggles.toggleUplink}
-            />
-          }
-        />
-      </div>
-      {showConfig && (
-        <Suspense fallback={<ConfigSidebarSkeleton />}>
-          <ConfigSidebar open={showConfig} onClose={() => { setShowConfig(false); fetch('/api/config').then(r => r.json()).then(onConfigChange) }} />
-        </Suspense>
-      )}
-      {showLogs && (
-        <Suspense fallback={<LogViewerSkeleton />}>
-          <LogViewer open={showLogs} onClose={() => setShowLogs(false)} onStartReplay={startReplay} />
-        </Suspense>
-      )}
-      {showHelp && (
-        <Suspense fallback={<HelpModalSkeleton />}>
-          <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
-        </Suspense>
-      )}
-      {showCommand && (
-        <Suspense fallback={<CommandPaletteSkeleton />}>
-          <CommandPalette
-            open={showCommand}
-            onOpenChange={setShowCommand}
-            actions={{
-              confirmSend: () => setConfirmSendSignal(n => n + 1),
-              confirmClear: () => setConfirmClearSignal(n => n + 1),
-              undoLast: tx.undoLast,
-              abortSend: tx.abortSend,
-              toggleHex: rxToggles.toggleHex,
-              toggleUplink: rxToggles.toggleUplink,
-              toggleFrame: rxToggles.toggleFrame,
-              toggleWrapper: rxToggles.toggleWrapper,
-              openConfig: () => setShowConfig(true),
-              openLogs: () => setShowLogs(true),
-              openHelp: () => setShowHelp(true),
-              newSession: () => session.setOpenNewSession(true),
-              tagSession: () => session.setOpenRename(true),
-            }}
+    <div className="flex-1 overflow-hidden p-4">
+      <SplitPane
+        left={
+          <TxPanel
+            config={config}
+            queue={tx.queue} summary={tx.summary} history={tx.history}
+            sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
+            uplinkMode={uplinkMode} connected={tx.connected}
+            queueCommand={tx.queueCommand}
+            deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
+            undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
+            reorder={tx.reorder} addDelay={tx.addDelay}
+            editDelay={tx.editDelay} sendAll={tx.sendAll}
+            abortSend={tx.abortSend} approveGuard={tx.approveGuard}
+            rejectGuard={tx.rejectGuard}
+            queueTemplate={tx.queueMissionCmd}
+            triggerConfirmSend={confirmSendSignal}
+            triggerConfirmClear={confirmClearSignal}
           />
-        </Suspense>
-      )}
-      <KeyboardHintBar />
-    </>
+        }
+        right={
+          <RxPanelWithPackets
+            config={config}
+            status={rx.status}
+            columns={columns}
+            replayMode={rx.replayMode}
+            replaySession={replaySession}
+            replacePackets={rx.replacePackets}
+            onStopReplay={onStopReplay}
+            sessionResetGen={rx.sessionResetGen}
+            sessionTag={rx.sessionResetTag || session.tag}
+            blackoutUntil={rx.blackoutUntil}
+            externalShowHex={rxToggles.showHex}
+            externalShowFrame={rxToggles.showFrame}
+            externalShowWrapper={rxToggles.showWrapper}
+            externalHideUplink={rxToggles.hideUplink}
+            onToggleHex={rxToggles.toggleHex}
+            onToggleFrame={rxToggles.toggleFrame}
+            onToggleWrapper={rxToggles.toggleWrapper}
+            onToggleUplink={rxToggles.toggleUplink}
+          />
+        }
+      />
+    </div>
   )
 }

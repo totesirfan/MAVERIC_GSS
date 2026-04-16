@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, Suspense } from 'react'
-import { useShortcuts } from '@/hooks/useShortcuts'
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { SessionProvider, useSessionContext, useConfig } from '@/hooks/SessionProvider'
-import { TxProvider } from '@/hooks/TxProvider'
-import { RxProvider, useRxStatus, useRxPackets } from '@/hooks/RxProvider'
+import { TxProvider, useTx } from '@/hooks/TxProvider'
+import { RxProvider, useRxStatus, useRxDisplayToggles } from '@/hooks/RxProvider'
 import { colors } from '@/lib/colors'
 import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
 import { useTxSocket } from '@/hooks/useTxSocket'
@@ -10,13 +10,29 @@ import { useRxSocket } from '@/hooks/useRxSocket'
 import { usePopOutBootstrap } from '@/hooks/usePopOutBootstrap'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
-import { AlarmStrip } from '@/components/shared/AlarmStrip'
 import { Toaster } from '@/components/ui/sonner'
-import { Skeleton } from '@/components/ui/skeleton'
-import { MainDashboard } from '@/components/MainDashboard'
+import {
+  MainDashboard,
+  RxCrcToastSentinel,
+  AlarmStripWithPackets,
+  ConfigSidebarSkeleton,
+  LogViewerSkeleton,
+  HelpModalSkeleton,
+  CommandPaletteSkeleton,
+} from '@/components/MainDashboard'
 import { getPluginPages, type PluginPageDef } from '@/plugins/registry'
 import { usePreflight } from '@/hooks/usePreflight'
 import { PreflightScreen } from '@/components/shared/PreflightScreen'
+import { TabViewport } from '@/components/layout/TabViewport'
+import { buildNavigationTabs } from '@/components/layout/navigation'
+import { KeyboardHintBar } from '@/components/layout/KeyboardHintBar'
+import { isInputFocused } from '@/lib/utils'
+import type { CommandPaletteActions } from '@/components/shared/CommandPalette'
+
+const ConfigSidebar = lazy(() => import('@/components/config/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
+const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => ({ default: m.LogViewer })))
+const HelpModal = lazy(() => import('@/components/shared/HelpModal').then((m) => ({ default: m.HelpModal })))
+const CommandPalette = lazy(() => import('@/components/shared/CommandPalette').then((m) => ({ default: m.CommandPalette })))
 
 /** Check if app is running in a pop-out panel mode */
 function getPanelMode(): 'tx' | 'rx' | null {
@@ -63,6 +79,20 @@ function AppShell() {
   const [page, setPage] = useState<string | null>(() => panelMode ? null : getPageMode())
   const [plugins, setPlugins] = useState<PluginPageDef[]>([])
 
+  // Shell modal state (lifted from old MainDashboard)
+  const [showLogs, setShowLogs] = useState(false)
+  const [showConfig, setShowConfig] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [showCommand, setShowCommand] = useState(false)
+  const [replaySession, setReplaySession] = useState<string | null>(null)
+  const [confirmSendSignal, setConfirmSendSignal] = useState(0)
+  const [confirmClearSignal, setConfirmClearSignal] = useState(0)
+
+  const rx = useRxStatus()
+  const tx = useTx()
+  const session = useSessionContext()
+  const rxToggles = useRxDisplayToggles()
+
   // Load plugin pages once mission is known
   useEffect(() => {
     const missionId = config?.general?.mission
@@ -72,13 +102,13 @@ function AppShell() {
 
   const navigateTo = useCallback((target: string | null) => {
     const url = new URL(window.location.href)
-    if (target) {
+    if (target && target !== '__dashboard__') {
       url.searchParams.set('page', target)
     } else {
       url.searchParams.delete('page')
     }
     window.history.pushState({}, '', url.toString())
-    setPage(target)
+    setPage(target === '__dashboard__' ? null : target)
   }, [])
 
   // Browser back/forward
@@ -91,12 +121,6 @@ function AppShell() {
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  // Escape key returns to main dashboard from plugin pages
-  useShortcuts(
-    [{ key: 'Escape', action: () => navigateTo(null) }],
-    !!page,
-  )
-
   useEffect(() => {
     const missionName = config?.general?.mission_name ?? 'Mission'
     document.title = `${missionName} GSS`
@@ -105,125 +129,115 @@ function AppShell() {
   const version = config?.general?.version ?? '...'
   const missionName = config?.general?.mission_name ?? 'Mission'
 
-  // Plugin page
-  if (page) {
-    const activePlugin = plugins.find(p => p.id === page)
-    return (
-      <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
-        <PluginPageShell
-          missionName={missionName}
-          version={version}
-          page={page}
-          plugins={plugins}
-          onBackClick={() => navigateTo(null)}
-          plugin={activePlugin}
-          configLoaded={config !== null}
-        />
-        <Toaster position="top-center" />
-      </div>
-    )
-  }
+  // Derived state
+  const activeTabId = page ?? '__dashboard__'
+  const navigationTabs = useMemo(() => buildNavigationTabs(plugins), [plugins])
 
-  // Normal dashboard — MainDashboard renders its own GlobalHeader
+  // Replay callbacks
+  const startReplay = useCallback((sessionId: string) => {
+    rx.enterReplay()
+    setReplaySession(sessionId)
+  }, [rx])
+
+  const stopReplay = useCallback(() => {
+    rx.exitReplay()
+    setReplaySession(null)
+  }, [rx])
+
+  // Build palette actions — dashboard-scoped entries are conditional
+  const paletteActions = useMemo<CommandPaletteActions>(() => {
+    const base: CommandPaletteActions = {
+      toggleHex: rxToggles.toggleHex,
+      toggleFrame: rxToggles.toggleFrame,
+      toggleWrapper: rxToggles.toggleWrapper,
+      toggleUplink: rxToggles.toggleUplink,
+      openConfig: () => setShowConfig(true),
+      openLogs: () => setShowLogs(true),
+      openHelp: () => setShowHelp(true),
+      newSession: () => session.setOpenNewSession(true),
+      tagSession: () => session.setOpenRename(true),
+    }
+    if (activeTabId === '__dashboard__') {
+      return {
+        ...base,
+        confirmSend: () => setConfirmSendSignal(n => n + 1),
+        confirmClear: () => setConfirmClearSignal(n => n + 1),
+        undoLast: tx.undoLast,
+        abortSend: tx.abortSend,
+      }
+    }
+    return base
+  }, [activeTabId, rxToggles, tx, session])
+
+  // Shell-global shortcuts
+  const shellShortcuts = useMemo<Shortcut[]>(() => [
+    { key: 'k', ctrl: true, action: () => setShowCommand(v => !v) },
+    { key: '?', action: () => setShowHelp(v => !v), when: () => !isInputFocused() },
+    { key: 'Escape', action: () => setShowConfig(false), when: () => showConfig },
+    { key: 'Escape', action: () => setShowLogs(false), when: () => showLogs },
+    { key: 'Escape', action: () => setShowHelp(false), when: () => showHelp },
+  ], [showConfig, showLogs, showHelp])
+
+  useShortcuts(shellShortcuts)
+
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
-      <MainDashboard
-        config={config}
-        onConfigChange={setConfig}
-        missionName={missionName}
-        version={version}
-        plugins={plugins}
-        onPluginClick={(id) => navigateTo(id)}
-      />
-      <Toaster position="top-center" />
-    </div>
-  )
-}
-
-/** Tiny wrapper that subscribes to the packets context so the shell doesn't. */
-function PluginAlarmStrip({ status, sessionResetGen }: {
-  status: import('@/lib/types').RxStatus
-  sessionResetGen: number
-}) {
-  const packets = useRxPackets()
-  return <AlarmStrip status={status} packets={packets} replayMode={false} sessionResetGen={sessionResetGen} />
-}
-
-/** Plugin page shell — owns RX socket for AlarmStrip */
-function PluginPageShell({ missionName, version, page, plugins, onBackClick, plugin, configLoaded }: {
-  missionName: string
-  version: string
-  page: string
-  plugins: PluginPageDef[]
-  onBackClick: () => void
-  plugin: PluginPageDef | undefined
-  configLoaded: boolean
-}) {
-  const rx = useRxStatus()
-  const session = useSessionContext()
-
-  return (
-    <>
       <GlobalHeader
         missionName={missionName}
         version={version}
-        page={page}
-        plugins={plugins}
-        onBackClick={onBackClick}
-        onLogsClick={() => {}}
-        onConfigClick={() => {}}
-        onHelpClick={() => {}}
+        tabs={navigationTabs}
+        activeTabId={activeTabId}
+        onTabClick={(id) => navigateTo(id === '__dashboard__' ? null : id)}
+        onLogsClick={() => setShowLogs(v => !v)}
+        onConfigClick={() => setShowConfig(v => !v)}
+        onHelpClick={() => setShowHelp(v => !v)}
         session={session}
       />
       <RenameSessionDialog session={session} />
-      <PluginAlarmStrip status={rx.status} sessionResetGen={rx.sessionResetGen} />
-      {plugin ? (
-        <Suspense fallback={
-          <div className="flex-1 flex items-center justify-center">
-            <Skeleton className="h-8 w-48" />
-          </div>
-        }>
-          <plugin.component />
-        </Suspense>
-      ) : configLoaded ? (
-        <div className="flex-1 flex items-center justify-center">
-          <span className="text-sm" style={{ color: colors.dim }}>Plugin not found</span>
-        </div>
-      ) : (
-        <div className="flex-1 flex items-center justify-center">
-          <Skeleton className="h-8 w-48" />
-        </div>
-      )}
-    </>
-  )
-}
-
-/** Pop-out TX panel — standalone window */
-function PopOutTx() {
-  const { config } = usePopOutBootstrap()
-  const tx = useTxSocket()
-  const uplinkMode = config?.tx?.uplink_mode ?? ''
-
-  return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
-      <div className="flex-1 p-2">
-      <TxPanel
-        config={config}
-        queue={tx.queue} summary={tx.summary} history={tx.history}
-        sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
-        uplinkMode={uplinkMode} connected={tx.connected}
-        queueCommand={tx.queueCommand}
-        deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
-        undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
-        reorder={tx.reorder} addDelay={tx.addDelay}
-        editDelay={tx.editDelay} sendAll={tx.sendAll}
-        abortSend={tx.abortSend} approveGuard={tx.approveGuard}
-        rejectGuard={tx.rejectGuard}
-        queueTemplate={tx.queueMissionCmd}
-        triggerConfirmSend={0}
-        triggerConfirmClear={0}
+      <RxCrcToastSentinel />
+      <AlarmStripWithPackets status={rx.status} replayMode={rx.replayMode} sessionResetGen={rx.sessionResetGen} />
+      <TabViewport
+        plugins={plugins}
+        activeId={activeTabId}
+        renderDashboard={() => (
+          <MainDashboard
+            config={config}
+            confirmSendSignal={confirmSendSignal}
+            confirmClearSignal={confirmClearSignal}
+            replaySession={replaySession}
+            onStopReplay={stopReplay}
+          />
+        )}
       />
-      </div>
+      {/* Lazy modals */}
+      {showConfig && (
+        <Suspense fallback={<ConfigSidebarSkeleton />}>
+          <ConfigSidebar open={showConfig} onClose={() => { setShowConfig(false); fetch('/api/config').then(r => r.json()).then(setConfig) }} />
+        </Suspense>
+      )}
+      {showLogs && (
+        <Suspense fallback={<LogViewerSkeleton />}>
+          <LogViewer open={showLogs} onClose={() => setShowLogs(false)} onStartReplay={startReplay} />
+        </Suspense>
+      )}
+      {showHelp && (
+        <Suspense fallback={<HelpModalSkeleton />}>
+          <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+        </Suspense>
+      )}
+      {showCommand && (
+        <Suspense fallback={<CommandPaletteSkeleton />}>
+          <CommandPalette
+            open={showCommand}
+            onOpenChange={setShowCommand}
+            navigationTabs={navigationTabs}
+            onNavigate={(id) => { navigateTo(id === '__dashboard__' ? null : id) }}
+            actions={paletteActions}
+          />
+        </Suspense>
+      )}
+      <KeyboardHintBar activeTabId={activeTabId} anyShellModalOpen={showLogs || showConfig || showHelp} />
+      <Toaster position="top-center" />
     </div>
   )
 }
@@ -268,6 +282,36 @@ function PreflightOverlay() {
       version={version}
       buildSha={buildSha}
     />
+  )
+}
+
+/** Pop-out TX panel — standalone window */
+function PopOutTx() {
+  const { config } = usePopOutBootstrap()
+  const tx = useTxSocket()
+  const uplinkMode = config?.tx?.uplink_mode ?? ''
+
+  return (
+    <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
+      <div className="flex-1 p-2">
+      <TxPanel
+        config={config}
+        queue={tx.queue} summary={tx.summary} history={tx.history}
+        sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
+        uplinkMode={uplinkMode} connected={tx.connected}
+        queueCommand={tx.queueCommand}
+        deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
+        undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
+        reorder={tx.reorder} addDelay={tx.addDelay}
+        editDelay={tx.editDelay} sendAll={tx.sendAll}
+        abortSend={tx.abortSend} approveGuard={tx.approveGuard}
+        rejectGuard={tx.rejectGuard}
+        queueTemplate={tx.queueMissionCmd}
+        triggerConfirmSend={0}
+        triggerConfirmClear={0}
+      />
+      </div>
+    </div>
   )
 }
 
