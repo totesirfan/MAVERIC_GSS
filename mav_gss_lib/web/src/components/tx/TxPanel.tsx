@@ -210,15 +210,14 @@ export function TxPanel({
                     width: 110,
                     borderColor: colors.borderSubtle,
                     backgroundColor: 'transparent',
-                    color: colors.active,
-                    opacity: 0.5,
+                    color: colors.dim,
                   }}
                   onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'
-                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(48,200,224,0.04)'
+                    (e.currentTarget as HTMLButtonElement).style.color = colors.value
+                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.03)'
                   }}
                   onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.opacity = '0.5'
+                    (e.currentTarget as HTMLButtonElement).style.color = colors.dim
                     ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
                   }}
                 >
