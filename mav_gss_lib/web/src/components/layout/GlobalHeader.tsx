@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Settings, HelpCircle, FileText, Maximize, Minimize, Camera, ArrowLeft } from 'lucide-react'
+import { Settings, HelpCircle, FileText, Maximize, Minimize, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -186,7 +186,7 @@ export function GlobalHeader({
             className="h-7 px-2 gap-1.5 text-[11px]"
             style={{ color: colors.dim }}
           >
-            <Camera className="size-3.5" />
+            <p.icon className="size-3.5" />
             {p.name}
           </Button>
         ))}

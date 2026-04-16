@@ -8,6 +8,7 @@
  * No manual registration needed — just create the files.
  */
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
+import type { LucideIcon } from 'lucide-react'
 import type { MissionBuilderProps } from '@/lib/types'
 
 // ── TX Builder Discovery ────────────────────────────────────────────
@@ -44,8 +45,11 @@ export interface PluginPageDef {
   id: string
   name: string
   description: string
-  icon: string
+  icon: LucideIcon
   component: LazyExoticComponent<ComponentType>
+  category: 'mission' | 'platform'
+  keepAlive?: boolean
+  order?: number
 }
 
 const pluginModules = import.meta.glob<{ default: PluginPageDef[] }>(
