@@ -37,6 +37,13 @@ REQUIREMENTS_PATH = REPO_ROOT / "requirements.txt"
 REQUIREMENTS_HASH_PATH = REPO_ROOT / ".mav_requirements_hash"
 VENV_DIR = REPO_ROOT / ".venv"
 
+# Canonical upstream — baked in so a GitHub zip extract can self-heal into a
+# real clone on first launch. GitHub zip archives carry no .git metadata, so
+# without this the updater would permanently report "could not reach origin"
+# on any operator laptop that wasn't set up with `git clone`.
+REPO_URL = "https://github.com/totesirfan/MAVERIC_GSS.git"
+DEFAULT_BRANCH = "main"
+
 # Developer opt-out sentinel. If this file exists at the repo root, the updater
 # refuses to fetch or apply anything — the Updates check renders as a skip with
 # "dev mode" as the reason, and the APPLY UPDATE button never appears. Create
@@ -169,13 +176,56 @@ def _write_persisted_hash() -> None:
 # =============================================================================
 
 def _run_git(args: list[str], timeout: float) -> subprocess.CompletedProcess:
+    # GIT_TERMINAL_PROMPT=0 prevents the credential helper from blocking on an
+    # interactive prompt when a private repo needs auth — we want a fast,
+    # capturable failure, not a hung subprocess.
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     return subprocess.run(
         ["git", *args],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=env,
     )
+
+
+def _ensure_git_repo(timeout_s: float) -> Optional[str]:
+    """Auto-heal a zip-extracted tree into a real clone of REPO_URL.
+
+    GitHub's "Download ZIP" produces a source snapshot with no .git directory,
+    so the updater's git commands fail downstream with "not a git repository"
+    and the preflight row renders as "could not reach origin". This helper
+    detects that state and bootstraps a working clone in place: init, add
+    origin, fetch DEFAULT_BRANCH, then checkout -B so the local branch tracks
+    origin. Tracked files are overwritten (they match the zip anyway on first
+    launch, or get updated to latest if the zip is stale). Untracked operator
+    files (gss.yml, commands.yml, .mav_dev, logs) are preserved.
+
+    Returns None on success or when .git already exists (idempotent). On any
+    failure returns a short error string suitable for UpdateStatus.fetch_error.
+    """
+    if (REPO_ROOT / ".git").exists():
+        return None
+
+    steps: list[tuple[list[str], float]] = [
+        (["init"], 5.0),
+        (["remote", "add", "origin", REPO_URL], 5.0),
+        (["fetch", "origin", DEFAULT_BRANCH], timeout_s),
+        (["checkout", "-B", DEFAULT_BRANCH, f"origin/{DEFAULT_BRANCH}"], 10.0),
+        (["branch", f"--set-upstream-to=origin/{DEFAULT_BRANCH}", DEFAULT_BRANCH], 5.0),
+    ]
+    for args, tmo in steps:
+        try:
+            r = _run_git(args, timeout=tmo)
+        except subprocess.TimeoutExpired:
+            return f"git {args[0]} timeout during repo init"
+        except Exception as exc:
+            return f"git {args[0]} failed: {exc}"
+        if r.returncode != 0:
+            stderr = (r.stderr or "").strip()
+            return f"git {args[0]} failed: {stderr or 'non-zero exit'}"
+    return None
 
 
 def _scan_missing_pip_deps() -> list[str]:
@@ -215,6 +265,15 @@ def check_for_updates(timeout_s: float = 10.0) -> UpdateStatus:
     if DEV_SENTINEL_PATH.exists():
         status.fetch_failed = True
         status.fetch_error = "dev mode (.mav_dev present)"
+        return status
+
+    # Zip-extract auto-heal — if .git is missing, bootstrap a clone from the
+    # canonical upstream so a GitHub "Download ZIP" install becomes a real
+    # git checkout on first launch. No-op when .git already exists.
+    init_err = _ensure_git_repo(timeout_s)
+    if init_err:
+        status.fetch_failed = True
+        status.fetch_error = init_err
         return status
 
     # Missing deps — independent of git fetch. Scan first so the hash-seeding
