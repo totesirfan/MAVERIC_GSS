@@ -1,6 +1,7 @@
 import { useState, useMemo, Suspense } from 'react'
 import { useEffect } from 'react'
 import { useShortcuts } from '@/hooks/useShortcuts'
+import { useTabActive } from '@/components/layout/TabActiveContext'
 import { motion } from 'framer-motion'
 import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -192,7 +193,7 @@ function GuardConfirmBlock({ guardConfirm, onApprove, onReject }: {
   useShortcuts([
     { key: 'Enter', action: onApprove },
     { key: 'Escape', action: onReject },
-  ])
+  ], useTabActive())
 
   return (
     <div

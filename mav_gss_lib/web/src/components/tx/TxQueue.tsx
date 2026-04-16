@@ -7,6 +7,9 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { Trash2, Send, Timer, Save } from 'lucide-react'
+import { useTabActive } from '@/components/layout/TabActiveContext'
+import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
+import { isInputFocused } from '@/lib/utils'
 import { PromptDialog } from '@/components/shared/PromptDialog'
 import { PanelToasts } from '@/components/shared/StatusToast'
 import { showToast } from '@/components/shared/StatusToast'
@@ -57,6 +60,7 @@ export function TxQueue({
   onClear, onSend, onDuplicate, onMoveToTop, onMoveToBottom,
   triggerConfirmSend, triggerConfirmClear,
 }: TxQueueProps) {
+  const tabActive = useTabActive()
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
@@ -64,8 +68,14 @@ export function TxQueue({
   const [showSavePrompt, setShowSavePrompt] = useState(false)
 
   // External triggers (from command palette)
-  useEffect(() => { if (triggerConfirmSend) setConfirmSend(true) }, [triggerConfirmSend])
-  useEffect(() => { if (triggerConfirmClear) setConfirmClear(true) }, [triggerConfirmClear])
+  useEffect(() => {
+    if (!tabActive) return
+    if (triggerConfirmSend) setConfirmSend(true)
+  }, [triggerConfirmSend, tabActive])
+  useEffect(() => {
+    if (!tabActive) return
+    if (triggerConfirmClear) setConfirmClear(true)
+  }, [triggerConfirmClear, tabActive])
   const [uidItems, setUidItems] = useState(() => assignUids(queue))
   const [flashUid, setFlashUid] = useState<number | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -111,36 +121,44 @@ export function TxQueue({
 
 
   // Keyboard navigation within the queue area
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      const tag = document.activeElement?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (uidItems.length === 0) return
+  const queueShortcuts = useMemo<Shortcut[]>(() => [
+    {
+      key: 'ArrowUp',
+      action: () => setFocusedIdx(prev => prev === null ? 0 : Math.max(0, prev - 1)),
+      when: () => uidItems.length > 0 && !isInputFocused(),
+    },
+    {
+      key: 'ArrowDown',
+      action: () => setFocusedIdx(prev => {
+        const max = uidItems.length - 1
+        return prev === null ? 0 : Math.min(max, prev + 1)
+      }),
+      when: () => uidItems.length > 0 && !isInputFocused(),
+    },
+    {
+      key: 'Delete',
+      action: () => { if (focusedIdx !== null) onDelete(focusedIdx) },
+      when: () => focusedIdx !== null && uidItems.length > 0 && !isInputFocused(),
+    },
+    {
+      key: 'Backspace',
+      action: () => { if (focusedIdx !== null) onDelete(focusedIdx) },
+      when: () => focusedIdx !== null && uidItems.length > 0 && !isInputFocused(),
+    },
+    {
+      key: 'g',
+      action: () => { if (focusedIdx !== null) onToggleGuard(focusedIdx) },
+      when: () => focusedIdx !== null && uidItems.length > 0 && !isInputFocused(),
+    },
+    {
+      key: 'G',
+      shift: true,
+      action: () => { if (focusedIdx !== null) onToggleGuard(focusedIdx) },
+      when: () => focusedIdx !== null && uidItems.length > 0 && !isInputFocused(),
+    },
+  ], [uidItems.length, focusedIdx, onDelete, onToggleGuard])
 
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        e.preventDefault()
-        setFocusedIdx(prev => {
-          const max = uidItems.length - 1
-          if (prev === null) return 0
-          if (e.key === 'ArrowUp') return Math.max(0, prev - 1)
-          return Math.min(max, prev + 1)
-        })
-        return
-      }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && focusedIdx !== null) {
-        e.preventDefault()
-        onDelete(focusedIdx)
-        return
-      }
-      if ((e.key === 'g' || e.key === 'G') && focusedIdx !== null && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault()
-        onToggleGuard(focusedIdx)
-        return
-      }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [uidItems.length, focusedIdx, onDelete, onToggleGuard])
+  useShortcuts(queueShortcuts, tabActive)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

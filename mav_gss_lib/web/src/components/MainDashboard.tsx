@@ -11,6 +11,7 @@ import { KeyboardHintBar } from '@/components/layout/KeyboardHintBar'
 import { showToast } from '@/components/shared/StatusToast'
 import { AlarmStrip } from '@/components/shared/AlarmStrip'
 import { Skeleton } from '@/components/ui/skeleton'
+import { isInputFocused } from '@/lib/utils'
 import type { GssConfig } from '@/lib/types'
 import type { PluginPageDef } from '@/plugins/registry'
 import { RenameSessionDialog } from '@/components/layout/GlobalHeader'
@@ -98,11 +99,7 @@ function CommandPaletteSkeleton() {
   )
 }
 
-function isInputFocused(): boolean {
-  const tag = document.activeElement?.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
-    (document.activeElement as HTMLElement)?.isContentEditable === true
-}
+// isInputFocused imported from @/lib/utils
 
 interface MainDashboardProps {
   config: GssConfig | null
