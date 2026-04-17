@@ -100,11 +100,11 @@ class TestTaskCallbacksWired(unittest.TestCase):
         )
 
     def test_shutdown_task_has_callback(self):
-        # runtime.py uses the older `asyncio.get_event_loop().create_task(...)`
-        # form, so the substring we hunt for is the full assignment line.
+        # runtime.py uses loop.create_task(...) after modernizing away from
+        # the deprecated asyncio.get_event_loop() form.
         self._assert_callback_wired(
             "mav_gss_lib/web_runtime/runtime.py",
-            "runtime.shutdown_task = asyncio.get_event_loop().create_task(check_shutdown(runtime))",
+            "runtime.shutdown_task = loop.create_task(check_shutdown(runtime))",
         )
 
 

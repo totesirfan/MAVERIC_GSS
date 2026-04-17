@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import os
 import signal
 from typing import Any
 
@@ -41,7 +40,7 @@ async def check_shutdown(runtime: WebRuntime) -> None:
         if runtime.tx.sending["active"]:
             schedule_shutdown_check(runtime)
             return
-        os.kill(os.getpid(), signal.SIGINT)
+        signal.raise_signal(signal.SIGINT)
 
 
 def schedule_shutdown_check(runtime: WebRuntime) -> None:
@@ -49,10 +48,11 @@ def schedule_shutdown_check(runtime: WebRuntime) -> None:
     if runtime.shutdown_task and not runtime.shutdown_task.done():
         runtime.shutdown_task.cancel()
     try:
-        runtime.shutdown_task = asyncio.get_event_loop().create_task(check_shutdown(runtime))
-        runtime.shutdown_task.add_done_callback(log_task_exception("shutdown-check"))
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        pass
+        return
+    runtime.shutdown_task = loop.create_task(check_shutdown(runtime))
+    runtime.shutdown_task.add_done_callback(log_task_exception("shutdown-check"))
 
 
 # =============================================================================
