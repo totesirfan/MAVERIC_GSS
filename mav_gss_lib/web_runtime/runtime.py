@@ -37,7 +37,9 @@ async def check_shutdown(runtime: WebRuntime) -> None:
     with runtime.tx.lock:
         tx_count = len(runtime.tx.clients)
     if rx_count == 0 and tx_count == 0 and runtime.had_clients:
-        if runtime.tx.sending["active"]:
+        with runtime.tx.send_lock:
+            sending_active = runtime.tx.sending["active"]
+        if sending_active:
             schedule_shutdown_check(runtime)
             return
         signal.raise_signal(signal.SIGINT)

@@ -79,5 +79,61 @@ class TestIdleShutdownUsesRaiseSignal(unittest.TestCase):
             runtime_mod.SHUTDOWN_DELAY = original_delay
 
 
+class TestCheckShutdownLocksSendingRead(unittest.TestCase):
+    def test_check_shutdown_reads_sending_under_send_lock(self):
+        """check_shutdown must acquire runtime.tx.send_lock before reading sending['active']."""
+        rt = _FakeRuntime()
+
+        class _SpyDict(dict):
+            lock_held_during_read = False
+
+            def __init__(self, spy_lock, *args, **kw):
+                super().__init__(*args, **kw)
+                self._spy_lock = spy_lock
+
+            def __getitem__(self, key):
+                if key == "active":
+                    _SpyDict.lock_held_during_read = self._spy_lock.is_held()
+                return super().__getitem__(key)
+
+        class _SpyLock:
+            def __init__(self, inner):
+                self._inner = inner
+                self._held = False
+
+            def __enter__(self):
+                self._inner.acquire()
+                self._held = True
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                self._held = False
+                self._inner.release()
+
+            def is_held(self):
+                return self._held
+
+        spy_lock = _SpyLock(rt.tx.send_lock)
+        rt.tx.send_lock = spy_lock
+        rt.tx.sending = _SpyDict(spy_lock, active=True)  # active → reschedule path
+
+        original_delay = runtime_mod.SHUTDOWN_DELAY
+        runtime_mod.SHUTDOWN_DELAY = 0
+
+        async def run():
+            with patch.object(runtime_mod, "schedule_shutdown_check"):
+                await runtime_mod.check_shutdown(rt)
+
+        try:
+            asyncio.run(run())
+        finally:
+            runtime_mod.SHUTDOWN_DELAY = original_delay
+
+        self.assertTrue(
+            _SpyDict.lock_held_during_read,
+            "check_shutdown read sending['active'] without holding send_lock",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
