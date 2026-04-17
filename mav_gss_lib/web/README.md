@@ -25,10 +25,9 @@ It is not a standalone app. It is the frontend for the FastAPI runtime under `ma
 - **react-virtuoso** — virtualized packet/history lists
 - **cmdk** — Ctrl+K command palette
 - **sonner** — toast notifications
-- **next-themes** — theme state (the project locks to the dark mission console theme)
 - **lucide-react** — iconography
-- **date-fns**, **react-day-picker** — date handling
-- **Fonts:** `@fontsource-variable/inter` (UI text), `@fontsource-variable/jetbrains-mono` (data rows) — both declared as `@font-face` in `src/index.css`. `@fontsource-variable/geist` is installed but not currently loaded.
+- **react-day-picker** — date handling (bundles its own `date-fns` transitively)
+- **Fonts:** `@fontsource-variable/inter` (UI text), `@fontsource-variable/jetbrains-mono` (data rows) — both declared as `@font-face` in `src/index.css`.
 
 See `package.json` for the exact version, which is single-sourced into the backend via `mav_gss_lib/config.py::_read_version()`.
 
