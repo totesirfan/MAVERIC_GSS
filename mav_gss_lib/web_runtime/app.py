@@ -77,6 +77,11 @@ async def lifespan(app: FastAPI):
     runtime.preflight_task.add_done_callback(log_task_exception("preflight"))
     yield
 
+    await _shutdown_runtime(runtime)
+
+
+async def _shutdown_runtime(runtime) -> None:
+    """Tear down RX/TX/preflight state during lifespan shutdown."""
     runtime.rx.broadcast_stop = True
     runtime.rx.stop.set()
     if runtime.rx.thread_handle:
@@ -84,6 +89,13 @@ async def lifespan(app: FastAPI):
     if runtime.rx.broadcast_task:
         try:
             await asyncio.wait_for(runtime.rx.broadcast_task, timeout=3.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
+    preflight_task = getattr(runtime, "preflight_task", None)
+    if preflight_task and not preflight_task.done():
+        preflight_task.cancel()
+        try:
+            await asyncio.wait_for(preflight_task, timeout=2.0)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             pass
     if runtime.rx.log:

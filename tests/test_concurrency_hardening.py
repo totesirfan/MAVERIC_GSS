@@ -135,5 +135,36 @@ class TestCheckShutdownLocksSendingRead(unittest.TestCase):
         )
 
 
+class TestLifespanCancelsPreflightTask(unittest.TestCase):
+    def test_preflight_task_is_cancelled_on_shutdown(self):
+        """Lifespan shutdown must cancel runtime.preflight_task if it's still running."""
+        from mav_gss_lib.web_runtime import app as app_mod
+
+        async def never_ending():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            preflight_task = loop.create_task(never_ending())
+            fake_runtime = MagicMock()
+            fake_runtime.preflight_task = preflight_task
+            fake_runtime.rx.broadcast_task = None
+            fake_runtime.rx.thread_handle = None
+            fake_runtime.rx.log = None
+            fake_runtime.tx.log = None
+            fake_runtime.tx.zmq_sock = None
+            # Exercise just the shutdown half of lifespan
+            await app_mod._shutdown_runtime(fake_runtime)
+            self.assertTrue(
+                preflight_task.cancelled() or preflight_task.done(),
+                "preflight_task was not cancelled on lifespan shutdown",
+            )
+
+        asyncio.run(run())
+
+
 if __name__ == "__main__":
     unittest.main()
