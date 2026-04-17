@@ -60,16 +60,32 @@ def schedule_update_check(runtime) -> None:
 # =============================================================================
 
 async def _broadcast(runtime, event: dict) -> None:
-    """Append event to backlog and send to all current clients."""
+    """Append event to backlog, broadcast to all current clients, cull dead ones.
+
+    Keeps the backlog append and the client snapshot inside a single
+    `preflight_lock` acquisition — matches the atomic snapshot taken by
+    the WS handler's backlog-replay path, so a new client connecting
+    mid-broadcast never sees the same event twice.
+
+    The send loop runs outside the lock (send_text is awaited) and any
+    per-client failure is deferred into a second lock acquisition that
+    removes the dead sockets from `preflight_clients`.
+    """
     with runtime.preflight_lock:
         runtime.preflight_results.append(event)
-        clients = list(runtime.preflight_clients)
+        snapshot = list(runtime.preflight_clients)
     msg = json.dumps(event)
-    for ws in clients:
+    dead = []
+    for ws in snapshot:
         try:
             await ws.send_text(msg)
         except Exception:
-            pass
+            dead.append(ws)
+    if dead:
+        with runtime.preflight_lock:
+            for ws in dead:
+                if ws in runtime.preflight_clients:
+                    runtime.preflight_clients.remove(ws)
 
 
 # =============================================================================
@@ -218,11 +234,17 @@ async def run_preflight_and_broadcast(runtime, emit_reset: bool = False) -> None
 
         if emit_reset:
             reset_msg = json.dumps({"type": "reset"})
+            dead: list = []
             for ws in reset_clients:
                 try:
                     await ws.send_text(reset_msg)
                 except Exception:
-                    pass
+                    dead.append(ws)
+            if dead:
+                with runtime.preflight_lock:
+                    for ws in dead:
+                        if ws in runtime.preflight_clients:
+                            runtime.preflight_clients.remove(ws)
 
         cfg = runtime.cfg
         results: list[CheckResult] = []

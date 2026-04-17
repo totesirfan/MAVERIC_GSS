@@ -108,5 +108,74 @@ class TestTaskCallbacksWired(unittest.TestCase):
         )
 
 
+class TestPreflightBroadcastCullsDeadClients(unittest.TestCase):
+    """The preflight broadcast must remove clients whose send_text raises."""
+
+    def test_dead_client_is_removed(self):
+        import threading
+
+        from mav_gss_lib.web_runtime.preflight_ws import _broadcast
+
+        class FakeRuntime:
+            def __init__(self):
+                self.preflight_lock = threading.Lock()
+                self.preflight_results = []
+                self.preflight_clients = []
+
+        class LiveWS:
+            def __init__(self):
+                self.sent = []
+
+            async def send_text(self, text):
+                self.sent.append(text)
+
+        class DeadWS:
+            async def send_text(self, text):
+                raise ConnectionError("socket closed")
+
+        runtime = FakeRuntime()
+        live = LiveWS()
+        dead = DeadWS()
+        runtime.preflight_clients.extend([live, dead])
+
+        async def _run():
+            await _broadcast(runtime, {"type": "check", "label": "x", "status": "ok"})
+
+        asyncio.run(_run())
+
+        self.assertEqual(len(live.sent), 1, "live client should have received the event")
+        self.assertNotIn(dead, runtime.preflight_clients, "dead client should have been removed")
+        self.assertIn(live, runtime.preflight_clients, "live client must remain")
+
+        # Second broadcast — dead client should not be re-attempted.
+        async def _run2():
+            await _broadcast(runtime, {"type": "check", "label": "second", "status": "ok"})
+
+        asyncio.run(_run2())
+        self.assertEqual(
+            len(live.sent), 2,
+            "live client should have received the second event too",
+        )
+        # If the dead client had been re-attempted, DeadWS.send_text would have
+        # raised — but our assertion is indirect: DeadWS is no longer in the
+        # list, so it can't be iterated at all.
+
+    def test_backlog_still_records_event(self):
+        import threading
+
+        from mav_gss_lib.web_runtime.preflight_ws import _broadcast
+
+        class FakeRuntime:
+            def __init__(self):
+                self.preflight_lock = threading.Lock()
+                self.preflight_results = []
+                self.preflight_clients = []
+
+        runtime = FakeRuntime()
+        asyncio.run(_broadcast(runtime, {"type": "check", "label": "y", "status": "fail"}))
+        self.assertEqual(len(runtime.preflight_results), 1)
+        self.assertEqual(runtime.preflight_results[0]["label"], "y")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
