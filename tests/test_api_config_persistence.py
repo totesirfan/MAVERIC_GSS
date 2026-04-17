@@ -64,9 +64,11 @@ class TestStripPersistedJunk(unittest.TestCase):
 
 class _FakeService:
     def __init__(self):
+        import threading
         self.sending = {"active": False}
         self.status = ("ok",)
         self.log = None
+        self.send_lock = threading.Lock()
     def restart_pub(self, *_a, **_k): pass
     def restart_receiver(self): pass
 

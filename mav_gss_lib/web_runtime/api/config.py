@@ -141,7 +141,9 @@ async def api_config_put(update: dict, request: Request):
     old_tx_addr = runtime.cfg.get("tx", {}).get("zmq_addr", "tcp://127.0.0.1:52002")
     requested_rx_addr = update.get("rx", {}).get("zmq_addr", old_rx_addr) if isinstance(update.get("rx"), dict) else old_rx_addr
     requested_tx_addr = update.get("tx", {}).get("zmq_addr", old_tx_addr) if isinstance(update.get("tx"), dict) else old_tx_addr
-    if runtime.tx.sending["active"] and (requested_rx_addr != old_rx_addr or requested_tx_addr != old_tx_addr):
+    with runtime.tx.send_lock:
+        sending_active = runtime.tx.sending["active"]
+    if sending_active and (requested_rx_addr != old_rx_addr or requested_tx_addr != old_tx_addr):
         return JSONResponse(status_code=409, content={"error": "cannot change ZMQ addresses during active send"})
 
     # Mission selection is startup-only — strip it from runtime updates
