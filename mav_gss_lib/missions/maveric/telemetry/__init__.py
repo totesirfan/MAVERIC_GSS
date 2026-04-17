@@ -18,7 +18,7 @@ from .types import TelemetryField
 from .eps import decode_eps_hk
 
 
-_PTYPE_TLM = 4  # maveric mission.yml: 4 = TLM
+_PTYPE_TLM = 5  # maveric mission.yml: 5 = TLM
 
 
 @dataclass(frozen=True, slots=True)

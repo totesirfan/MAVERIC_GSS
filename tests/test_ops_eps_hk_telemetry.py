@@ -37,11 +37,11 @@ from mav_gss_lib.missions.maveric.wire_format import try_parse_command
 
 
 PAYLOAD_HEX = (
-    "900600000206000406606570735f686b00b4000000e823220088266c"
+    "900600000206000506606570735f686b00b4000000e823220088266c"
     "1d2c2134023f00f50c8c00f40176132600c8000000feff00000000fe"
     "ff00000000feff00000000feff00000000000000000000feff000000"
     "00feff00000000feff00000000feff00000000000000000000feff00"
-    "0000c95d1cfcc76f"
+    "0000050f079ba7a4"
 )
 
 GOLDEN_VALUES = {
@@ -121,7 +121,7 @@ class TestRegistryDispatch(unittest.TestCase):
 
     def _eps_cmd(self):
         cmd = _parse_fixture_cmd()
-        return cmd  # has cmd_id=eps_hk, pkt_type=4 (TLM), args_raw=96 bytes
+        return cmd  # has cmd_id=eps_hk, pkt_type=5 (TLM), args_raw=96 bytes
 
     def test_dispatch_returns_dict_shape(self):
         result = decode_telemetry(self._eps_cmd())
@@ -138,7 +138,7 @@ class TestRegistryDispatch(unittest.TestCase):
 
     def test_dispatch_returns_none_for_unknown_cmd(self):
         self.assertIsNone(
-            decode_telemetry({"cmd_id": "other", "pkt_type": 4, "args_raw": b""})
+            decode_telemetry({"cmd_id": "other", "pkt_type": 5, "args_raw": b""})
         )
 
     def test_dispatch_returns_none_for_wrong_pkt_type(self):

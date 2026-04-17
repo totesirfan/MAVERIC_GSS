@@ -19,15 +19,9 @@ ptypes:
   1: CMD
   2: RES
   3: ACK
-  4: TLM
-  5: FILE
-  # Future scheme (swap in when flight software adds NACK):
-  #   1: CMD
-  #   2: RES
-  #   3: ACK
-  #   4: NACK
-  #   5: TLM
-  #   6: FILE
+  4: NACK
+  5: TLM
+  6: FILE
 
 node_descriptions:
   LPPM: Lower Pluggable Processor Module

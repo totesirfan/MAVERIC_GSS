@@ -35,7 +35,7 @@ from mav_gss_lib.protocols.crc import crc16, crc32c
 
 NODES = {"NONE": 0, "LPPM": 1, "EPS": 2, "UPPM": 3, "HLNV": 4, "ASTR": 5, "GS": 6, "FTDI": 7}
 PTYPE_RES = 2   # response (img_cnt_chunks)
-PTYPE_FILE = 5  # file data (img_get_chunk)  — future: 6 after flight software adds NACK at 4
+PTYPE_FILE = 6  # file data (img_get_chunk)
 
 
 # -- Packet builders ---------------------------------------------------------
