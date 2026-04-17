@@ -229,7 +229,7 @@ class ImageAssembler:
 
         When ``prefix`` is set, every pair always has BOTH sides populated.
         If the assembler has only seen one side (the common case for
-        scheduled captures where the GSS missed the cam_capture_img RX),
+        scheduled captures where the GSS missed the cam_capture_imgs RX),
         the other side is a placeholder leaf with ``total: None,
         received: 0, complete: False`` and a filename derived from the
         prefix. This lets the operator recover a paired view by running

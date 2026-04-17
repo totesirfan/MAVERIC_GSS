@@ -17,7 +17,7 @@
 export interface FileLeaf {
   /** Actual filename on disk, e.g. "limb_003.jpg" or "thumb_limb_003.jpg" */
   filename: string;
-  /** Total chunk count (null until img_cnt_chunks or cam_capture_img returns) */
+  /** Total chunk count (null until img_cnt_chunks or cam_capture_imgs returns) */
   total: number | null;
   /** COUNT of chunks received so far — not the indices. Chunk indices are
    *  fetched separately via /api/plugins/imaging/chunks/<filename>. */

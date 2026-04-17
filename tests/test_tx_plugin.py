@@ -649,17 +649,22 @@ class TestImagingCommandsRoundtrip(unittest.TestCase):
         self.assertIsInstance(result["raw_cmd"], bytes)
         self.assertGreater(len(result["raw_cmd"]), 0)
 
-    def test_cam_capture_img_roundtrip(self):
+    def test_cam_capture_imgs_roundtrip(self):
         adapter = self._make_adapter()
         result = adapter.build_tx_command({
-            "cmd_id": "cam_capture_img",
-            "args": {"Filename": "limb_004.jpg"},
+            "cmd_id": "cam_capture_imgs",
+            "args": {
+                "Filename": "limb_004.jpg",
+                "Quantity": "3",
+                "Focus": "0.5",
+                "Exposure": "100",
+            },
             "dest": "HLNV",
             "echo": "NONE",
             "ptype": "CMD",
         })
         self._assert_raw(result)
-        self.assertEqual(result["display"]["title"], "cam_capture_img")
+        self.assertEqual(result["display"]["title"], "cam_capture_imgs")
 
     def test_cam_on_roundtrip(self):
         adapter = self._make_adapter()
@@ -674,41 +679,6 @@ class TestImagingCommandsRoundtrip(unittest.TestCase):
         result = adapter.build_tx_command({
             "cmd_id": "cam_off", "args": {}, "dest": "HLNV",
             "echo": "NONE", "ptype": "CMD",
-        })
-        self._assert_raw(result)
-
-    def test_cam_cleanup_roundtrip(self):
-        adapter = self._make_adapter()
-        result = adapter.build_tx_command({
-            "cmd_id": "cam_cleanup", "args": {}, "dest": "HLNV",
-            "echo": "NONE", "ptype": "CMD",
-        })
-        self._assert_raw(result)
-
-    def test_img_compress_roundtrip(self):
-        adapter = self._make_adapter()
-        result = adapter.build_tx_command({
-            "cmd_id": "img_compress",
-            "args": {"Filename": "limb_003.jpg", "Quality": "80"},
-            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
-        })
-        self._assert_raw(result)
-
-    def test_img_resize_roundtrip(self):
-        adapter = self._make_adapter()
-        result = adapter.build_tx_command({
-            "cmd_id": "img_resize",
-            "args": {"Filename": "limb_003.jpg", "Width": "640", "Height": "480"},
-            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
-        })
-        self._assert_raw(result)
-
-    def test_img_dfl_thumb_roundtrip(self):
-        adapter = self._make_adapter()
-        result = adapter.build_tx_command({
-            "cmd_id": "img_dfl_thumb",
-            "args": {"Filename": "limb_003.jpg"},
-            "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
         })
         self._assert_raw(result)
 
@@ -740,6 +710,7 @@ class TestImagingCommandsRoundtrip(unittest.TestCase):
                 "Start Chunk": "5",
                 "Num Chunks": "3",
                 "Destination": "1",
+                "Chunk Size": "150",
             },
             "dest": "HLNV", "echo": "NONE", "ptype": "CMD",
         })

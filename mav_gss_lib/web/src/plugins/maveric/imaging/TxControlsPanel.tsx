@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Send,
   Camera,
-  Wrench,
   Download,
   Power,
   PowerOff,
@@ -10,6 +9,7 @@ import {
   ImageMinus,
   Monitor,
   Eraser,
+  Trash2,
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -43,7 +43,7 @@ interface TxControlsPanelProps {
   txConnected: boolean;
 }
 
-type TabName = 'download' | 'camera' | 'edit' | 'lcd';
+type TabName = 'download' | 'camera' | 'lcd';
 
 export function TxControlsPanel({
   nodes,
@@ -104,16 +104,11 @@ export function TxControlsPanel({
 
   // Camera tab
   const [capFn, setCapFn] = useState('');
+  const [capQty, setCapQty] = useState('1');
   const [capFocus, setCapFocus] = useState('');
   const [capExposure, setCapExposure] = useState('');
 
-  // Edit on Pi tab
-  const [compFn, setCompFn] = useState('');
-  const [compQ, setCompQ] = useState('80');
-  const [rszFn, setRszFn] = useState('');
-  const [rszW, setRszW] = useState('640');
-  const [rszH, setRszH] = useState('480');
-  const [thmbFn, setThmbFn] = useState('');
+  // Delete (moved into Download tab)
   const [delFn, setDelFn] = useState('');
 
   // LCD tab
@@ -211,7 +206,7 @@ export function TxControlsPanel({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabName)} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="h-auto w-full grid grid-cols-4 gap-0 border-b rounded-none p-0" style={{ borderColor: colors.borderSubtle }}>
+        <TabsList className="h-auto w-full grid grid-cols-3 gap-0 border-b rounded-none p-0" style={{ borderColor: colors.borderSubtle }}>
           <TabsTrigger value="download" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
             <Download className="size-3" />Download
           </TabsTrigger>
@@ -220,9 +215,6 @@ export function TxControlsPanel({
           </TabsTrigger>
           <TabsTrigger value="lcd" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
             <Monitor className="size-3" />LCD
-          </TabsTrigger>
-          <TabsTrigger value="edit" className="gap-1.5 text-[10px] py-2 uppercase tracking-wider rounded-none">
-            <Wrench className="size-3" />Img Edit
           </TabsTrigger>
         </TabsList>
 
@@ -277,16 +269,40 @@ export function TxControlsPanel({
               <Button
                 size="sm"
                 disabled={!suggestedTotal}
-                title={!suggestedTotal ? 'Run img_cnt_chunks or cam_capture_img first' : undefined}
+                title={!suggestedTotal ? 'Run img_cnt_chunks or cam_capture_imgs first' : undefined}
                 onClick={() =>
                   stage('img_get_chunk', {
                     Filename: withJpg(getFn.trim()),
                     'Start Chunk': getStart.trim(),
                     'Num Chunks': getCount.trim(),
                     Destination: targetArg,
+                    'Chunk Size': DEFAULT_CHUNK_SIZE,
                   })
                 }
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
+              >
+                Stage
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.danger }}>
+              <Trash2 className="size-3 inline mr-1" />img_delete
+            </div>
+            <div className="flex items-end gap-2">
+              <FilenameInput className="flex-1" value={delFn} onChange={setDelFn} />
+              <Button
+                size="sm"
+                onClick={() => {
+                  const fn = delFn.trim();
+                  if (!fn) {
+                    showToast('Filename required', 'error', 'tx');
+                    return;
+                  }
+                  stage('img_delete', { Filename: withJpg(fn), Dest: targetArg });
+                }}
+                style={{ backgroundColor: colors.danger, color: colors.bgApp }}
               >
                 Stage
               </Button>
@@ -298,40 +314,45 @@ export function TxControlsPanel({
         <TabsContent value="camera" className="flex-1 overflow-y-auto p-3 space-y-3 mt-0">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              cam_capture_img
+              cam_capture_imgs
             </div>
-            <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={capFn} onChange={setCapFn} />
+            <div className="flex items-end gap-2 flex-wrap">
+              <FilenameInput className="flex-1 min-w-[140px]" value={capFn} onChange={setCapFn} />
+              <GssInput
+                className="w-[56px] font-mono"
+                placeholder="qty"
+                value={capQty}
+                onChange={e => setCapQty(e.target.value)}
+              />
               <GssInput
                 className="w-[60px] font-mono"
                 placeholder="focus"
                 value={capFocus}
-                onChange={e => {
-                  setCapFocus(e.target.value);
-                  if (!e.target.value.trim()) setCapExposure('');
-                }}
+                onChange={e => setCapFocus(e.target.value)}
               />
               <GssInput
                 className="w-[72px] font-mono"
                 placeholder="exposure"
                 value={capExposure}
                 onChange={e => setCapExposure(e.target.value)}
-                disabled={!capFocus.trim()}
               />
               <Button
                 size="sm"
                 onClick={() => {
                   const fn = capFn.trim();
-                  if (!fn) {
-                    showToast('Filename required', 'error', 'tx');
-                    return;
-                  }
-                  const args: Record<string, string> = { Filename: withJpg(fn) };
+                  const qty = capQty.trim();
                   const focus = capFocus.trim();
                   const exposure = capExposure.trim();
-                  if (focus) args.Focus = focus;
-                  if (focus && exposure) args.Exposure = exposure;
-                  stage('cam_capture_img', args);
+                  if (!fn) { showToast('Filename required', 'error', 'tx'); return; }
+                  if (!qty) { showToast('Quantity required', 'error', 'tx'); return; }
+                  if (!focus) { showToast('Focus required', 'error', 'tx'); return; }
+                  if (!exposure) { showToast('Exposure required', 'error', 'tx'); return; }
+                  stage('cam_capture_imgs', {
+                    Filename: withJpg(fn),
+                    Quantity: qty,
+                    Focus: focus,
+                    Exposure: exposure,
+                  });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
               >
@@ -350,68 +371,6 @@ export function TxControlsPanel({
               </Button>
               <Button size="sm" variant="secondary" className="flex-1" onClick={() => stage('cam_off', {})}>
                 <PowerOff className="size-3" /> cam_off
-              </Button>
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* Edit on Pi */}
-        <TabsContent value="edit" className="flex-1 overflow-y-auto p-3 space-y-3 mt-0">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              img_compress
-            </div>
-            <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={compFn} onChange={setCompFn} />
-              <GssInput className="w-[60px] font-mono" placeholder="qual" value={compQ} onChange={e => setCompQ(e.target.value)} />
-              <Button size="sm" onClick={() => stage('img_compress', { Filename: withJpg(compFn.trim()), Quality: compQ.trim() || '80' })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
-                Stage
-              </Button>
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              img_resize
-            </div>
-            <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={rszFn} onChange={setRszFn} />
-              <GssInput className="w-[52px] font-mono" placeholder="W" value={rszW} onChange={e => setRszW(e.target.value)} />
-              <GssInput className="w-[52px] font-mono" placeholder="H" value={rszH} onChange={e => setRszH(e.target.value)} />
-              <Button size="sm" onClick={() => stage('img_resize', { Filename: withJpg(rszFn.trim()), Width: rszW.trim(), Height: rszH.trim() })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
-                Stage
-              </Button>
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.dim }}>
-              img_dfl_thumb
-            </div>
-            <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={thmbFn} onChange={setThmbFn} />
-              <Button size="sm" onClick={() => stage('img_dfl_thumb', { Filename: withJpg(thmbFn.trim()) })} style={{ backgroundColor: colors.active, color: colors.bgApp }}>
-                Stage
-              </Button>
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: colors.danger }}>
-              img_delete
-            </div>
-            <div className="flex items-end gap-2">
-              <FilenameInput className="flex-1" value={delFn} onChange={setDelFn} />
-              <Button
-                size="sm"
-                onClick={() => {
-                  const fn = delFn.trim();
-                  if (!fn) {
-                    showToast('Filename required', 'error', 'tx');
-                    return;
-                  }
-                  stage('img_delete', { Filename: withJpg(fn), Dest: targetArg });
-                }}
-                style={{ backgroundColor: colors.danger, color: colors.bgApp }}
-              >
-                Stage
               </Button>
             </div>
           </div>

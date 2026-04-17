@@ -136,7 +136,7 @@ class MavericMissionAdapter:
             return None
 
         cmd_id = cmd.get("cmd_id", "")
-        if cmd_id not in ("img_cnt_chunks", "img_get_chunk", "cam_capture_img"):
+        if cmd_id not in ("img_cnt_chunks", "img_get_chunk", "cam_capture_imgs"):
             return None
 
         # Only feed the assembler from the real satellite response — skip
@@ -161,7 +161,7 @@ class MavericMissionAdapter:
                 "complete": self.image_assembler.is_complete(fn),
             }
 
-        if cmd_id in ("img_cnt_chunks", "cam_capture_img"):
+        if cmd_id in ("img_cnt_chunks", "cam_capture_imgs"):
             # Four-field paired response: full filename + count, optional
             # thumb filename + count. Populate whichever sides are present.
             messages: list[dict] = []

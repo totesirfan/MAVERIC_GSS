@@ -1,4 +1,4 @@
-"""Test that cam_capture_img and img_cnt_chunks responses feed both full
+"""Test that cam_capture_imgs and img_cnt_chunks responses feed both full
 and thumb sides into the assembler and emit two imaging_progress broadcasts
 per RX — one for each leaf."""
 import unittest
@@ -52,9 +52,9 @@ class TestPairedImagingRX(unittest.TestCase):
             {"name": "Thumb Num Chunks", "value": str(thumb_count)},
         ]
 
-    def test_cam_capture_img_populates_both_leaves(self):
+    def test_cam_capture_imgs_populates_both_leaves(self):
         pkt = FakePacket(
-            cmd_id="cam_capture_img",
+            cmd_id="cam_capture_imgs",
             ptype_num=self.res_ptype,
             typed_args=self._four_field_args("limb_003.jpg", 84, "thumb_limb_003.jpg", 12),
         )
@@ -88,7 +88,7 @@ class TestPairedImagingRX(unittest.TestCase):
     def test_paired_rx_non_res_ptype_ignored(self):
         """CMD ptype (operator echo) must not poison the assembler."""
         pkt = FakePacket(
-            cmd_id="cam_capture_img",
+            cmd_id="cam_capture_imgs",
             ptype_num=self.cmd_ptype,
             typed_args=self._four_field_args("echo_test.jpg", 99, "thumb_echo_test.jpg", 7),
         )
@@ -97,12 +97,12 @@ class TestPairedImagingRX(unittest.TestCase):
         self.assertNotIn("echo_test.jpg", self.adapter.image_assembler.totals)
         self.assertNotIn("thumb_echo_test.jpg", self.adapter.image_assembler.totals)
 
-    def test_cam_capture_img_thumb_missing_falls_back_to_full_only(self):
+    def test_cam_capture_imgs_thumb_missing_falls_back_to_full_only(self):
         """If a pre-firmware-update node emits the old 2-field response, the
         handler still populates the full side and skips the thumb side
         without erroring."""
         pkt = FakePacket(
-            cmd_id="cam_capture_img",
+            cmd_id="cam_capture_imgs",
             ptype_num=self.res_ptype,
             typed_args=[
                 {"name": "Filename", "value": "legacy_001.jpg"},
