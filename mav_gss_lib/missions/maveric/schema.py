@@ -250,8 +250,16 @@ def validate_args(cmd_id, args_str, cmd_defs):
     if defn.get("rx_only"):
         return False, [f"'{cmd_id}' is receive-only"]
 
-    raw_args = args_str.split() if args_str else []
     tx_args = defn["tx_args"]
+    # If the final tx_arg is str (non-variadic), let it swallow trailing
+    # whitespace — e.g. cfg_set_tle carries a multi-token TLE as one arg.
+    if args_str:
+        if tx_args and tx_args[-1].get("type") == "str" and not defn["variadic"]:
+            raw_args = args_str.split(None, len(tx_args) - 1)
+        else:
+            raw_args = args_str.split()
+    else:
+        raw_args = []
     issues = []
 
     required = sum(1 for a in tx_args if not a.get("optional"))
