@@ -125,7 +125,7 @@ def save_gss_config(cfg, path=None):
 # -- Bidirectional config mapping ---------------------------------------------
 #
 # Each entry maps:  (cfg_section, cfg_key) <-> (object_attr)
-# apply_*() reads cfg -> object;  update_cfg_from_state() writes object -> cfg.
+# apply_*() reads cfg -> object.
 
 _AX25_MAP = [
     ("src_call",  "src_call"),
@@ -152,13 +152,6 @@ def _apply_map(cfg_section, obj, mapping):
         setattr(obj, attr, rest[0](val) if rest else val)
 
 
-def _sync_to_cfg(cfg_section, obj, mapping):
-    """Sync object values back into a config dict section."""
-    for entry in mapping:
-        cfg_key, attr = entry[0], entry[1]
-        cfg_section[cfg_key] = getattr(obj, attr)
-
-
 def apply_ax25(cfg, ax25):
     """Apply config dict values to an AX25Config object."""
     section = cfg.get("ax25")
@@ -171,57 +164,3 @@ def apply_csp(cfg, csp):
     section = cfg.get("csp")
     if section:
         _apply_map(section, csp, _CSP_MAP)
-
-
-def update_cfg_from_state(cfg, csp, ax25, freq=None, zmq_addr=None, tx_delay_ms=None,
-                          uplink_mode=None):
-    """Sync runtime state back into the config dict for saving."""
-    cfg.setdefault("ax25", {})
-    cfg.setdefault("csp", {})
-    _sync_to_cfg(cfg["ax25"], ax25, _AX25_MAP)
-    _sync_to_cfg(cfg["csp"], csp, _CSP_MAP)
-    tx_updates = {"frequency": freq, "zmq_addr": zmq_addr,
-                  "delay_ms": tx_delay_ms, "uplink_mode": uplink_mode}
-    for key, val in tx_updates.items():
-        if val is not None:
-            cfg["tx"][key] = val
-
-
-def ax25_handle_msg(ax25, args):
-    """Handle AX.25 config command, return status message."""
-    if not args:
-        return (f"AX.25  Dest:{ax25.dest_call}-{ax25.dest_ssid}  "
-                f"Src:{ax25.src_call}-{ax25.src_ssid}")
-    parts = args.split()
-    cmd = parts[0].lower()
-    if cmd == 'dest' and len(parts) > 1:
-        ax25.dest_call = parts[1].upper()[:6]
-        if len(parts) > 2 and parts[2].isdigit():
-            ax25.dest_ssid = int(parts[2]) & 0x0F
-        return f"AX.25 dest = {ax25.dest_call}-{ax25.dest_ssid}"
-    elif cmd == 'src' and len(parts) > 1:
-        ax25.src_call = parts[1].upper()[:6]
-        if len(parts) > 2 and parts[2].isdigit():
-            ax25.src_ssid = int(parts[2]) & 0x0F
-        return f"AX.25 src = {ax25.src_call}-{ax25.src_ssid}"
-    return "ax25 [dest <call> [ssid]|src <call> [ssid]]"
-
-
-def csp_handle_msg(csp, args):
-    """Handle CSP config command, return status message."""
-    if not args:
-        hdr = csp.build_header()
-        crc_label = "ON" if csp.csp_crc else "OFF"
-        return (f"CSP  Prio:{csp.prio} Src:{csp.src} "
-                f"Dest:{csp.dest} DPort:{csp.dport} SPort:{csp.sport} "
-                f"Flags:0x{csp.flags:02X} CRC32:{crc_label}  ({hdr.hex(' ')})")
-    parts = args.split()
-    cmd = parts[0].lower()
-    if cmd in ('prio', 'src', 'dest', 'dport', 'sport', 'flags') and len(parts) > 1:
-        try:
-            val = int(parts[1], 0)
-        except ValueError:
-            return f"Invalid value: {parts[1]}"
-        setattr(csp, cmd, val)
-        return f"CSP {cmd} = {val}"
-    return "csp [prio|src|dest|dport|sport|flags] [value]"
