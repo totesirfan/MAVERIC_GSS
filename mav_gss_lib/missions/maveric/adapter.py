@@ -28,12 +28,13 @@ class MavericMissionAdapter:
     """Thin boundary around current MAVERIC protocol behavior.
 
     Owns explicit references to all mission state: cmd_defs, nodes,
-    and image_assembler. No module globals.
+    image_assembler, and gnc_store. No module globals.
     """
 
     cmd_defs: dict
     nodes: NodeTable
     image_assembler: object = None
+    gnc_store: object = None
 
     def detect_frame_type(self, meta) -> str:
         return rx_ops.detect(meta)
@@ -127,29 +128,65 @@ class MavericMissionAdapter:
     # -- Plugin hook --
 
     def on_packet_received(self, pkt) -> list[dict] | None:
-        """Feed image chunks to the assembler and return progress messages."""
-        if not self.image_assembler:
-            return None
+        """Emit custom WS messages for plugin consumers.
+
+        Two independent paths:
+        1. GNC register updates — any mtq_get_1 RES with decoded registers.
+        2. Imaging progress — img_* and cam_capture_imgs responses fed into
+           the image assembler.
+        """
         md = self._md(pkt)
         cmd = md.get("cmd")
         if not cmd:
             return None
 
         cmd_id = cmd.get("cmd_id", "")
+
+        messages: list[dict] = []
+
+        # -- GNC register update path --
+        # Only the satellite's RES carries data tokens. CMD echoes and ACKs
+        # reuse the rx_args slots with empty data, so emitting for them
+        # would overwrite good snapshots with decode_ok=False entries.
+        gnc_registers = md.get("gnc_registers")
+        if gnc_registers and self.nodes.ptype_name(cmd.get("pkt_type")) == "RES":
+            import time
+            now_ms = int(time.time() * 1000)
+            wrapped = {
+                name: {
+                    **snap,
+                    "gs_ts": pkt.gs_ts,
+                    "pkt_num": pkt.pkt_num,
+                    "received_at_ms": now_ms,
+                }
+                for name, snap in gnc_registers.items()
+                if snap.get("decode_ok")
+            }
+            if wrapped:
+                if self.gnc_store is not None:
+                    self.gnc_store.update_many(wrapped)
+                messages.append({
+                    "type": "gnc_register_update",
+                    "registers": wrapped,
+                })
+
+        # -- Imaging path (unchanged) --
+        if not self.image_assembler:
+            return messages or None
         if cmd_id not in ("img_cnt_chunks", "img_get_chunk", "cam_capture_imgs"):
-            return None
+            return messages or None
 
         # Only feed the assembler from the real satellite response — skip
         # uplink echoes (CMD) and ACKs, whose wire args alias rx_args and
         # would poison chunk 0 before the real data arrives.
         expected_ptype = "FILE" if cmd_id == "img_get_chunk" else "RES"
         if self.nodes.ptype_name(cmd.get("pkt_type")) != expected_ptype:
-            return None
+            return messages or None
 
         if cmd.get("schema_match") and cmd.get("typed_args"):
             args_by_name = {ta["name"]: ta.get("value", "") for ta in cmd["typed_args"]}
         else:
-            return None
+            return messages or None
 
         def _progress_msg(fn: str) -> dict:
             received, total = self.image_assembler.progress(fn)
@@ -164,8 +201,6 @@ class MavericMissionAdapter:
         if cmd_id in ("img_cnt_chunks", "cam_capture_imgs"):
             # Four-field paired response: full filename + count, optional
             # thumb filename + count. Populate whichever sides are present.
-            messages: list[dict] = []
-
             full_fn = str(args_by_name.get("Filename", ""))
             if full_fn:
                 try:
@@ -182,12 +217,12 @@ class MavericMissionAdapter:
                 except (ValueError, TypeError):
                     pass
 
-            return messages if messages else None
+            return messages or None
 
         # img_get_chunk: unchanged per-chunk blob path (single filename).
         filename = str(args_by_name.get("Filename", ""))
         if not filename:
-            return None
+            return messages or None
 
         chunk_num = args_by_name.get("Chunk Number", "")
         chunk_size = args_by_name.get("Chunk Size", None)
@@ -208,6 +243,7 @@ class MavericMissionAdapter:
         try:
             self.image_assembler.feed_chunk(filename, int(chunk_num), data, chunk_size=chunk_size)
         except (ValueError, TypeError):
-            return None
+            return messages or None
 
-        return [_progress_msg(filename)]
+        messages.append(_progress_msg(filename))
+        return messages

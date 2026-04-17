@@ -221,7 +221,130 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
             "fields": tel_fields,
         })
 
+    # Decoded GNC/NVG register snapshots — one detail block per register,
+    # matching the block style used by telemetry so the operator sees the
+    # same field/value pairs in the packet detail panel that land in the
+    # logs. Only emitted when decode_ok (error entries surface in warnings).
+    gnc_registers = md.get("gnc_registers") or {}
+    for reg_name, snap in gnc_registers.items():
+        if not snap.get("decode_ok"):
+            continue
+        fields = _gnc_register_detail_fields(snap)
+        if not fields:
+            continue
+        blocks.append({
+            "kind": "args",
+            "label": reg_name,
+            "fields": fields,
+        })
+
     return blocks
+
+
+# =============================================================================
+#  GNC register → packet detail fields
+# =============================================================================
+
+
+def _gnc_register_detail_fields(snap: dict) -> list[dict]:
+    """Render one decoded GNC register snapshot as {name, value} pairs.
+
+    Shapes handled (same as log_format._format_gnc_register_lines):
+      - BCD display (TIME/DATE) → one field "Display"
+      - ADCS_TMP → Celsius + raw + optional fault
+      - Bitfield (STAT/ACT_ERR/SEN_ERR/CONF) → MODE + truthy flags
+      - NVG heartbeat → Status + Label
+      - NVG sensor → status, labeled payload values
+      - GNC mode → Mode + Code
+      - GNC counters → Reboot / Detumble / Sunspin
+      - Scalar / list fallback → comma-joined value
+    """
+    value = snap.get("value")
+    unit = snap.get("unit") or ""
+    suffix = f" {unit}" if unit else ""
+
+    if isinstance(value, dict):
+        # NVG sensor snapshot
+        if "sensor_id" in value and "values" in value:
+            fields = [
+                {"name": "Display", "value": str(value.get("display", ""))},
+                {"name": "Status",  "value": str(value.get("status"))},
+            ]
+            ts = value.get("timestamp")
+            if ts is not None:
+                fields.append({"name": "Timestamp", "value": str(ts)})
+            names = value.get("fields") or []
+            vals  = value.get("values") or []
+            if names and len(vals) == len(names):
+                for n, v in zip(names, vals):
+                    fields.append({"name": n, "value": f"{v}{suffix}"})
+            else:
+                for i, v in enumerate(vals):
+                    fields.append({"name": f"v[{i}]", "value": f"{v}{suffix}"})
+            return fields
+
+        # BCD (TIME/DATE)
+        if "display" in value and isinstance(value["display"], str):
+            return [{"name": "Display", "value": value["display"]}]
+
+        # ADCS_TMP: {brdtmp, celsius, comm_fault}
+        if "celsius" in value:
+            if value.get("comm_fault"):
+                return [{"name": "Status", "value": "SENSOR FAULT"}]
+            return [
+                {"name": "Celsius", "value": f"{value.get('celsius'):.2f} °C"},
+                {"name": "Raw",     "value": str(value.get("brdtmp"))},
+            ]
+
+        # NVG heartbeat: {status, label}
+        if "label" in value and "status" in value and "sensor_id" not in value and "mode" not in value:
+            return [
+                {"name": "Label",  "value": str(value.get("label"))},
+                {"name": "Status", "value": str(value.get("status"))},
+            ]
+
+        # GNC Planner mode: {mode, mode_name}
+        if "mode_name" in value and "mode" in value and "MODE" not in value:
+            return [
+                {"name": "Mode", "value": str(value.get("mode_name"))},
+                {"name": "Code", "value": str(value.get("mode"))},
+            ]
+
+        # GNC counters: {reboot, detumble, sunspin}
+        if "sunspin" in value and "detumble" in value:
+            return [
+                {"name": "Reboot",    "value": str(value.get("reboot"))},
+                {"name": "De-Tumble", "value": str(value.get("detumble"))},
+                {"name": "Sunspin",   "value": str(value.get("sunspin"))},
+            ]
+
+        # Bitfield (STAT/ACT_ERR/SEN_ERR/CONF). Shows MODE + truthy flags
+        # only — we suppress the "all False" noise (each uint8[4] has
+        # ~18 flag fields, most of which are nominal).
+        has_bool_flags = any(isinstance(v, bool) for v in value.values())
+        if has_bool_flags or "MODE" in value or "TARGET_ELEV" in value:
+            fields: list[dict] = []
+            if "MODE" in value:
+                mode_name = value.get("MODE_NAME", str(value.get("MODE")))
+                fields.append({"name": "Mode", "value": f"{mode_name} ({value.get('MODE')})"})
+            if "TARGET_ELEV" in value:
+                fields.append({"name": "Target Elev", "value": f"{value['TARGET_ELEV']}°"})
+            truthy = [k for k, v in value.items() if v is True]
+            if truthy:
+                fields.append({"name": "Flags", "value": ", ".join(truthy)})
+            elif has_bool_flags and "MODE" not in value:
+                # Pure-error register (ACT_ERR/SEN_ERR) with nothing set
+                fields.append({"name": "Status", "value": "All nominal"})
+            return fields
+
+        # Generic dict fallback — list every key
+        return [{"name": str(k), "value": str(v)} for k, v in value.items()]
+
+    # Scalar / list fallback
+    if isinstance(value, list):
+        joined = ", ".join(f"{v:.4f}" if isinstance(v, float) else str(v) for v in value)
+        return [{"name": "Value", "value": f"{joined}{suffix}"}]
+    return [{"name": "Value", "value": f"{value}{suffix}"}]
 
 
 # =============================================================================

@@ -74,6 +74,12 @@ def build_log_mission_data(pkt) -> dict:
         cmd_tail = md.get("cmd_tail")
         if cmd_tail:
             data["tail_hex"] = cmd_tail.hex()
+
+    # Mission-specific decoded register snapshots from mtq_get_1 /
+    # nvg_get_1 / nvg_heartbeat responses. Keyed by register name.
+    gnc_registers = md.get("gnc_registers")
+    if gnc_registers:
+        data["gnc_registers"] = gnc_registers
     return data
 
 
@@ -145,6 +151,13 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
             suffix = f" {f['unit']}" if f["unit"] else ""
             lines.append(f"  {f['name']:<12}{f['value']}{suffix}")
 
+    # Decoded GNC/NVG register snapshots — one block per register.
+    gnc_registers = md.get("gnc_registers") or {}
+    for reg_name, snap in gnc_registers.items():
+        if not snap.get("decode_ok"):
+            continue
+        lines.extend(_format_gnc_register_lines(reg_name, snap))
+
     # CRC
     if cmd and cmd.get("crc") is not None:
         tag = "OK" if cmd.get("crc_valid") else "FAIL"
@@ -154,6 +167,85 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
         tag = "OK" if crc_status["csp_crc32_valid"] else "FAIL"
         lines.append(f"  {'CRC-32C':<12}0x{crc_status['csp_crc32_rx']:08x} [{tag}]")
 
+    return lines
+
+
+def _format_gnc_register_lines(reg_name: str, snap: dict) -> list[str]:
+    """Render one decoded GNC register (MTQ or NVG) as text-log lines.
+
+    Handles three shapes:
+      - bitfield dict with MODE / flag bits (STAT/ACT_ERR/SEN_ERR)
+      - BCD dict with `display` key (TIME/DATE)
+      - NVG sensor dict (sensor_id, status, values, fields)
+      - scalar / list / temperature dict — delegated to str()
+    """
+    value = snap.get("value")
+    unit = snap.get("unit") or ""
+    unit_suffix = f" {unit}" if unit else ""
+    lines = [f"  {reg_name:<18}— decoded"]
+
+    if isinstance(value, dict):
+        # NVG sensor snapshot
+        if "sensor_id" in value and "values" in value:
+            vals = value.get("values") or []
+            fields = value.get("fields") or []
+            display = value.get("display", "")
+            status = value.get("status")
+            lines[0] = f"  {reg_name:<18}{display} (status={status})"
+            if fields and len(vals) == len(fields):
+                for name, v in zip(fields, vals):
+                    lines.append(f"    {name:<12}{v}{unit_suffix}")
+            else:
+                for i, v in enumerate(vals):
+                    lines.append(f"    v[{i}]        {v}{unit_suffix}")
+            return lines
+
+        # BCD display (TIME/DATE)
+        if "display" in value and isinstance(value["display"], str):
+            lines[0] = f"  {reg_name:<18}{value['display']}"
+            return lines
+
+        # ADCS_TMP: {brdtmp, celsius, comm_fault}
+        if "celsius" in value:
+            if value.get("comm_fault"):
+                lines[0] = f"  {reg_name:<18}SENSOR FAULT"
+            else:
+                lines[0] = f"  {reg_name:<18}{value.get('celsius'):.2f} °C (raw={value.get('brdtmp')})"
+            return lines
+
+        # NVG heartbeat: {status, label}
+        if "label" in value and "status" in value:
+            lines[0] = f"  {reg_name:<18}{value['label']} (status={value['status']})"
+            return lines
+
+        # gnc_get_mode: {mode, mode_name}
+        if "mode_name" in value and "mode" in value:
+            lines[0] = f"  {reg_name:<18}{value['mode_name']} ({value['mode']})"
+            return lines
+
+        # gnc_get_cnts: {reboot, detumble, sunspin, unexpected_safe}
+        if "sunspin" in value and "detumble" in value:
+            lines[0] = (
+                f"  {reg_name:<18}"
+                f"reboot={value.get('reboot')}  "
+                f"detumble={value.get('detumble')}  "
+                f"sunspin={value.get('sunspin')}"
+            )
+            return lines
+
+        # Bitfield (STAT/ACT_ERR/SEN_ERR) — print truthy flags + mode
+        if "MODE" in value:
+            lines[0] = f"  {reg_name:<18}mode={value.get('MODE_NAME')}({value.get('MODE')})"
+        flags = [k for k, v in value.items() if v is True]
+        if flags:
+            lines.append(f"    flags       {', '.join(flags)}")
+        return lines
+
+    # Scalar / list fallback
+    if isinstance(value, list):
+        lines[0] = f"  {reg_name:<18}{', '.join(str(v) for v in value)}{unit_suffix}"
+    else:
+        lines[0] = f"  {reg_name:<18}{value}{unit_suffix}"
     return lines
 
 

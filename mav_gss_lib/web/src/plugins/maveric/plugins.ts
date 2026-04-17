@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Camera } from 'lucide-react'
+import { Camera, Compass } from 'lucide-react'
 import type { PluginPageDef } from '@/plugins/registry'
 
 const plugins: PluginPageDef[] = [
@@ -11,6 +11,16 @@ const plugins: PluginPageDef[] = [
     category: 'mission',
     order: 10,
     component: lazy(() => import('./ImagingPage')),
+  },
+  {
+    id: 'gnc',
+    name: 'GNC',
+    description: 'MTQ register dashboard',
+    icon: Compass,
+    category: 'mission',
+    order: 20,
+    keepAlive: true,   // keep hook state across tab switches
+    component: lazy(() => import('./gnc/GNCPage')),
   },
 ]
 

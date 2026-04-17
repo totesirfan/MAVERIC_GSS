@@ -21,6 +21,8 @@ tests/test_images/
 backup_control/logs/
 generated_commands/
 .pending_queue.jsonl
+# GNC register-snapshot sidecar (persisted latest-value-per-register cache)
+.gnc_snapshot.json
 
 # === Mission-Sensitive (NEVER track) ===
 # Command schema contains mission command definitions — security sensitive

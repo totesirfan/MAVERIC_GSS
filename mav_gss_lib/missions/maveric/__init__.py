@@ -35,12 +35,21 @@ def init_mission(cfg: dict) -> dict:
     from mav_gss_lib.missions.maveric.nodes import init_nodes
     from mav_gss_lib.missions.maveric.schema import load_command_defs
     from mav_gss_lib.missions.maveric.imaging import ImageAssembler
+    from mav_gss_lib.missions.maveric.telemetry.gnc_registers import GncRegisterStore
 
     nodes = init_nodes(cfg)
 
     # Initialize ImageAssembler
     image_dir = cfg.get("general", {}).get("image_dir", "images")
     image_assembler = ImageAssembler(image_dir)
+
+    # Initialize persistent GNC register store. The path is hard-wired
+    # to <log_dir>/.gnc_snapshot.json — same trust boundary as the
+    # platform's pending-queue sidecar, not a separately user-editable
+    # knob. Operators change log_dir, not this path directly.
+    log_dir = cfg.get("general", {}).get("log_dir", "logs")
+    gnc_snapshot_path = os.path.join(log_dir, ".gnc_snapshot.json")
+    gnc_store = GncRegisterStore(gnc_snapshot_path)
 
     # Resolve command schema path: check mission package dir first
     cmd_defs_name = cfg.get("general", {}).get("command_defs", "commands.yml")
@@ -66,6 +75,7 @@ def init_mission(cfg: dict) -> dict:
         "cmd_path": os.path.abspath(path),
         "nodes": nodes,
         "image_assembler": image_assembler,
+        "gnc_store": gnc_store,
     }
 
 
@@ -73,15 +83,26 @@ def get_plugin_routers(adapter=None, config_accessor=None):
     """Return FastAPI routers for MAVERIC mission plugins.
 
     Args:
-        adapter: MavericMissionAdapter with image_assembler attribute.
-                 If None or has no assembler, returns empty list.
+        adapter: MavericMissionAdapter with image_assembler / gnc_store
+                 attributes. Routers are only built for resources that
+                 the adapter actually carries.
         config_accessor: Optional zero-arg callable returning the live
                  mission config dict. Passed through to plugin routers
                  that need live config lookups (e.g., the imaging router
                  reads ``imaging.thumb_prefix`` for pair grouping).
     """
-    assembler = getattr(adapter, "image_assembler", None) if adapter else None
-    if assembler is None:
-        return []
-    from mav_gss_lib.missions.maveric.imaging import get_imaging_router
-    return [get_imaging_router(assembler, config_accessor=config_accessor)]
+    routers = []
+    if adapter is None:
+        return routers
+
+    assembler = getattr(adapter, "image_assembler", None)
+    if assembler is not None:
+        from mav_gss_lib.missions.maveric.imaging import get_imaging_router
+        routers.append(get_imaging_router(assembler, config_accessor=config_accessor))
+
+    gnc_store = getattr(adapter, "gnc_store", None)
+    if gnc_store is not None:
+        from mav_gss_lib.missions.maveric.telemetry.gnc_router import get_gnc_router
+        routers.append(get_gnc_router(gnc_store))
+
+    return routers
