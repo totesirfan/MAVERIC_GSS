@@ -177,5 +177,25 @@ class TestPreflightBroadcastCullsDeadClients(unittest.TestCase):
         self.assertEqual(runtime.preflight_results[0]["label"], "y")
 
 
+class TestNoSleepPollingInTxRuntimeTests(unittest.TestCase):
+    """Regression: test_ops_tx_runtime.py must not use asyncio.sleep polling loops."""
+
+    def test_no_sleep_based_waits(self):
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent / "test_ops_tx_runtime.py"
+        src = path.read_text()
+        # The legacy pattern we are eliminating is exactly:
+        #   for _ in range(20):
+        #       if self.runtime.tx.sending[...]:
+        #           break
+        #       await asyncio.sleep(0.02)
+        self.assertNotIn(
+            "await asyncio.sleep(0.02)",
+            src,
+            "test_ops_tx_runtime.py still contains sleep-based polling — replace with Event signalling",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

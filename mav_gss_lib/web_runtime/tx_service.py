@@ -143,7 +143,7 @@ class TxService:
         """Execute a `delay` queue item. Returns True if the send was aborted."""
         with self.send_lock:
             self.sending["sent_at"] = 0
-            self.sending["waiting"] = True
+            self.sending["waiting"] = True  # Flag MUST be set before the broadcast below — tests observing the broadcast assume the flag is already True.
         await self.broadcast({
             "type": "send_progress", "sent": sent, "total": total,
             "current": f"delay {item['delay_ms']}ms", "waiting": True,
@@ -168,7 +168,7 @@ class TxService:
     async def _run_guard_wait(self, item) -> bool:
         """Broadcast guard prompt and block until approved or aborted."""
         with self.send_lock:
-            self.sending["guarding"] = True
+            self.sending["guarding"] = True  # Flag MUST be set before the broadcast below — tests observing the broadcast assume the flag is already True.
         self.guard_ok.clear()
         await self.broadcast({
             "type": "guard_confirm", "index": 0,

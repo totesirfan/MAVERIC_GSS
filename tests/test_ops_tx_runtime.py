@@ -35,8 +35,19 @@ class TestTxRuntime(unittest.TestCase):
         self.messages = []
         self.queue_updates = []
 
+        # Events signalled by the broadcast mock when the production code
+        # announces a state transition. Tests `await` the event instead of
+        # polling `sending[...]` in a sleep loop.
+        self.guard_confirm_event = asyncio.Event()
+        self.waiting_event = asyncio.Event()
+
         async def _capture(msg):
             self.messages.append(msg)
+            if isinstance(msg, dict):
+                if msg.get("type") == "guard_confirm":
+                    self.guard_confirm_event.set()
+                elif msg.get("type") == "send_progress" and msg.get("waiting"):
+                    self.waiting_event.set()
 
         async def _capture_queue_update():
             # Capture snapshots instead of broadcasting over websockets.
@@ -124,10 +135,12 @@ class TestTxRuntime(unittest.TestCase):
 
         async def _run():
             task = asyncio.create_task(self.runtime.tx.run_send())
-            for _ in range(20):
-                if self.runtime.tx.sending["guarding"]:
-                    break
-                await asyncio.sleep(0.02)
+            await asyncio.wait_for(self.guard_confirm_event.wait(), timeout=5.0)
+            # Yield the loop once so any continuation the production code
+            # has queued (e.g. the set-guarding-flag ordering relative to the
+            # broadcast) drains before we assert. Belt-and-suspenders safety
+            # against a future refactor that swaps the flag/broadcast order.
+            await asyncio.sleep(0)
             self.assertTrue(self.runtime.tx.sending["guarding"])
             self.runtime.tx.guard_ok.set()
             await task
@@ -147,10 +160,10 @@ class TestTxRuntime(unittest.TestCase):
 
         async def _run():
             task = asyncio.create_task(self.runtime.tx.run_send())
-            for _ in range(20):
-                if self.runtime.tx.sending["guarding"]:
-                    break
-                await asyncio.sleep(0.02)
+            await asyncio.wait_for(self.guard_confirm_event.wait(), timeout=5.0)
+            # Yield the loop once; see comment in
+            # test_run_send_waits_for_guard_confirmation.
+            await asyncio.sleep(0)
             self.assertTrue(self.runtime.tx.sending["guarding"])
             self.runtime.tx.abort.set()
             await task
@@ -171,10 +184,10 @@ class TestTxRuntime(unittest.TestCase):
 
         async def _run():
             task = asyncio.create_task(self.runtime.tx.run_send())
-            for _ in range(20):
-                if self.runtime.tx.sending["waiting"]:
-                    break
-                await asyncio.sleep(0.02)
+            await asyncio.wait_for(self.waiting_event.wait(), timeout=5.0)
+            # Yield the loop once; see comment in
+            # test_run_send_waits_for_guard_confirmation.
+            await asyncio.sleep(0)
             self.assertTrue(self.runtime.tx.sending["waiting"])
             self.runtime.tx.abort.set()
             await task
