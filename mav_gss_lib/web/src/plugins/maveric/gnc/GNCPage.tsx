@@ -15,6 +15,11 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'registers', label: 'Registers' },
 ]
 
+function readTabFromUrl(): TabId {
+  const t = new URLSearchParams(window.location.search).get('tab')
+  return t === 'registers' ? 'registers' : 'dashboard'
+}
+
 /** MAVERIC GNC plugin page.
  *
  *  Dashboard tab (default): distilled card view per the GNC team mockup.
@@ -24,7 +29,27 @@ const TABS: Array<{ id: TabId; label: string }> = [
 export default function GNCPage() {
   const { state, lastUpdateAt } = useGncRegisters()
   const catalog = useRegisterCatalog()
-  const [tab, setTab] = useState<TabId>('dashboard')
+  const [tab, setTab] = useState<TabId>(readTabFromUrl)
+
+  // Sync tab with URL when navigation happens elsewhere (palette, browser back/forward)
+  useEffect(() => {
+    const sync = () => setTab(readTabFromUrl())
+    window.addEventListener('gss:nav', sync)
+    window.addEventListener('popstate', sync)
+    return () => {
+      window.removeEventListener('gss:nav', sync)
+      window.removeEventListener('popstate', sync)
+    }
+  }, [])
+
+  // When user clicks an in-page tab, keep the URL in sync so a reload restores the same view
+  const selectTab = (next: TabId) => {
+    setTab(next)
+    const url = new URL(window.location.href)
+    if (next === 'dashboard') url.searchParams.delete('tab')
+    else url.searchParams.set('tab', next)
+    window.history.replaceState({}, '', url.toString())
+  }
 
   // Shared "now" tick so all age chips in one render share a timebase.
   // Pauses when the tab is backgrounded to avoid burning render cycles.
@@ -57,7 +82,7 @@ export default function GNCPage() {
           return (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => selectTab(t.id)}
               className="font-sans text-[11px] uppercase tracking-wider px-3 py-1.5 border border-b-0 rounded-t-sm transition-colors"
               style={{
                 backgroundColor: active ? '#0E0E0E' : 'transparent',

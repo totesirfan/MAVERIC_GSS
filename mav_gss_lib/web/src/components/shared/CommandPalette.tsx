@@ -6,9 +6,11 @@ import {
   Command, CommandInput, CommandList, CommandEmpty,
   CommandGroup, CommandItem, CommandShortcut,
 } from '@/components/ui/command'
+import { strictFilter } from '@/lib/cmdkFilter'
 import {
   Send, Trash2, Undo, Binary, Radio, Shield,
   Settings, FileText, HelpCircle, Eye, Plus, Tag,
+  Database,
 } from 'lucide-react'
 import type { NavigationTabDef } from '@/components/layout/navigation'
 
@@ -32,7 +34,7 @@ export interface CommandPaletteProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   navigationTabs: NavigationTabDef[]
-  onNavigate: (tabId: string) => void
+  onNavigate: (tabId: string, subId?: string) => void
   actions: CommandPaletteActions
 }
 
@@ -84,7 +86,7 @@ export function CommandPalette({ open, onOpenChange, navigationTabs, onNavigate,
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={springConfig}
           >
-            <Command className="bg-transparent">
+            <Command className="bg-transparent" filter={strictFilter}>
               <CommandInput ref={inputRef} placeholder="Search..." />
               <CommandList>
                 <CommandEmpty>No results found.</CommandEmpty>
@@ -170,11 +172,26 @@ export function CommandPalette({ open, onOpenChange, navigationTabs, onNavigate,
 
                 <CommandGroup heading="Navigation">
                   {navigationTabs.map(t => (
-                    <CommandItem key={t.id} onSelect={() => run(() => onNavigate(t.id))}>
+                    <CommandItem
+                      key={t.id}
+                      value={t.name}
+                      keywords={['go to', t.id]}
+                      onSelect={() => run(() => onNavigate(t.id))}
+                    >
                       <t.icon className="size-4" />
                       <span>Go to {t.name}</span>
                     </CommandItem>
                   ))}
+                  {navigationTabs.some(t => t.id === 'gnc') && (
+                    <CommandItem
+                      value="GNC Registers"
+                      keywords={['go to', 'gnc', 'registers']}
+                      onSelect={() => run(() => onNavigate('gnc', 'registers'))}
+                    >
+                      <Database className="size-4" />
+                      <span>Go to GNC Registers</span>
+                    </CommandItem>
+                  )}
                 </CommandGroup>
               </CommandList>
             </Command>

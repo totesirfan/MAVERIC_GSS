@@ -6,6 +6,7 @@ import { Command as CommandPrimitive } from 'cmdk'
 import { Switch } from '@/components/ui/switch'
 import type { MissionBuilderProps } from '@/lib/types'
 import { GssInput } from '@/components/ui/gss-input'
+import { strictFilter } from '@/lib/cmdkFilter'
 
 interface CommandArg {
   name: string
@@ -192,6 +193,7 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
           <Command
             className="!bg-transparent !p-0 !rounded-md !overflow-visible !h-auto !size-auto [&_*]:!ring-0 [&_*]:!outline-none"
             shouldFilter={true}
+            filter={strictFilter}
           >
             {/* Search input */}
             <div
@@ -222,10 +224,14 @@ export default function MavericTxBuilder({ onQueue, onClose }: MissionBuilderPro
               </CommandEmpty>
               {dataFilteredCmds.map(([name, def]) => {
                 const picked = selectedCmd === name
+                // Split on '_' / '-' so typing "get mode" matches "gnc_get_mode"
+                // (cmdk treats spaces and hyphens as word boundaries but not underscores).
+                const parts = name.split(/[_-]/).filter(Boolean)
                 return (
                   <CommandItem
                     key={name}
                     value={name}
+                    keywords={parts.length > 1 ? parts : undefined}
                     onSelect={() => pickCmd(name)}
                     className="!px-2.5 !py-1.5 !rounded-none !text-xs !gap-1.5 !bg-transparent data-[selected=true]:!bg-white/[0.03]"
                     style={{
