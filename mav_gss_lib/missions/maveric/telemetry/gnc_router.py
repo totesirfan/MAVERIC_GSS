@@ -15,10 +15,11 @@ if TYPE_CHECKING:
 
 
 def get_gnc_router(store: "GncRegisterStore"):
-    from fastapi import APIRouter
+    from fastapi import APIRouter, Request
     from fastapi.responses import JSONResponse
 
     from mav_gss_lib.missions.maveric.telemetry.gnc_registers import REGISTERS
+    from mav_gss_lib.web_runtime.state import get_runtime
 
     router = APIRouter(prefix="/api/plugins/gnc", tags=["gnc"])
 
@@ -28,9 +29,18 @@ def get_gnc_router(store: "GncRegisterStore"):
         return JSONResponse(store.get_all())
 
     @router.delete("/snapshot")
-    async def clear_gnc_snapshot():
-        """Operator action: wipe the persisted snapshot."""
+    async def clear_gnc_snapshot(request: Request):
+        """Operator action: wipe the persisted snapshot.
+
+        Broadcasts `gnc_snapshot_cleared` on /ws/rx so peer tabs reset
+        their in-memory state. Broadcasting after the disk clear also
+        eliminates the race where a live `gnc_register_update` arriving
+        between the DELETE and the local setState would otherwise be
+        silently overwritten by the clear.
+        """
         store.clear()
+        runtime = get_runtime(request)
+        await runtime.rx.broadcast({"type": "gnc_snapshot_cleared"})
         return JSONResponse({"ok": True})
 
     @router.get("/catalog")

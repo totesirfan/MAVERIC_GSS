@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { usePluginServices } from '@/hooks/usePluginServices'
 import type { GncState, GncRegisterUpdateMsg, RegisterSnapshot } from './types'
 
@@ -17,7 +17,7 @@ export function useGncRegisters(): {
   lastUpdateAt: number | null
   clearSnapshot: () => Promise<void>
 } {
-  const { subscribeRxCustom, sessionResetGen } = usePluginServices()
+  const { subscribeRxCustom } = usePluginServices()
   const [state, setState] = useState<GncState>({})
   const [lastUpdateAt, setLastUpdateAt] = useState<number | null>(null)
 
@@ -45,19 +45,14 @@ export function useGncRegisters(): {
     return () => ac.abort()
   }, [seedFromDisk])
 
-  // Re-seed on session reset. We re-fetch (rather than wipe) because
-  // the disk store is authoritative and may hold newer values than the
-  // in-memory cache when the user reconnects after being away.
-  const mountGen = useRef(sessionResetGen)
-  useEffect(() => {
-    if (sessionResetGen === mountGen.current) return
-    mountGen.current = sessionResetGen
-    void seedFromDisk()
-  }, [sessionResetGen, seedFromDisk])
-
-  // Live updates.
+  // Live updates and server-broadcast clear.
   useEffect(() => {
     return subscribeRxCustom((msg) => {
+      if (msg.type === 'gnc_snapshot_cleared') {
+        setState({})
+        setLastUpdateAt(null)
+        return
+      }
       if (msg.type !== 'gnc_register_update') return
       const update = msg as unknown as GncRegisterUpdateMsg
       if (!update.registers) return
@@ -70,10 +65,12 @@ export function useGncRegisters(): {
     })
   }, [subscribeRxCustom])
 
+  // Fire-and-forget — state reset arrives via the gnc_snapshot_cleared
+  // broadcast, which avoids the race where a live gnc_register_update
+  // arriving during the await would be silently wiped by an inline
+  // setState({}).
   const clearSnapshot = useCallback(async () => {
     await fetch('/api/plugins/gnc/snapshot', { method: 'DELETE' }).catch(() => {})
-    setState({})
-    setLastUpdateAt(null)
   }, [])
 
   return { state, lastUpdateAt, clearSnapshot }

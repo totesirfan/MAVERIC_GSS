@@ -37,7 +37,6 @@ export default function ImagingPage() {
     queueCommand,
     txConnected,
     subscribeRxCustom,
-    sessionResetGen,
     fetchSchema,
     sendAll,
     abortSend,
@@ -129,16 +128,6 @@ export default function ImagingPage() {
       cancelled = true;
     };
   }, []);
-
-  // Session reset — only refires on *actual* changes after mount
-  const mountResetGen = useRef(sessionResetGen);
-  useEffect(() => {
-    if (sessionResetGen === mountResetGen.current) return;
-    setReceiving(false);
-    setFiles([]);
-    setSelectedStem('');
-    fetchImagingStatus().then(setFiles);
-  }, [sessionResetGen]);
 
   useEffect(() => {
     return () => {
