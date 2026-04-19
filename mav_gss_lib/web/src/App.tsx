@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
-import { SessionProvider, useSessionContext, useConfig } from '@/hooks/SessionProvider'
-import { TxProvider, useTx } from '@/hooks/TxProvider'
-import { RxProvider, useRxStatus, useRxDisplayToggles } from '@/hooks/RxProvider'
+import { SessionProvider } from '@/state/SessionProvider'
+import { useSessionContext, useConfig } from '@/state/session'
+import { TxProvider } from '@/state/TxProvider'
+import { useTx } from '@/state/tx'
+import { RxProvider } from '@/state/RxProvider'
+import { useRxStatus, useRxDisplayToggles } from '@/state/rx'
 import { colors } from '@/lib/colors'
 import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
 import { useTxSocket } from '@/hooks/useTxSocket'
@@ -100,15 +103,21 @@ function AppShell() {
     getPluginPages(missionId).then(setPlugins)
   }, [config?.general?.mission])
 
-  const navigateTo = useCallback((target: string | null) => {
+  const navigateTo = useCallback((target: string | null, sub?: string) => {
     const url = new URL(window.location.href)
     if (target && target !== '__dashboard__') {
       url.searchParams.set('page', target)
     } else {
       url.searchParams.delete('page')
     }
+    if (sub) {
+      url.searchParams.set('tab', sub)
+    } else {
+      url.searchParams.delete('tab')
+    }
     window.history.pushState({}, '', url.toString())
     setPage(target === '__dashboard__' ? null : target)
+    window.dispatchEvent(new Event('gss:nav'))
   }, [])
 
   // Browser back/forward
@@ -231,7 +240,7 @@ function AppShell() {
             open={showCommand}
             onOpenChange={setShowCommand}
             navigationTabs={navigationTabs}
-            onNavigate={(id) => { navigateTo(id === '__dashboard__' ? null : id) }}
+            onNavigate={(id, sub) => { navigateTo(id === '__dashboard__' ? null : id, sub) }}
             actions={paletteActions}
           />
         </Suspense>
