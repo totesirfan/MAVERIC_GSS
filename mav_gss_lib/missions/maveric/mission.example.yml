@@ -1,7 +1,11 @@
 # MAVERIC CubeSat Mission Metadata (Public Example)
 # Tracked template showing the expected structure of mission.yml.
-# Copy this file to `mission.yml` beside it and edit for operational use.
+# Copy this file to `mission.yml` beside it and fill in operational values.
 # `mission.yml` is gitignored and is the file actually loaded at runtime.
+#
+# Placeholder values below (CALLSIGN, 0 ports/SSIDs, XXX.XX MHz) MUST be
+# replaced with real mission values before flight. The example is intentionally
+# non-operational so it cannot be run as-is.
 
 mission_name: MAVERIC
 
@@ -35,16 +39,16 @@ node_descriptions:
 gs_node: GS
 
 ax25:
-  src_call: WM2XBB
-  src_ssid: 97
-  dest_call: WS9XSW
-  dest_ssid: 96
+  src_call: NOCALL    # Replace with ground-station callsign
+  src_ssid: 0         # Replace with operational SSID
+  dest_call: NOCALL   # Replace with spacecraft callsign
+  dest_ssid: 0        # Replace with operational SSID
 
 csp:
   priority: 2
   source: 0
-  destination: 8
-  dest_port: 24
+  destination: 0      # Replace with operational CSP destination node
+  dest_port: 0        # Replace with operational CSP destination port
   src_port: 0
   flags: 0
   csp_crc: true
@@ -52,7 +56,7 @@ csp:
 command_defs: commands.yml
 
 tx:
-  frequency: "437.25 MHz"
+  frequency: "XXX.XX MHz"   # Replace with operational uplink frequency
   uplink_mode: ASM+Golay
 
 ui:
