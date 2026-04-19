@@ -53,6 +53,7 @@ CLAUDE.md
 skills-lock.json
 docs/superpowers/plans/
 docs/superpowers/specs/
+.playwright-mcp/
 
 # === Legacy / Retired ===
 legacy/
@@ -60,3 +61,9 @@ perf_bench.py
 
 # === Mockups / scratch (local-only) ===
 mockups/
+
+# === Local analysis artifacts (git-history reports, raw dumps) ===
+history/
+
+# === Performance benchmarks (local-only harness, results, reports) ===
+benchmarks/
