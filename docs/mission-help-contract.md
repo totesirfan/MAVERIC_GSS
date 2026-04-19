@@ -1,6 +1,6 @@
 # Mission-Owned Operator Help Contract
 
-> **Status: PROPOSAL — not yet implemented** (re-verified 2026-04-16). This
+> **Status: PROPOSAL — not yet implemented** (re-verified 2026-04-19). This
 > document describes a future contract for moving mission-specific command help
 > out of the shared web UI. Confirmed against current code:
 > `mav_gss_lib/web/src/components/shared/HelpModal.tsx` still hardcodes

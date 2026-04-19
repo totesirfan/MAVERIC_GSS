@@ -4,7 +4,7 @@ This directory contains the MAVERIC-specific mission implementation. It is one
 pluggable mission package within the broader ground station platform. The platform
 loads it by convention at startup when `general.mission: maveric` is set in `gss.yml`.
 
-## What This Package Owns
+## What this package owns
 
 - **Packet parsing** — MAVERIC command wire format decoding, CSP v1 header extraction,
   CRC-16 and CRC-32C integrity checks (`adapter.py` → `rx_ops.py`, `wire_format.py`)
@@ -17,11 +17,13 @@ loads it by convention at startup when `general.mission: maveric` is set in `gss
 - **Node/ptype tables** — ID↔name resolution and gs_node resolution (`nodes.py` + definitions in `mission.example.yml`)
 - **Command schema** — schema loading, validation, resolution (`schema.py`, `commands.yml`)
 - **Imaging plugin** — `ImageAssembler` chunk reassembly and FastAPI plugin router (`imaging.py`)
-- **Telemetry decoders** — per-command decoders for structured telemetry (e.g. `eps_hk`);
-  registry keyed by `(cmd_id, pkt_type)` (`telemetry/`)
-- **Frontend plugin surface** — MAVERIC command picker, imaging page, and plugin page
-  registration (`mav_gss_lib/web/src/plugins/maveric/TxBuilder.tsx`,
-  `ImagingPage.tsx`, `plugins.ts`)
+- **Telemetry decoders** — per-command decoders for structured telemetry (EPS housekeeping
+  in `eps.py`, NaviGuider sensors in `nvg_sensors.py`, GNC registers in `gnc_registers/`)
+  with shared dataclasses/enums in `types.py`, a `GncRegisterStore` persisted across
+  sessions, and the `gnc_router` exposing `/api/plugins/gnc/*` (`telemetry/`)
+- **Frontend plugin surface** — MAVERIC command picker, imaging page, GNC page, and
+  plugin page registration (`mav_gss_lib/web/src/plugins/maveric/TxBuilder.tsx`,
+  `ImagingPage.tsx`, `gnc/`, `plugins.ts`)
 - **Mission metadata** — node names, ptypes, AX.25/CSP defaults (`mission.example.yml`)
 
 ## Files
@@ -37,15 +39,16 @@ loads it by convention at startup when `general.mission: maveric` is set in `gss
 | `rx_ops.py` | Yes | RX parsing operations — frame decode, CSP/CRC extraction |
 | `tx_ops.py` | Yes | TX building operations — encode, routing resolution, validation |
 | `rendering.py` | Yes | RX display rendering — row, detail_blocks, protocol_blocks, integrity_blocks |
+| `display_helpers.py` | Yes | Shared helpers used by both `rendering.py` and `log_format.py` — packet mission-data access, typed-arg unwrappers, register-shape predicates |
 | `log_format.py` | Yes | Mission-specific log record formatting |
 | `imaging.py` | Yes | `ImageAssembler` + `get_imaging_router()` plugin REST endpoints |
-| `telemetry/` | Yes | Telemetry decoders package — `decode_telemetry()` entry point, `TelemetryField` type, per-command decoders (e.g. `eps.py`) |
+| `telemetry/` | Yes | Telemetry decoders package — EPS (`eps.py`), NaviGuider sensors (`nvg_sensors.py`), GNC registers (`gnc_registers/`), shared types/enums (`types.py`), and `gnc_router.py` exposing `/api/plugins/gnc/*` |
 | `mission.example.yml` | Yes | Public-safe mission metadata (nodes, ptypes, AX.25/CSP defaults) |
 | `commands.example.yml` | Yes | Annotated command schema example — safe structure, redacted content |
 | `mission.yml` | No | Local private mission metadata override (gitignored) |
 | `commands.yml` | No | Operational command schema (gitignored for security) |
 
-## MAVERIC-Specific Behavior
+## MAVERIC-specific behavior
 
 The following behaviors are specific to MAVERIC and should not be mistaken
 for platform-level behavior:
@@ -64,7 +67,7 @@ for platform-level behavior:
 - **Satellite time decoding** — MAVERIC commands embed `epoch_ms` timestamps
   decoded from the wire format. Other missions may not have embedded timestamps.
 
-## Warning: Do Not Copy As-Is
+## Warning: do not copy as-is
 
 The MAVERIC adapter is tailored to MAVERIC's specific wire format, node topology,
 and command schema. Do not copy `adapter.py` wholesale for a new mission —

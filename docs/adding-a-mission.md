@@ -51,6 +51,13 @@ def init_mission(cfg: dict) -> dict:
     return {"cmd_defs": {}, "cmd_warn": None}
 ```
 
+The loader (`mav_gss_lib/mission_adapter.py::load_mission_adapter`) also
+forwards optional keys `nodes`, `image_assembler`, `gnc_store`, and
+`cmd_path` from this return dict to the adapter constructor when present —
+use these for mission-owned resources that the adapter or plugin routers
+need at runtime. See [`../mav_gss_lib/missions/maveric/__init__.py`](../mav_gss_lib/missions/maveric/__init__.py)
+for a worked example.
+
 ### `mission.example.yml`
 
 Tracked public-safe mission metadata, merged into platform config at startup. The only required field is `mission_name`:
@@ -185,7 +192,7 @@ def integrity_blocks(self, pkt):
 
 ### TX — Command Input and Encoding
 
-The mission owns all command parsing, validation, and TX Parsing. The platform passes raw operator input through and renders the result.
+The mission owns all command parsing, validation, and TX encoding. The platform passes raw operator input through and renders the result.
 
 | Method | What it does |
 |--------|-------------|

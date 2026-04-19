@@ -210,35 +210,40 @@ if hasattr(self.runtime.adapter, 'on_packet_received'):
             await self._broadcast_json(msg)
 ```
 
-**Mission side** — the MAVERIC adapter owns `ImageAssembler` and dispatches:
+**Mission side** — the MAVERIC adapter owns `ImageAssembler` (plus `gnc_store`) and dispatches. The adapter is a dataclass whose plugin state is pre-built by `init_mission(cfg)` and passed in by the shared mission loader, so the constructor does not take raw paths:
 
 ```python
-# In MavericMissionAdapter
-def __init__(self, cmd_defs, image_dir="images"):
-    self.cmd_defs = cmd_defs
-    self.image_assembler = ImageAssembler(image_dir)
+# In MavericMissionAdapter (illustrative — see adapter.py for the full version)
+@dataclass
+class MavericMissionAdapter:
+    cmd_defs: dict
+    nodes: NodeTable
+    image_assembler: object = None   # built by init_mission()
+    gnc_store: object = None         # built by init_mission()
 
-def on_packet_received(self, pkt):
-    md = getattr(pkt, 'mission_data', {}) or {}
-    cmd = md.get('cmd')
-    if not cmd:
-        return None
-    cmd_id = cmd.get('cmd_id', '')
-    if cmd_id == 'img_cnt_chunks':
-        # extract filename, count from typed_args
-        ...
-        self.image_assembler.set_total(filename, count)
-    elif cmd_id == 'img_get_chunk':
-        # extract filename, chunk_num, data from typed_args
-        ...
-        self.image_assembler.feed_chunk(filename, chunk_num, data)
-    else:
-        return None
-    received, total = self.image_assembler.progress(filename)
-    return [{"type": "imaging_progress", "filename": filename,
-             "received": received, "total": total,
-             "complete": self.image_assembler.is_complete(filename)}]
+    def on_packet_received(self, pkt):
+        md = getattr(pkt, 'mission_data', {}) or {}
+        cmd = md.get('cmd')
+        if not cmd or not self.image_assembler:
+            return None
+        cmd_id = cmd.get('cmd_id', '')
+        if cmd_id == 'img_cnt_chunks':
+            # extract filename, count from typed_args
+            ...
+            self.image_assembler.set_total(filename, count)
+        elif cmd_id == 'img_get_chunk':
+            # extract filename, chunk_num, data, chunk_size from typed_args
+            ...
+            self.image_assembler.feed_chunk(filename, chunk_num, data, chunk_size=chunk_size)
+        else:
+            return None
+        received, total = self.image_assembler.progress(filename)
+        return [{"type": "imaging_progress", "filename": filename,
+                 "received": received, "total": total,
+                 "complete": self.image_assembler.is_complete(filename)}]
 ```
+
+`init_mission(cfg)` resolves `general.image_dir` and constructs the `ImageAssembler`, then the shared loader injects it into the adapter alongside `cmd_defs`, `nodes`, and `gnc_store`. Plugins therefore never instantiate their own state — the adapter holds one live instance per plugin resource.
 
 This keeps `RxService` clean — it calls one hook, never knows about imaging. Future plugins (telemetry dashboards, file transfer trackers) hook in the same way via `on_packet_received` without any platform code changes.
 
@@ -261,7 +266,7 @@ def get_imaging_router(assembler: "ImageAssembler", config_accessor=None):
     return router
 ```
 
-The imaging router exposes `paired_status()` which groups image pairs (full + thumb) by filename prefix — the prefix is read live from `imaging.thumb_prefix` in config via `config_accessor()` so operators can retune it at runtime without restarting. `ImageAssembler.feed_chunk()` returns `(received, total, complete)`.
+The imaging router exposes `paired_status()` which groups image pairs (full + thumb) by filename prefix — the prefix is read live from `imaging.thumb_prefix` in config via `config_accessor()` so operators can retune it at runtime without restarting. `ImageAssembler.feed_chunk(filename, chunk_num, data, chunk_size=None)` returns `(received, total, complete)`; the optional `chunk_size` kwarg lets the adapter record the declared per-chunk byte length (used by the OBC to strip its C-string terminator) so the pair view can display it.
 
 ### WebSocket Integration
 
@@ -288,10 +293,11 @@ The first plugin is the MAVERIC image downlink viewer. See the imaging page impl
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/plugins/imaging/status` | GET | Active files with progress (received/total/complete) |
+| `/api/plugins/imaging/status` | GET | Active files with progress (received/total/complete), grouped into full/thumb pairs |
 | `/api/plugins/imaging/files` | GET | List image files on disk |
 | `/api/plugins/imaging/chunks/{filename}` | GET | Received chunk indices for one file |
 | `/api/plugins/imaging/preview/{filename}` | GET | Serve partial/complete image (no-cache, ETag) |
+| `/api/plugins/imaging/file/{filename}` | DELETE | Remove image, meta sidecar, chunk dir, and in-memory state |
 
 ### WebSocket Messages
 
@@ -312,9 +318,20 @@ The RX broadcast includes `imaging_progress` messages (injected by the adapter's
 `ImageAssembler` in `mav_gss_lib/missions/maveric/imaging.py` handles chunk reassembly:
 
 - `set_total(filename, count)` — register expected chunk count (from `img_cnt_chunks`)
-- `feed_chunk(filename, chunk_num, data)` — store chunk + auto-save partial image
+- `feed_chunk(filename, chunk_num, data, chunk_size=None)` — store chunk + auto-save partial image; optional `chunk_size` records the declared per-chunk byte length
 - Writes contiguous chunks from index 0, skipping gaps
 - Appends JPEG EOI marker so viewers can open partial files
 - Auto-saves to `images/` on every chunk
+- `delete_file(filename)` — remove image, meta sidecar, chunk directory, and in-memory state (backs the DELETE endpoint)
 
 The assembler is owned by the MAVERIC adapter and fed via `on_packet_received` when `img_cnt_chunks` or `img_get_chunk` responses are parsed.
+
+## GNC Plugin
+
+MAVERIC also ships a second plugin — the GNC register dashboard — mounted through the same `get_plugin_routers(adapter, config_accessor)` mechanism. It serves as a second reference implementation for the plugin contract:
+
+- **Backend router** — `mav_gss_lib/missions/maveric/telemetry/gnc_router.py` exposes the router under prefix `/api/plugins/gnc` with `GET /snapshot`, `DELETE /snapshot` (broadcasts `gnc_snapshot_cleared` on `/ws/rx`), and `GET /catalog`.
+- **Adapter state** — the adapter carries a `gnc_store` (`GncRegisterStore`) built by `init_mission()` at `<log_dir>/.gnc_snapshot.json`. `on_packet_received` decodes `mtq_get_1` RES packets and pushes snapshots to the store, emitting `gnc_register_update` WS messages on `/ws/rx`.
+- **Frontend page** — `mav_gss_lib/web/src/plugins/maveric/gnc/GNCPage.tsx`, registered in `mav_gss_lib/web/src/plugins/maveric/plugins.ts` with `id: 'gnc'`, `keepAlive: true` so hook state survives tab switches.
+
+The GNC plugin is discovered and mounted identically to imaging — no platform changes were needed to add it.

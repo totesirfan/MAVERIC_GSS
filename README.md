@@ -1,314 +1,374 @@
+<div align="center">
+
+<img src="mav_gss_lib/web/public/maveric-patch.webp" alt="MAVERIC mission patch" width="120" />
+
 # MAVERIC Ground Station Software
 
-MAVERIC GSS was originally built as the ground-station runtime for the **MAVERIC CubeSat** at the **University of Southern California (USC) Space Engineering Research Center (SERC)**. It has since evolved into a **multi-mission-capable ground station platform** — the core runtime, transport, logging, and UI are mission-agnostic, while mission-specific semantics (packet parsing, command encoding, operator rendering) live in pluggable mission packages.
+**Full-duplex ground station for the MAVERIC CubeSat, built at USC SERC.**
 
-MAVERIC is the first and primary mission package. New missions can be added under `mav_gss_lib/missions/<name>/` without changing platform code.
+[![Version](https://img.shields.io/badge/version-5.5.6-00c9a7)](mav_gss_lib/web/package.json)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
+[![GNU Radio](https://img.shields.io/badge/GNU%20Radio-3.10%2B-b71c1c)](https://www.gnuradio.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=white)](mav_gss_lib/web/package.json)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Protocol stack](https://img.shields.io/badge/AX.25%20%E2%86%92%20CSP%20%E2%86%92%20custom-grey)](#protocol-stack)
 
-This repository is public-facing by design: the implementation is visible, the architecture is documented, and operationally sensitive mission-specific files stay local.
+[Quickstart](#quickstart) · [Features](#features) · [Architecture](#architecture) · [Documentation](#documentation) · [About MAVERIC](#about-maveric)
 
----
+<img src="docs/images/preflight.png" alt="MAVERIC GSS preflight screen" width="880" />
 
-## Architecture
-
-The platform sits between the operator and GNU Radio. It receives decoded traffic via ZMQ, passes it through a mission adapter for parsing and rendering, and exposes live state to browser clients over WebSocket. Outbound commands are built by the mission adapter, framed by the platform's protocol toolkit, and published to GNU Radio via ZMQ.
-
-```mermaid
-flowchart LR
-    OP["Operator"] --> UI["Web Console"]
-    UI --> CORE["GSS Platform"]
-    CORE --> RX["RX Parse / Classify / Log"]
-    CORE --> TX["TX Build / Queue / Frame"]
-    RX <-->|ZMQ SUB| GR["GNU Radio Flowgraph"]
-    TX <-->|ZMQ PUB| GR
-    MISSION["Mission Package"] -.->|adapter| CORE
-```
-
-### Layers
-
-1. **Browser UI** — React SPA for live RX/TX operations. Renders mission-provided structured data (columns, detail blocks, badges) generically.
-2. **Web Runtime** — FastAPI backend: REST API, WebSocket endpoints, queue control, session management. Mission-agnostic — delegates semantics to the adapter.
-3. **Shared Library** — Reusable protocol toolkit (AX.25, CSP, CRC, Golay, KISS), mission adapter loader, transport helpers, session logging.
-4. **Mission Package** — Pluggable package owning all mission-specific semantics: packet parsing, command building, operator rendering, wire format, metadata.
-5. **Radio Integration** — GNU Radio flowgraph connected via ZMQ PUB/SUB sockets.
-
-```mermaid
-flowchart TD
-    UI["Browser UI"] --> API["FastAPI + Web Runtime"]
-    CFG["Local Config"] --> API
-    API --> RX["RX Service"]
-    API --> TX["TX Service"]
-    RX --> PARSE["Mission Adapter + RX Pipeline"]
-    TX --> BUILD["Mission Adapter + Protocol Framing"]
-    PARSE <-->|ZMQ SUB| GR["GNU Radio"]
-    BUILD <-->|ZMQ PUB| GR
-```
+</div>
 
 ---
 
-## Boot Sequence
+## Contents
 
-When `python3 MAV_WEB.py` runs:
-
-1. `load_gss_config()` reads `mav_gss_lib/gss.yml` and merges with hardcoded defaults
-2. `create_app()` instantiates `WebRuntime`:
-   - Loads mission adapter via `load_mission_adapter(cfg)` — reads `mission.yml` or `mission.example.yml`, calls `init_mission()`, instantiates the adapter
-   - Creates CSP/AX.25 protocol objects from merged config
-   - Creates RX and TX services
-3. FastAPI lifespan startup:
-   - Loads persisted TX queue from `.pending_queue.jsonl`
-   - Initializes ZMQ PUB socket for TX
-   - Creates RX and TX session logs
-   - Starts RX receiver thread (ZMQ SUB) and async broadcast loop
-4. Uvicorn serves on `127.0.0.1:8080`, browser auto-opens
-
-### GNU Radio Connection
-
-The flowgraph must already be running before launching MAV_WEB. MAVERIC GSS connects to it via two ZMQ sockets:
-
-| Direction | Socket | Default Address | Role |
-|-----------|--------|-----------------|------|
-| RX | ZMQ SUB | `tcp://127.0.0.1:52001` | Receives decoded PDUs from GNU Radio |
-| TX | ZMQ PUB | `tcp://127.0.0.1:52002` | Publishes framed uplink payloads to GNU Radio |
-
-Both addresses are configurable in `gss.yml`. PDUs use PMT serialization for GNU Radio interop.
+- [Overview](#overview)
+- [Features](#features)
+- [Gallery](#gallery)
+- [Quickstart](#quickstart)
+- [Requirements](#requirements)
+- [Run](#run)
+- [Architecture](#architecture)
+- [Protocol stack](#protocol-stack)
+- [Uplink modes](#uplink-modes)
+- [Repository layout](#repository-layout)
+- [Configuration](#configuration)
+- [Mission contract](#mission-contract)
+- [Web UI development](#web-ui-development)
+- [Testing](#testing)
+- [Documentation](#documentation)
+- [About MAVERIC](#about-maveric)
+- [Citation](#citation)
+- [Acknowledgements](#acknowledgements)
 
 ---
 
-## Required Local Files
+## Overview
 
-These files are **gitignored** and must exist locally for the system to run:
+MAVERIC GSS is the ground station software for the MAVERIC CubeSat mission, developed at the University of Southern California Space Engineering Research Center (SERC). It performs simultaneous full-duplex uplink and downlink through a single USRP B210 radio driven by GNU Radio, and presents a web-based operator console for command composition, live telemetry, imaging, and GNC monitoring.
 
-| File | Location | Purpose |
-|------|----------|---------|
-| `gss.yml` | `mav_gss_lib/gss.yml` | Station config: ZMQ addresses, log directory, version |
-| `commands.yml` | `mav_gss_lib/missions/maveric/commands.yml` | Command schema (gitignored for security) |
-| `mission.yml` | `mav_gss_lib/missions/maveric/mission.yml` | Optional local/private mission metadata override |
+The platform is mission-agnostic. Transport, queue, logging, protocol toolkit, and the web UI shell are reusable. Mission-specific parsing, command encoding, and operator rendering live in pluggable mission packages under `mav_gss_lib/missions/`. MAVERIC is the first and default mission package; additional missions drop in without platform changes.
 
-Copy from examples to get started:
+## Features
+
+- **Single-radio full-duplex** — one USRP B210 handles uplink and downlink concurrently via the `MAV_DUPLEX` GNU Radio flowgraph.
+- **Two uplink framings** — operator-selectable `AX.25` (Mode 6, HDLC + G3RUH) or `ASM+Golay` (Mode 5, CCSDS + Reed-Solomon FEC).
+- **Mission-agnostic core** — swap the mission package to retarget the platform; the adapter contract is enforced at startup.
+- **Drag-to-reorder command queue** with delay and note items, JSONL import/export, guard confirmation, and persistent recovery after restart.
+- **Live session logs** — dual JSONL and human-readable text, per-session files under `logs/json/` and `logs/text/`.
+- **Session replay** — browse and re-play any past session in the Log Viewer.
+- **GNC dashboard** — attitude, navigation, and control telemetry with staleness tracking for pass-cadence updates.
+- **Imaging plugin** — chunked downlink reassembly, thumbnail previews, and delete.
+- **Plugin system** — mission packages can register their own FastAPI routers and React plugin pages.
+- **NASA HFDS-compliant console** — minimum 11 px text, ≥3:1 contrast, color redundancy via icon and text, 3/4/5 Hz alarm flash rates.
+- **Preflight screen** — dependencies, GNU Radio, config, web build, and ZMQ connectivity verified before operator launch.
+
+## Gallery
+
+<table>
+<tr>
+<td width="50%"><strong>Main dashboard</strong><br/><sub>TX uplink queue (left) + RX downlink stream (right)</sub><br/><br/><img src="docs/images/dashboard.png" alt="Main dashboard" /></td>
+<td width="50%"><strong>GNC telemetry</strong><br/><sub>Planner, ADCS-MTQ, NaviGuider, flag strip</sub><br/><br/><img src="docs/images/gnc.png" alt="GNC dashboard" /></td>
+</tr>
+<tr>
+<td width="50%"><strong>Imaging</strong><br/><sub>Chunked download, progress, preview</sub><br/><br/><img src="docs/images/imaging.png" alt="Imaging plugin" /></td>
+<td width="50%"><strong>Log viewer</strong><br/><sub>Calendar, session list, filter, replay</sub><br/><br/><img src="docs/images/logs.png" alt="Session log viewer" /></td>
+</tr>
+</table>
+
+## Quickstart
 
 ```bash
-cp mav_gss_lib/gss.example.yml mav_gss_lib/gss.yml
-```
-
-The repository tracks `mission.example.yml` as the public-safe MAVERIC metadata baseline. If a local `mission.yml` exists beside it, the runtime prefers that local file.
-
-The operational command schema (`commands.yml`) is gitignored for security. A public example (`commands.example.yml`) is tracked in each mission package — copy it to get started:
-
-```bash
+conda activate                                                                     # radioconda base env
+cp mav_gss_lib/gss.example.yml mav_gss_lib/gss.yml                                 # first run only
 cp mav_gss_lib/missions/maveric/commands.example.yml mav_gss_lib/missions/maveric/commands.yml
-```
-
-Replace the example commands with your real mission commands for operational use.
-
-If `gss.yml` is missing, the system falls back to hardcoded defaults. If `commands.yml` is missing, the system starts but cannot validate or send commands.
-
----
-
-## Startup
-
-### Running (no build step needed)
-
-The production web UI (`mav_gss_lib/web/dist/`) is committed to the repo. To run:
-
-```bash
-conda activate gnuradio
-cp mav_gss_lib/gss.example.yml mav_gss_lib/gss.yml   # first time only
 python3 MAV_WEB.py
 ```
 
-The web dashboard auto-opens at `http://127.0.0.1:8080`. The server shuts down 15 seconds after all browser tabs disconnect.
+The dashboard opens in the default browser at `http://127.0.0.1:8080`. The server exits about two seconds after the last browser tab closes.
 
-Either a `git clone` or a GitHub "Download ZIP" extract works as a starting point — on first launch from a zip, the updater prints `initializing git repository from zip extract (first launch)...` and bootstraps a real clone in place so the preflight Updates check and self-update flow stay functional.
+For live uplink and downlink, start the `MAV_DUPLEX` GNU Radio flowgraph before launching `MAV_WEB.py`.
 
-### Web UI Development
+## Requirements
 
-For working on the frontend source (`mav_gss_lib/web/src/`):
+| Component | Minimum | Recommended | Notes |
+|---|---|---|---|
+| OS | macOS or Linux | Linux x86_64 / arm64 | Tested on macOS 15 and Ubuntu 22.04 |
+| Python | 3.10 | 3.11 | Provided by radioconda |
+| GNU Radio | 3.10 | 3.10 with gr-satellites | Supplies `pmt` and the flowgraph runtime |
+| Node.js | — | 20 LTS | Only needed when rebuilding the UI |
+| Radio | — | Ettus USRP B210 | Required for live RF; simulation and replay do not need hardware |
+| Browser | Any modern Chromium/Firefox | Chrome / Edge | The dashboard is pure SPA; no extensions needed |
 
-```bash
-cd mav_gss_lib/web
-npm install            # first time only
-npm run dev            # Vite dev server with HMR (proxies API to :8080)
-npm run build          # production build to dist/ — commit after changes
-```
+Python packages (`requirements.txt`): `fastapi`, `uvicorn`, `websockets`, `PyYAML`, `pyzmq`, `crcmod`, `Pillow`. `pmt` is provided by the local GNU Radio install.
 
-The backend (`python3 MAV_WEB.py`) must be running alongside `npm run dev` for API/WebSocket proxying to work.
-
-### Preflight Check
-
-Before first launch, verify the environment:
+## Run
 
 ```bash
-python3 scripts/preflight.py
+conda activate                     # radioconda base env
+cp mav_gss_lib/gss.example.yml mav_gss_lib/gss.yml                                   # first run only
+cp mav_gss_lib/missions/maveric/commands.example.yml mav_gss_lib/missions/maveric/commands.yml  # first run only
+python3 MAV_WEB.py
 ```
 
-Reports pass/fail for Python dependencies, GNU Radio/PMT availability, config files, command schema, web build, and ZMQ addresses.
-This includes the WebSocket backend required by Uvicorn for the browser RX/TX feeds.
+`MAV_WEB.py` serves the dashboard on `http://127.0.0.1:8080` (constants in `mav_gss_lib/web_runtime/state.py`) and auto-opens the default browser. The server exits roughly two seconds after the last RX and TX WebSocket client disconnects (`SHUTDOWN_DELAY` in `mav_gss_lib/web_runtime/shutdown.py`).
 
-### Self-Check
+The GNU Radio flowgraph must be running before launching `MAV_WEB.py`. The runtime connects to it with two ZMQ sockets:
 
-After starting the server, visit `/api/selfcheck` to verify the runtime environment:
+| Direction | Socket  | Default address         | Role                                 |
+|-----------|---------|-------------------------|--------------------------------------|
+| RX        | ZMQ SUB | `tcp://127.0.0.1:52001` | Receives decoded PDUs from GNU Radio |
+| TX        | ZMQ PUB | `tcp://127.0.0.1:52002` | Publishes framed uplink payloads     |
+
+Both addresses are editable in `gss.yml`. PDUs use PMT serialization for GNU Radio interop.
+
+A quick runtime probe once the server is up:
 
 ```bash
 curl http://127.0.0.1:8080/api/selfcheck
 ```
 
-Reports active mission, resolved config/schema paths, web build status, and ZMQ endpoints.
+A standalone pre-launch environment check is available at `scripts/preflight.py`:
 
----
-
-## What It Delivers
-
-### Live Downlink Operations
-
-- Real-time packet visibility with parsed routing and command detail
-- Duplicate detection and uplink-echo tagging
-- Stale-link and health indicators
-- Local RX session logging (JSONL + formatted text)
-
-### Controlled Uplink Operations
-
-- Raw CLI command input with mission-owned parsing and validation
-- Optional visual command builder UI per mission (e.g. MAVERIC command picker)
-- Persistent TX queue with drag-and-drop reorder
-- Delay items and guard confirmations
-- Two uplink modes: AX.25 (Mode 6) and ASM+Golay (Mode 5, recommended)
-- Local TX session logging
-
-### Operator Workflow
-
-- Browser-based split RX/TX console
-- Log replay and session review
-- Runtime config editing
-- Keyboard-driven controls (Ctrl+K command palette)
-
----
-
-## Codebase Layout
-
-```text
-MAV_WEB.py                      Web runtime entrypoint
-
-mav_gss_lib/
-    config.py                   Config loader (gss.yml + defaults)
-    mission_adapter.py          Mission adapter protocol + loader
-    parsing.py                  RX pipeline: Packet dataclass, duplicate tracking
-    logging.py                  Dual-output session logging (JSONL + text)
-    transport.py                ZMQ PUB/SUB setup, PMT PDU helpers
-    textutil.py                 Text formatting utilities
-
-    protocols/
-        ax25.py                 AX.25 HDLC framing (Mode 6)
-        csp.py                  CSP v1 header build/parse, KISS framing
-        crc.py                  CRC-16 XMODEM, CRC-32C
-        golay.py                ASM+Golay framing (AX100 Mode 5)
-        frame_detect.py         Frame type detection and normalization
-
-    preflight.py                Local environment checks
-    updater.py                  Runtime dependency bootstrap
-
-    missions/
-        template/               Minimal starter mission package
-        maveric/
-            __init__.py          Mission entry point (API version, init hook, plugin routers)
-            adapter.py           MavericMissionAdapter (parse, render, encode)
-            nodes.py             NodeTable dataclass + init_nodes factory
-            wire_format.py       CommandFrame encode/decode
-            schema.py            Command schema loading + validation
-            cmd_parser.py        TX command line parser
-            rx_ops.py            RX packet parsing operations
-            tx_ops.py            TX command building operations
-            rendering.py         RX display rendering (row, detail, protocol, integrity)
-            log_format.py        Mission-specific log record formatting
-            imaging.py           Image chunk reassembly + plugin REST router
-            mission.example.yml  Tracked public-safe mission metadata baseline
-            mission.yml          Optional local mission metadata override
-            commands.example.yml Annotated command schema example
-            commands.yml         Operational command schema (gitignored)
-
-    web/
-        package.json             Frontend dependencies and version
-        src/                     React + Vite + Tailwind + shadcn/ui
-        dist/                    Production build (committed)
-
-    web_runtime/
-        app.py                  FastAPI factory + lifespan (mounts plugin routers)
-        state.py                WebRuntime container (preflight state, AtomicStatus)
-        shutdown.py             Delayed-shutdown helpers (SHUTDOWN_DELAY, check_shutdown)
-        tx_context.py           Send-context snapshot helper (build_send_context)
-        _atomics.py             AtomicStatus primitive (thread-safe status holder)
-        api/                    REST API package (config, schema, logs, queue_io, session)
-        rx.py                   /ws/rx WebSocket handler
-        tx.py                   /ws/tx WebSocket handler
-        rx_service.py           ZMQ SUB receiver + broadcast loop
-        tx_service.py           TX queue, send loop, history, persistence
-        tx_queue.py             Pure queue helpers (build, validate, persist, import)
-        tx_actions.py           Queue mutation actions
-        _broadcast.py           broadcast_safe helper
-        session_ws.py           /ws/session handler
-        preflight_ws.py         /ws/preflight handler + updater scheduling
-        security.py             CORS/CSP middleware
-
-tests/                          Test suite (pytest)
-    echo_mission.py             Example non-MAVERIC adapter for testing
+```bash
+python3 scripts/preflight.py
 ```
 
----
+It reports pass/fail for Python dependencies, GNU Radio and PMT availability, config files, web build, and ZMQ addresses.
 
-## Mission Adapter Boundary
+## Architecture
 
-The system is structured around a **mission adapter** that owns all mission-specific semantics:
+The platform sits between the operator and GNU Radio. RX traffic arrives as PMT-serialized PDUs over ZMQ SUB, passes through the active mission adapter for parsing and rendering, and is broadcast to browser clients over `/ws/rx`. TX commands flow in the reverse direction: the UI submits payloads over `/ws/tx`, the mission adapter validates and encodes them, the platform frames them (AX.25 or ASM+Golay), and the result is published to GNU Radio over ZMQ PUB.
 
-- Frame classification and normalization
-- Inner packet parsing (CSP, command wire format)
-- Integrity checks (CRC-16, CRC-32C)
-- Duplicate fingerprinting and uplink-echo classification
-- TX command encoding and argument validation
-- UI rendering: column definitions, detail blocks, protocol blocks
-- Log serialization
+```mermaid
+flowchart LR
+    Op([Operator]):::op --> UI[React dashboard<br/>Vite + Tailwind]
+    UI <--> RT[FastAPI runtime<br/>web_runtime/*]
+    RT -- ZMQ PUB<br/>PMT PDU --> GR[GNU Radio<br/>MAV_DUPLEX flowgraph]
+    GR -- ZMQ SUB<br/>PMT PDU --> RT
+    GR <--> Radio[USRP B210]
+    Radio <-. UHF 430-440 MHz .-> Sat([MAVERIC<br/>CubeSat])
+    RT --- MA[Mission adapter<br/>missions/maveric/]
+    RT --- LOG[(Session logs<br/>logs/json/<br/>logs/text/)]
+    classDef op fill:transparent,stroke:#888,color:#aaa
+```
 
-The platform (transport, runtime, UI shell, logging) is mission-agnostic. The MAVERIC mission is implemented as one package under `mav_gss_lib/missions/maveric/`. A second adapter (`tests/echo_mission.py`) proves the boundary works.
+Top-level platform modules:
 
-For a future SERC mission:
+| Module                           | Role                                                                 |
+|----------------------------------|----------------------------------------------------------------------|
+| `MAV_WEB.py`                     | Entrypoint. Bootstraps dependencies, builds the FastAPI app, runs Uvicorn. |
+| `mav_gss_lib/config.py`          | Loads `gss.yml`, deep-merges over defaults, provides config helpers. Single-sources `general.version` from `mav_gss_lib/web/package.json`. |
+| `mav_gss_lib/mission_adapter.py` | `MissionAdapter` Protocol, `ParsedPacket`, adapter loader. |
+| `mav_gss_lib/parsing.py`         | `Packet` dataclass and `RxPipeline` (frame detect, normalize, dedupe, rate). |
+| `mav_gss_lib/transport.py`       | ZMQ PUB/SUB setup, PMT PDU send/receive, socket monitoring. |
+| `mav_gss_lib/logging.py`         | Dual-output session logging (JSONL + formatted text). |
+| `mav_gss_lib/updater.py`         | Runtime dependency bootstrap and self-update flow. |
+| `mav_gss_lib/preflight.py`       | Environment-check backend used by `scripts/preflight.py` and the web preflight screen. |
+| `mav_gss_lib/constants.py`       | Platform string constants (default mission, default ZMQ addresses). |
+| `mav_gss_lib/textutil.py`        | Text formatting helpers. |
 
-1. Create a new mission package under `mav_gss_lib/missions/<name>/`
-2. Provide `__init__.py` (with `ADAPTER_API_VERSION`, `ADAPTER_CLASS`, `init_mission`), `mission.example.yml`, `adapter.py`, and `commands.yml`
-3. Set `general.mission` in `gss.yml` to the package name
-4. Leave transport, runtime, logging, and UI code unchanged
+Web runtime (`mav_gss_lib/web_runtime/`):
 
-Mission packages are discovered by convention — any package at `mav_gss_lib.missions.<name>` is automatically found. No platform registration needed.
+| Module                | Role                                                                  |
+|-----------------------|-----------------------------------------------------------------------|
+| `app.py`              | FastAPI factory, lifespan, static mount, mission plugin router mount. |
+| `state.py`            | `WebRuntime` container, `HOST`, `PORT`, `MAX_PACKETS`, `MAX_HISTORY`, `MAX_QUEUE`, `Session`. |
+| `shutdown.py`         | `SHUTDOWN_DELAY`, delayed-shutdown task scheduling.                   |
+| `rx_service.py`       | ZMQ SUB receiver thread and async broadcast loop.                     |
+| `tx_service.py`       | TX queue, send loop, history, persistence, guard confirmation.        |
+| `tx_queue.py`         | Pure queue helpers (build, validate, sanitize, save/load JSONL).      |
+| `tx_actions.py`       | Queue mutation actions invoked by the `/ws/tx` handler.               |
+| `tx_context.py`       | Send-context snapshot helper.                                         |
+| `rx.py` / `tx.py`     | `/ws/rx` and `/ws/tx` WebSocket handlers.                             |
+| `session_ws.py`       | `/ws/session` WebSocket.                                              |
+| `preflight_ws.py`     | `/ws/preflight` WebSocket and preflight broadcast loop.               |
+| `update_ws.py`        | Update-check scheduling and WebSocket.                                |
+| `security.py`         | CORS / CSP headers / API-token check.                                 |
+| `api/`                | REST routers: `config.py`, `schema.py`, `logs.py`, `queue_io.py`, `session.py`. |
+| `_atomics.py`         | `AtomicStatus` primitive.                                             |
+| `_broadcast.py`       | `broadcast_safe` WebSocket helper.                                    |
+| `_task_utils.py`      | Task exception logging.                                               |
+| `_ws_utils.py`        | Shared WebSocket utilities.                                           |
 
-See `mav_gss_lib/missions/template/` for a minimal starting point and `docs/maintainer_handoff.md` for the full contract.
+## Protocol stack
 
----
+Frames layer outward from the command payload to the air interface:
+
+```mermaid
+flowchart TB
+    CMD["Command wire format<br/>src · dest · echo · ptype · id_len · args_len · id · args · CRC-16"] --> CSP["CSP v1 header"]
+    CSP --> AX["AX.25 HDLC frame<br/>(Mode 6)"]
+    CSP --> GLY["ASM + Golay(24,12) + RS(255,223) + CCSDS scrambler<br/>(Mode 5, default)"]
+    AX --> RF([Air])
+    GLY --> RF
+```
+
+Supported argument types in the command schema: `str`, `int`, `float`, `epoch_ms`, `bool`, `blob`. Uplink framing is selected by `tx.uplink_mode` in `gss.yml`.
+
+## Uplink modes
+
+| Property | `AX.25` (Mode 6) | `ASM+Golay` (Mode 5, default) |
+|---|---|---|
+| Encoding | NRZI, LSB first | NRZ, MSB first |
+| Line coding | G3RUH scrambler | CCSDS scrambler |
+| Framing | HDLC flag + 16-byte AX.25 header | 32-bit ASM + Golay(24,12) length + RS(255,223) |
+| FEC | None | Reed-Solomon (corrects up to 16 byte errors per frame) |
+| Approx throughput at 9k6 | 985 B/s | 796 B/s |
+| Frame structure | Variable | `[50B preamble][4B ASM][3B Golay][scrambled RS codeword][pad to 255B]` |
+| Payload limit (post-CSP) | HDLC-bound | 223 bytes |
+
+Mode 5 is the recommended default: FEC materially improves pass yield at the cost of modest throughput.
+
+## Repository layout
+
+```text
+MAV_WEB.py                          Web runtime entrypoint
+requirements.txt                    Backend Python dependencies
+
+mav_gss_lib/
+    config.py                       Config loader
+    constants.py                    Platform-wide constants
+    mission_adapter.py              MissionAdapter Protocol + loader
+    parsing.py                      Packet + RxPipeline
+    transport.py                    ZMQ PUB/SUB + PMT PDU
+    logging.py                      Session logs (JSONL + text)
+    preflight.py                    Environment checks
+    updater.py                      Self-update bootstrap
+    textutil.py                     Text helpers
+    gss.example.yml                 Public-safe station config template
+    protocols/
+        ax25.py                     AX.25 HDLC framing (Mode 6)
+        csp.py                      CSP v1 header + KISS framing
+        crc.py                      CRC-16 XMODEM, CRC-32C
+        golay.py                    ASM+Golay framing (Mode 5)
+        frame_detect.py             Frame type detection
+    missions/
+        template/                   Minimal starter mission package
+        maveric/                    MAVERIC mission package
+            __init__.py             ADAPTER_API_VERSION, ADAPTER_CLASS,
+                                    init_mission, get_plugin_routers
+            adapter.py              MavericMissionAdapter
+            nodes.py                NodeTable + init_nodes
+            wire_format.py          CommandFrame encode/decode
+            schema.py               Command schema loader/validator
+            cmd_parser.py           TX command-line parser
+            rx_ops.py               RX packet parsing
+            tx_ops.py               TX command building
+            rendering.py            RX display slots
+            display_helpers.py      Rendering helpers
+            log_format.py           Mission-specific log record fields
+            imaging.py              Image chunk reassembly + /api/plugins/imaging router
+            telemetry/              Telemetry decoders, GNC register store, GNC router
+            mission.example.yml     Tracked public-safe mission metadata
+            commands.example.yml    Tracked public-safe command schema
+    web/                            React + Vite frontend
+        src/                        UI source
+        dist/                       Production build (committed)
+        package.json                Frontend deps + version (single source of truth)
+    web_runtime/                    FastAPI runtime (see table above)
+
+tests/                              unittest suite
+docs/                               Architecture + maintainer docs + images
+scripts/
+    preflight.py                    Standalone preflight runner
+    preview_eps_hk.py               EPS telemetry preview helper
+```
+
+## Configuration
+
+Three config inputs drive the runtime:
+
+- `mav_gss_lib/gss.yml` — operator station config: ZMQ addresses, log directory, TX delay, uplink mode, AX.25 and CSP parameters, mission selection. Gitignored. Copy from `mav_gss_lib/gss.example.yml`. If the file is missing, the runtime falls back to built-in defaults.
+- `mav_gss_lib/missions/<name>/mission.example.yml` — tracked, public-safe mission metadata: nodes, ptypes, AX.25 callsigns, CSP defaults, UI titles. The runtime prefers a local `mission.yml` beside it when present. `mission.yml` is gitignored.
+- `mav_gss_lib/missions/<name>/commands.example.yml` — tracked, public-safe command schema template documenting `tx_args` and `rx_args`. The operational `commands.yml` is gitignored for security and must be supplied locally. Without it the server starts but cannot validate or send commands.
+
+Version is single-sourced from `mav_gss_lib/web/package.json` via `config.py::_read_version()`. `gss.yml` cannot pin a version — the `/api/config` save path strips any client-supplied `general.version`.
+
+Also gitignored: `logs/`, `images/`, `generated_commands/`, `.pending_queue.jsonl`, `.gnc_snapshot.json`, `node_modules/`.
+
+## Mission contract
+
+A mission is a Python package at `mav_gss_lib/missions/<name>/` exporting:
+
+- `ADAPTER_API_VERSION = 1`
+- `ADAPTER_CLASS` — a class satisfying the `MissionAdapter` Protocol in `mav_gss_lib/mission_adapter.py`
+- `init_mission(cfg) -> dict` — one-time setup hook called after metadata merge; returns a dict that seeds the adapter (for example `cmd_defs`, `nodes`, `image_assembler`, `gnc_store`)
+- `get_plugin_routers(adapter, config_accessor)` — optional; returns FastAPI routers auto-mounted by `web_runtime/app.py`
+
+Set `general.mission` in `gss.yml` to select the active package. The default is `maveric`. A minimal starter lives at `mav_gss_lib/missions/template/`. See `docs/adding-a-mission.md` and `docs/plugin-system.md` for the full contract.
+
+## Web UI development
+
+The production build at `mav_gss_lib/web/dist/` is committed so running the server does not require Node. When modifying UI source under `mav_gss_lib/web/src/`:
+
+```bash
+cd mav_gss_lib/web
+npm install             # first time only
+npm run dev             # Vite dev server with HMR, proxies API to :8080
+npm run build           # production build; commit dist/ alongside source changes
+```
+
+The backend (`python3 MAV_WEB.py`) must be running while `npm run dev` is used so API and WebSocket requests can proxy to port 8080. Rebuild `dist/` and commit it whenever UI source changes so the served frontend stays in sync.
 
 ## Testing
 
-```bash
-conda activate gnuradio
-pytest -q
-```
-
-One end-to-end GNU Radio test is opt-in (requires full gr-satellites environment):
+The test suite under `tests/` uses `unittest` and runs under the radioconda environment. Run individual files directly:
 
 ```bash
-MAVERIC_FULL_GR=1 pytest -q -rs tests/test_ops_golay_path.py
+conda activate
+cd tests
+python3 test_ops_protocol_core.py       # protocol + mission-adapter seam
+python3 test_ops_rx_pipeline.py         # RX pipeline and duplicate detection
+python3 test_ops_logging.py             # session logging + replay
+python3 test_tx_plugin.py               # TX plugin contract
+python3 test_ops_web_runtime.py         # web runtime wiring
 ```
 
----
+One end-to-end GNU Radio test is opt-in and requires the full gr-satellites flowgraph:
 
-## Public Repository Policy
-
-**Tracked in git:**
-source code, web UI, public-safe examples, documentation
-
-**Kept local and untracked:**
-`gss.yml`, `commands.yml`, logs, generated command files, `.pending_queue.jsonl`
-
----
+```bash
+MAVERIC_FULL_GR=1 python3 tests/test_ops_golay_path.py
+```
 
 ## Documentation
 
-- `docs/maintainer_handoff.md` — Boot path, required files, config structure, mission contract, adaptation guide
-- `docs/adding-a-mission.md` — Guide for adding a new mission package
-- `docs/plugin-system.md` — Mission plugin pages (standalone tools beyond core RX/TX)
-- `docs/mission-help-contract.md` — Proposed contract for mission-owned operator help
+| Doc | Audience | What it covers |
+|---|---|---|
+| [`docs/maintainer_handoff.md`](docs/maintainer_handoff.md) | Maintainer | Boot path, required files, config structure, adapter contract, repo map, sensitive surfaces. |
+| [`docs/adding-a-mission.md`](docs/adding-a-mission.md) | Mission author | Step-by-step guide for a new mission package. |
+| [`docs/plugin-system.md`](docs/plugin-system.md) | Mission author | Plugin pages and FastAPI routers beyond core RX/TX. |
+| [`docs/gnc-migration.md`](docs/gnc-migration.md) | Frontend author | GNC dashboard registers, measurements, and migration status. |
+| [`docs/mission-help-contract.md`](docs/mission-help-contract.md) | Architect | Proposal for mission-provided command-entry help. |
+
+## About MAVERIC
+
+MAVERIC is a science-and-technology CubeSat designed and built by students at the University of Southern California Space Engineering Research Center (SERC). It tests magnetics in orbit and carries two technology payloads demonstrating 2D and 3D visualization from an LCD screen for space applications.
+
+- **Mission site:** <https://www.isi.edu/centers-serc/research/nanosatellites/maveric/>
+- **Organization:** USC Space Engineering Research Center (SERC), Information Sciences Institute (ISI)
+
+This repository is the operator-facing ground segment software — command entry, queueing, framing, transmission over a software-defined radio, and reception, decoding, logging, and display of downlink telemetry.
+
+## Citation
+
+If you use or reference this software in academic work, please cite:
+
+```bibtex
+@software{maveric_gss,
+  title        = {MAVERIC Ground Station Software},
+  author       = {{USC Space Engineering Research Center}},
+  organization = {University of Southern California},
+  year         = {2026},
+  url          = {https://www.isi.edu/centers-serc/research/nanosatellites/maveric/}
+}
+```
+
+## Acknowledgements
+
+- [GNU Radio](https://www.gnuradio.org/) and the `gr-satellites` community for the RF signal chain.
+- Ettus Research / NI for the [USRP B210](https://www.ettus.com/all-products/ub210-kit/).
+- GomSpace for the [NanoCom AX100](https://gomspace.com/shop/subsystems/communication-systems/nanocom-ax100.aspx) transceiver specification used on orbit.
+- The NASA Human Factors Design Standard (NASA-STD-3001 / HFDS) for operator-console guidance.
+- The USC SERC MAVERIC team, past and present.
