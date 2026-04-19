@@ -6,7 +6,7 @@
 
 **Full-duplex ground station for the MAVERIC CubeSat, built at USC SERC.**
 
-[![Version](https://img.shields.io/badge/version-5.5.6-00c9a7)](mav_gss_lib/web/package.json)
+[![Version](https://img.shields.io/badge/version-5.5.7-00c9a7)](mav_gss_lib/web/package.json)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
 [![GNU Radio](https://img.shields.io/badge/GNU%20Radio-3.10%2B-b71c1c)](https://www.gnuradio.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=white)](mav_gss_lib/web/package.json)
@@ -69,10 +69,6 @@ The platform is mission-agnostic. Transport, queue, logging, protocol toolkit, a
 <table>
 <tr>
 <td width="50%"><strong>Main dashboard</strong><br/><sub>TX uplink queue (left) + RX downlink stream (right)</sub><br/><br/><img src="docs/images/dashboard.png" alt="Main dashboard" /></td>
-<td width="50%"><strong>GNC telemetry</strong><br/><sub>Planner, ADCS-MTQ, NaviGuider, flag strip</sub><br/><br/><img src="docs/images/gnc.png" alt="GNC dashboard" /></td>
-</tr>
-<tr>
-<td width="50%"><strong>Imaging</strong><br/><sub>Chunked download, progress, preview</sub><br/><br/><img src="docs/images/imaging.png" alt="Imaging plugin" /></td>
 <td width="50%"><strong>Log viewer</strong><br/><sub>Calendar, session list, filter, replay</sub><br/><br/><img src="docs/images/logs.png" alt="Session log viewer" /></td>
 </tr>
 </table>
@@ -358,8 +354,8 @@ If you use or reference this software in academic work, please cite:
 ```bibtex
 @software{maveric_gss,
   title        = {MAVERIC Ground Station Software},
-  author       = {{USC Space Engineering Research Center}},
-  organization = {University of Southern California},
+  author       = {Annuar, Irfan},
+  organization = {USC Space Engineering Research Center, University of Southern California},
   year         = {2026},
   url          = {https://www.isi.edu/centers-serc/research/nanosatellites/maveric/}
 }
