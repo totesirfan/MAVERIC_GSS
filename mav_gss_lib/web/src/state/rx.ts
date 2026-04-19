@@ -1,5 +1,4 @@
 import { useContext } from 'react'
-import type { useRxSocket } from '@/hooks/useRxSocket'
 import type { RxPacket } from '@/lib/types'
 import {
   RxDisplayTogglesContext,
@@ -7,11 +6,10 @@ import {
   RxPacketsContext,
   RxStatsContext,
   type RxDisplayToggles,
+  type RxSocketValue,
   type RxStatsValue,
   type RxStatusValue,
 } from './rxContexts'
-
-type RxSocketValue = ReturnType<typeof useRxSocket>
 
 export function useRxStatus(): RxStatusValue {
   const ctx = useContext(RxStatusContext)

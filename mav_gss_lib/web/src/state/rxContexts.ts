@@ -2,7 +2,7 @@ import { createContext } from 'react'
 import type { useRxSocket } from '@/hooks/useRxSocket'
 import type { RxPacket } from '@/lib/types'
 
-type RxSocketValue = ReturnType<typeof useRxSocket>
+export type RxSocketValue = ReturnType<typeof useRxSocket>
 export type RxStatsValue = RxSocketValue['stats']
 export type RxStatusValue = Omit<RxSocketValue, 'packets' | 'stats'>
 
