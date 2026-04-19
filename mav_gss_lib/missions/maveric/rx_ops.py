@@ -13,7 +13,7 @@ from mav_gss_lib.protocols.crc import verify_csp_crc32
 from mav_gss_lib.protocols.csp import try_parse_csp_v1
 from mav_gss_lib.protocols.frame_detect import detect_frame_type, normalize_frame
 from mav_gss_lib.missions.maveric.wire_format import try_parse_command
-from mav_gss_lib.missions.maveric.schema import apply_schema
+from mav_gss_lib.missions.maveric.schema import enrich_cmd_in_place
 from mav_gss_lib.missions.maveric.telemetry import decode_telemetry
 from mav_gss_lib.missions.maveric.telemetry.gnc_registers import decode_from_cmd as _decode_gnc_registers
 
@@ -43,7 +43,7 @@ def parse_packet(inner_payload: bytes, cmd_defs: dict, warnings: list[str] | Non
     cmd, cmd_tail = try_parse_command(inner_payload[4:])
     ts_result = None
     if cmd:
-        apply_schema(cmd, cmd_defs)
+        enrich_cmd_in_place(cmd, cmd_defs)
         if cmd.get("sat_time"):
             ts_result = cmd["sat_time"]
 

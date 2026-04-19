@@ -39,8 +39,10 @@ class _LazyEpochMs:
     or value["ms"] access.  The datetime objects are only created when
     first accessed, and cached thereafter."""
     __slots__ = ('ms', '_resolved')
+    ms: int
+    _resolved: dict | None
 
-    def __init__(self, ms):
+    def __init__(self, ms: int):
         self.ms = ms
         self._resolved = None
 
@@ -78,6 +80,25 @@ _TYPE_PARSERS = {
     "epoch_ms": _parse_epoch_ms,
     "bool":     lambda s: s.lower() in ("true", "1", "yes"),
 }
+
+
+def _coerce_arg(arg_def: dict, raw: str) -> tuple[object, bool]:
+    """Return ``(value, ok)`` for a single scalar schema arg.
+
+    ``ok`` is False when the type parser raised; the caller decides
+    whether to treat that as a validation issue (``validate_args``) or to
+    keep the raw string as the value (``enrich_cmd_in_place``).
+
+    Not valid for ``blob`` args — callers must handle blob before dispatch.
+    """
+    arg_type = arg_def["type"]
+    if arg_type == "blob":
+        raise ValueError("_coerce_arg called for blob; handle upstream")
+    parser = _TYPE_PARSERS.get(arg_type, str)
+    try:
+        return parser(raw), True
+    except (ValueError, TypeError):
+        return raw, False
 
 
 def _parse_arg_list(raw_list):
@@ -176,13 +197,16 @@ def load_command_defs(path: str | None = None, nodes: NodeTable | None = None):
         return {}, msg
 
 
-def apply_schema(cmd, cmd_defs):
-    """Enrich a parsed command dict with typed argument values.
+def enrich_cmd_in_place(cmd: dict, cmd_defs: dict) -> bool:
+    """Mutate *cmd* in place with typed argument values, schema flags, and
+    derived fields.
 
-    If cmd_id is found in cmd_defs, adds to cmd:
+    If cmd_id is found in cmd_defs, sets on cmd:
         typed_args, extra_args, sat_time, schema_match, dest_default, rx_only.
-    If not found, adds: schema_match=False, schema_warning.
-    Returns True if schema was applied, False otherwise."""
+    If not found, sets: schema_match=False, schema_warning.
+    Returns True if the command id matched the schema, False otherwise.
+    The return value is consumed only by tests; production callers discard it.
+    """
     if not cmd_defs or cmd["cmd_id"] not in cmd_defs:
         cmd["schema_match"] = False
         cmd["schema_warning"] = (
@@ -212,11 +236,7 @@ def apply_schema(cmd, cmd_defs):
             blob_consumed_tail = True
             break
         if i < len(raw_args):
-            parser = _TYPE_PARSERS.get(arg_def["type"], str)
-            try:
-                value = parser(raw_args[i])
-            except (ValueError, TypeError):
-                value = raw_args[i]
+            value, _ok = _coerce_arg(arg_def, raw_args[i])
             ta = {
                 "name":  arg_def["name"],
                 "type":  arg_def["type"],
@@ -276,10 +296,13 @@ def validate_args(cmd_id, args_str, cmd_defs):
     for i, arg_def in enumerate(tx_args):
         if i >= len(raw_args):
             break
-        parser = _TYPE_PARSERS.get(arg_def["type"], str)
-        try:
-            parser(raw_args[i])
-        except (ValueError, TypeError):
+        if arg_def["type"] == "blob":
+            # Blob args are raw bytes on the wire — no scalar validation.
+            # Matches the pre-refactor behavior where _TYPE_PARSERS.get
+            # defaulted to ``str`` and always accepted.
+            continue
+        _value, ok = _coerce_arg(arg_def, raw_args[i])
+        if not ok:
             issues.append(
                 f"arg '{arg_def['name']}': '{raw_args[i]}' is not valid {arg_def['type']}"
             )

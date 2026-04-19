@@ -13,7 +13,7 @@ from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
 from mav_gss_lib.protocols.crc import verify_csp_crc32
 from mav_gss_lib.missions.maveric.wire_format import CommandFrame, build_cmd_raw
-from mav_gss_lib.missions.maveric.schema import apply_schema, validate_args
+from mav_gss_lib.missions.maveric.schema import enrich_cmd_in_place, validate_args
 
 
 class TestProtocolCore(unittest.TestCase):
@@ -48,9 +48,9 @@ class TestProtocolCore(unittest.TestCase):
         ax25_payload = AX25Config().wrap(CSPConfig().wrap(raw))
         self.assertEqual(ax25_payload[14:16], b"\x03\xf0")
 
-    def test_apply_schema_uses_current_definition(self):
+    def test_enrich_cmd_in_place_uses_current_definition(self):
         cmd = {"cmd_id": "tlm_beacon", "args": ["1", "1767230528021", "0", "0"]}
-        matched = apply_schema(cmd, CMD_DEFS)
+        matched = enrich_cmd_in_place(cmd, CMD_DEFS)
         self.assertTrue(matched)
         self.assertTrue(cmd["schema_match"])
         self.assertGreaterEqual(len(cmd.get("typed_args", [])), 2)

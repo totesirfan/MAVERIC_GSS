@@ -18,7 +18,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, Union
 
 if TYPE_CHECKING:
     from .state import WebRuntime
@@ -30,20 +30,46 @@ except ImportError:
 
 
 # =============================================================================
+#  QUEUE ITEM SHAPES
+# =============================================================================
+
+class MissionCmdItem(TypedDict):
+    type: Literal["mission_cmd"]
+    raw_cmd: NotRequired[bytes]
+    display: dict
+    payload: dict
+    guard: bool
+    num: NotRequired[int]
+
+
+class DelayItem(TypedDict):
+    type: Literal["delay"]
+    delay_ms: int
+
+
+class NoteItem(TypedDict):
+    type: Literal["note"]
+    text: str
+
+
+QueueItem = Union[MissionCmdItem, DelayItem, NoteItem]
+
+
+# =============================================================================
 #  ITEM CONSTRUCTORS
 # =============================================================================
 
-def make_delay(delay_ms):
+def make_delay(delay_ms: int) -> DelayItem:
     """Build one delay queue item."""
     return {"type": "delay", "delay_ms": delay_ms}
 
 
-def make_note(text):
+def make_note(text) -> NoteItem:
     """Build one note queue item (from ``//`` comment lines in JSONL files)."""
     return {"type": "note", "text": " ".join(str(text).split())}
 
 
-def make_mission_cmd(payload, adapter=None):
+def make_mission_cmd(payload, adapter=None) -> MissionCmdItem:
     """Build one mission-command queue item from a mission-specific payload.
 
     Calls the adapter's build_tx_command() to validate, encode, and

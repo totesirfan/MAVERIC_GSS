@@ -50,6 +50,27 @@ def _read_ms(v: Any) -> Any:
     return v["ms"] if isinstance(v, dict) else v.ms
 
 
+def epoch_ms_of(val: Any) -> int | None:
+    """Return the integer ms from a dict wrapper, a _LazyEpochMs, or a
+    bare int/str. Returns None if *val* carries no usable ms value.
+
+    Use this at display-path sites that only need the integer and don't
+    also read ``utc``/``local``.
+    """
+    if val is None:
+        return None
+    if _is_epoch_ms_wrapper(val):
+        return _read_ms(val)
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str):
+        try:
+            return int(val)
+        except ValueError:
+            return None
+    return None
+
+
 def unwrap_typed_arg_for_log(typed_arg: dict) -> Any:
     """Unwrap a typed_arg dict for JSONL logging. Preserves native types."""
     t = typed_arg["type"]

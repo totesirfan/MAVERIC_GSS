@@ -14,16 +14,37 @@ import json
 import logging
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable, NamedTuple
 
 from mav_gss_lib.protocols.ax25 import build_ax25_gfsk_frame
 from mav_gss_lib.transport import PUB_STATUS, init_zmq_pub, send_pdu, zmq_cleanup
 
 from ._broadcast import broadcast_safe
+from .tx_queue import QueueItem
 
 if TYPE_CHECKING:
     from .state import WebRuntime
+
+
+class _RunResult(NamedTuple):
+    aborted: bool
+    sent_delta: int
+
+
+@dataclass
+class _SendContext:
+    """Per-run state shared across per-item handlers."""
+    sent: int
+    total: int
+    prev_was_cmd: bool
+    sock: object
+    uplink_mode: str
+    default_delay: int
+    blackout_ms: int
+    send_csp: object
+    send_ax25: object
 
 try:
     from mav_gss_lib.protocols.golay import _GR_RS_OK, build_asm_golay_frame
@@ -44,7 +65,7 @@ class TxService:
         self.zmq_ctx = None
         self.zmq_sock = None
         self.zmq_monitor = None
-        self.queue: list = []
+        self.queue: list[QueueItem] = []
         self.history: list = []
         self.sending = {"active": False, "idx": -1, "total": 0, "guarding": False, "sent_at": 0, "waiting": False}
         self.abort = asyncio.Event()
@@ -111,17 +132,27 @@ class TxService:
 
     # ── run_send helpers ──────────────────────────────────────────────
 
-    def _pop_front(self) -> None:
-        """Drop the front item without renumbering. Used for `note` items."""
+    def _pop_unnumbered_note(self) -> None:
+        """Drop the front item without renumbering. Only valid for ``note`` items."""
         with self.send_lock:
             if self.queue:
+                if self.queue[0]["type"] != "note":
+                    raise TypeError(
+                        f"_pop_unnumbered_note called on {self.queue[0]['type']!r}"
+                    )
                 self.queue.pop(0)
             self.save_queue()
 
-    def _pop_front_and_renumber(self) -> None:
-        """Drop the front item and renumber surviving commands."""
+    def _pop_and_renumber(self) -> None:
+        """Drop the front item and renumber surviving commands.
+
+        Not valid for ``note`` items — notes are unnumbered and do not
+        participate in the mission-cmd numbering sequence.
+        """
         with self.send_lock:
             if self.queue:
+                if self.queue[0]["type"] == "note":
+                    raise TypeError("_pop_and_renumber called on note item")
                 self.queue.pop(0)
             self.renumber_queue()
             self.save_queue()
@@ -138,22 +169,28 @@ class TxService:
         except asyncio.TimeoutError:
             return False
 
-    async def _run_delay_item(self, item, sent: int, total: int) -> bool:
-        """Execute a `delay` queue item. Returns True if the send was aborted."""
+    async def _run_note_item(self, item, ctx: _SendContext) -> _RunResult:
+        """Drop a front-of-queue ``note`` item without numbering impact."""
+        self._pop_unnumbered_note()
+        return _RunResult(aborted=False, sent_delta=0)
+
+    async def _run_delay_item(self, item, ctx: _SendContext) -> _RunResult:
+        """Execute a ``delay`` queue item."""
+        ctx.prev_was_cmd = False
         with self.send_lock:
             self.sending["sent_at"] = 0
             self.sending["waiting"] = True  # Flag MUST be set before the broadcast below — tests observing the broadcast assume the flag is already True.
         await self.broadcast({
-            "type": "send_progress", "sent": sent, "total": total,
+            "type": "send_progress", "sent": ctx.sent, "total": ctx.total,
             "current": f"delay {item['delay_ms']}ms", "waiting": True,
         })
         aborted = await self._wait_ms(item["delay_ms"])
         with self.send_lock:
             self.sending["waiting"] = False
         if aborted:
-            return True
-        self._pop_front_and_renumber()
-        return False
+            return _RunResult(aborted=True, sent_delta=0)
+        self._pop_and_renumber()
+        return _RunResult(aborted=False, sent_delta=0)
 
     async def _run_inter_cmd_delay(self, default_delay: int) -> bool:
         """Wait the inter-command gap between two back-to-back commands."""
@@ -246,6 +283,72 @@ class TxService:
         await self.send_queue_update()
         await self.broadcast({"type": "history", "items": self.history[-self.runtime.max_history :]})
 
+    async def _run_mission_cmd_item(self, item, ctx: _SendContext) -> _RunResult:
+        """Execute one ``mission_cmd`` queue item end-to-end: inter-cmd gap,
+        optional guard, frame build, ZMQ send, blackout arm, history record."""
+        if ctx.prev_was_cmd and ctx.default_delay > 0:
+            if await self._run_inter_cmd_delay(ctx.default_delay):
+                return _RunResult(aborted=True, sent_delta=0)
+
+        if item.get("guard"):
+            if await self._run_guard_wait(item):
+                return _RunResult(aborted=True, sent_delta=0)
+
+        raw_cmd = item.get("raw_cmd", b"")
+        if not raw_cmd:
+            await self.broadcast({"type": "send_error", "error": f"empty raw_cmd for {item.get('display', {}).get('title', '?')}"})
+            self._pop_and_renumber()
+            return _RunResult(aborted=True, sent_delta=0)
+
+        try:
+            payload = self._build_frame(raw_cmd, ctx.uplink_mode, ctx.send_csp, ctx.send_ax25)
+        except Exception as exc:
+            logging.error("Frame build failed for %s: %s", item.get("cmd", "?"), exc)
+            await self.broadcast({"type": "send_error", "error": f"frame build failed: {exc}"})
+            self._pop_and_renumber()
+            return _RunResult(aborted=True, sent_delta=0)
+
+        if not send_pdu(ctx.sock, payload):
+            logging.error("ZMQ send failed for %s", item.get("cmd", "?"))
+            await self.broadcast({"type": "send_error", "error": "ZMQ send failed"})
+            self._pop_and_renumber()
+            return _RunResult(aborted=True, sent_delta=0)
+
+        # Arm (or clear) the TX→RX blackout window so RxService drops
+        # packets arriving while the simulated radio is transmitting.
+        if ctx.blackout_ms > 0:
+            self.runtime.tx_blackout_until = time.time() + ctx.blackout_ms / 1000.0
+            await self.runtime.rx.broadcast({"type": "blackout", "ms": ctx.blackout_ms})
+        else:
+            # Feature disabled at send time. If a prior batch armed a
+            # deadline that is still in the future, emit an explicit
+            # clear (ms=0) so every connected RX view — main dashboard
+            # and pop-out alike — hides its indicator deterministically
+            # instead of waiting for the old timer to drain.
+            if self.runtime.tx_blackout_until > time.time():
+                await self.runtime.rx.broadcast({"type": "blackout", "ms": 0})
+            self.runtime.tx_blackout_until = 0.0
+
+        with self.send_lock:
+            self.sending["sent_at"] = time.time()
+        self.count += 1
+
+        hist_entry = self._record_sent(item, raw_cmd, payload, ctx.send_csp, ctx.send_ax25, ctx.uplink_mode)
+
+        new_sent = ctx.sent + 1
+        await self.broadcast({"type": "sent", "data": hist_entry})
+        current_label = item.get("display", {}).get("title", "?")
+        await self.broadcast({"type": "send_progress", "sent": new_sent, "total": ctx.total, "current": current_label, "waiting": False})
+
+        with self.send_lock:
+            if self.queue:
+                self.queue.pop(0)
+            self.sending["sent_at"] = 0
+            self.renumber_queue()
+            self.save_queue()
+        ctx.prev_was_cmd = True
+        return _RunResult(aborted=False, sent_delta=1)
+
     async def run_send(self):
         """Run the serialized TX send loop until queue exhaustion or abort."""
         if self.zmq_sock is None:
@@ -255,7 +358,6 @@ class TxService:
             await self.send_queue_update()
             return
 
-        sock = self.zmq_sock
         with self.runtime.cfg_lock:
             uplink_mode = self.runtime.cfg.get("tx", {}).get("uplink_mode", "AX.25")
             default_delay = self.runtime.cfg.get("tx", {}).get("delay_ms", 500)
@@ -263,9 +365,17 @@ class TxService:
             send_csp = copy.copy(self.runtime.csp)
             send_ax25 = copy.copy(self.runtime.ax25)
 
-        sent = 0
-        total = self.sending.get("total", len(self.queue))
-        prev_was_cmd = False
+        ctx = _SendContext(
+            sent=0,
+            total=self.sending.get("total", len(self.queue)),
+            prev_was_cmd=False,
+            sock=self.zmq_sock,
+            uplink_mode=uplink_mode,
+            default_delay=default_delay,
+            blackout_ms=blackout_ms,
+            send_csp=send_csp,
+            send_ax25=send_ax25,
+        )
 
         try:
             while not self.abort.is_set():
@@ -278,76 +388,21 @@ class TxService:
 
                 await self.send_queue_update()
 
-                if item["type"] == "note":
-                    self._pop_front()
-                    continue
-
-                if item["type"] == "delay":
-                    prev_was_cmd = False
-                    if await self._run_delay_item(item, sent, total):
-                        break
-                    continue
-
-                if prev_was_cmd and default_delay > 0:
-                    if await self._run_inter_cmd_delay(default_delay):
-                        break
-
-                if item.get("guard"):
-                    if await self._run_guard_wait(item):
-                        break
-
-                raw_cmd = item.get("raw_cmd", b"")
-                if not raw_cmd:
-                    await self.broadcast({"type": "send_error", "error": f"empty raw_cmd for {item.get('display', {}).get('title', '?')}"})
-                    self._pop_front_and_renumber()
+                handler = _ITEM_DISPATCH.get(item["type"])
+                if handler is None:
+                    logging.error("Unknown queue item type: %r", item.get("type"))
                     break
-
-                try:
-                    payload = self._build_frame(raw_cmd, uplink_mode, send_csp, send_ax25)
-                except Exception as exc:
-                    logging.error("Frame build failed for %s: %s", item.get("cmd", "?"), exc)
-                    await self.broadcast({"type": "send_error", "error": f"frame build failed: {exc}"})
-                    self._pop_front_and_renumber()
+                result = await handler(self, item, ctx)
+                ctx.sent += result.sent_delta
+                if result.aborted:
                     break
-
-                if not send_pdu(sock, payload):
-                    logging.error("ZMQ send failed for %s", item.get("cmd", "?"))
-                    await self.broadcast({"type": "send_error", "error": "ZMQ send failed"})
-                    self._pop_front_and_renumber()
-                    break
-
-                # Arm (or clear) the TX→RX blackout window so RxService drops
-                # packets arriving while the simulated radio is transmitting.
-                if blackout_ms > 0:
-                    self.runtime.tx_blackout_until = time.time() + blackout_ms / 1000.0
-                    await self.runtime.rx.broadcast({"type": "blackout", "ms": blackout_ms})
-                else:
-                    # Feature disabled at send time. If a prior batch armed a
-                    # deadline that is still in the future, emit an explicit
-                    # clear (ms=0) so every connected RX view — main dashboard
-                    # and pop-out alike — hides its indicator deterministically
-                    # instead of waiting for the old timer to drain.
-                    if self.runtime.tx_blackout_until > time.time():
-                        await self.runtime.rx.broadcast({"type": "blackout", "ms": 0})
-                    self.runtime.tx_blackout_until = 0.0
-
-                with self.send_lock:
-                    self.sending["sent_at"] = time.time()
-                self.count += 1
-                sent += 1
-
-                hist_entry = self._record_sent(item, raw_cmd, payload, send_csp, send_ax25, uplink_mode)
-
-                await self.broadcast({"type": "sent", "data": hist_entry})
-                current_label = item.get("display", {}).get("title", "?")
-                await self.broadcast({"type": "send_progress", "sent": sent, "total": total, "current": current_label, "waiting": False})
-
-                with self.send_lock:
-                    if self.queue:
-                        self.queue.pop(0)
-                    self.sending["sent_at"] = 0
-                    self.renumber_queue()
-                    self.save_queue()
-                prev_was_cmd = True
         finally:
-            await self._finalize_send(sent)
+            await self._finalize_send(ctx.sent)
+
+
+_ItemHandler = Callable[[TxService, dict, _SendContext], Awaitable[_RunResult]]
+_ITEM_DISPATCH: dict[str, _ItemHandler] = {
+    "note":        TxService._run_note_item,
+    "delay":       TxService._run_delay_item,
+    "mission_cmd": TxService._run_mission_cmd_item,
+}
