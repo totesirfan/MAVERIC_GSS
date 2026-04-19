@@ -18,6 +18,7 @@ mav_gss_lib/web/node_modules/
 /logs/
 /images/
 tests/test_images/
+tests/images/
 backup_control/logs/
 generated_commands/
 .pending_queue.jsonl
@@ -54,6 +55,13 @@ skills-lock.json
 docs/superpowers/plans/
 docs/superpowers/specs/
 .playwright-mcp/
+
+# === UI preview scratchpads (local-only, not shipped) ===
+docs/*-preview.html
+docs/vendor/
+docs/maveric.stl
+docs/maveric-envelope.glb
+docs/gnc-migration.md
 
 # === Legacy / Retired ===
 legacy/
