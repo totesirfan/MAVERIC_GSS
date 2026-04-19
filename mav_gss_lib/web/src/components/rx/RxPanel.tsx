@@ -206,6 +206,20 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
     document.addEventListener('mouseup', onUp)
   }, [detailHeight])
 
+  const handleResizeKey = useCallback((e: React.KeyboardEvent) => {
+    const STEP = 40
+    if (e.key === 'PageUp') {
+      e.preventDefault()
+      setDetailHeight(h => Math.min(window.innerHeight * 0.7, h + STEP))
+    } else if (e.key === 'PageDown') {
+      e.preventDefault()
+      setDetailHeight(h => Math.max(100, h - STEP))
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setDetailHeight(200)
+    }
+  }, [])
+
   const selectedPacket = selectedNum !== null ? filtered.find(p => p.num === selectedNum) ?? null : null
   const isLive = autoScroll && selectedNum === lastNum
   const missionName = config?.general?.mission_name ?? 'Mission'
@@ -337,10 +351,18 @@ export function RxPanel({ config, packets, status, packetStats, columns, replayM
               >
                 <div
                   onMouseDown={startDragResize}
-                  className="h-1.5 shrink-0 cursor-ns-resize flex items-center justify-center"
+                  onKeyDown={handleResizeKey}
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label="Resize packet detail pane — PageUp/PageDown to adjust, Home to reset"
+                  title="Drag to resize · PageUp/PageDown"
+                  tabIndex={0}
+                  className="h-2 shrink-0 cursor-ns-resize flex items-center justify-center relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[#E8B83A]"
                   style={{ backgroundColor: colors.bgPanelRaised }}
                 >
-                  <div className="w-8 h-0.5 rounded-full" style={{ backgroundColor: colors.borderStrong }} />
+                  {/* Expanded hit zone — 16px total click target (8px visible + 8px above) per HFDS 9.5.1 */}
+                  <span aria-hidden="true" className="absolute inset-x-0 -top-2 h-2" />
+                  <div className="w-8 h-0.5 rounded-full" style={{ backgroundColor: '#606060' }} />
                 </div>
                 <div className="flex items-center justify-between px-3 py-1 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
                   <span className="text-xs font-bold" style={{ color: colors.value }}>
