@@ -275,8 +275,8 @@ class RegisterDef:
     decode_extra: Callable[[list], dict[str, Any]] | None = None
 
 
-# Register catalog — mirrors /Users/irfan/Downloads/Registers.csv
-# (GNC team authoritative list). Registers with custom `decode_extra`
+# Register catalog — mirrors the GNC team's authoritative Registers.csv.
+# Registers with custom `decode_extra`
 # callbacks unpack their bitfields / BCD / scaled units; all others
 # fall through to the generic float/int coercion pipeline and display
 # as arrays of typed values in the raw table.
