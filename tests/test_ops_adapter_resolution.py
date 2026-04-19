@@ -107,12 +107,6 @@ class TestEchoResolution(unittest.TestCase):
         self.assertIsInstance(result["raw_cmd"], bytes)
         self.assertIn("display", result)
 
-    def test_node_label(self):
-        self.assertIn("5", self.adapter.node_label(5))
-
-    def test_ptype_label(self):
-        self.assertIn("1", self.adapter.ptype_label(1))
-
 
 class TestMavericResolution(unittest.TestCase):
     """Verify MAVERIC adapter resolves correctly."""
@@ -144,12 +138,6 @@ class TestMavericResolution(unittest.TestCase):
     def test_parse_cmd_line_full(self):
         src, dest, echo, ptype, cmd_id, args = self.adapter.parse_cmd_line("6 1 0 1 com_ping")
         self.assertEqual(cmd_id, "com_ping")
-
-    def test_node_label_known(self):
-        self.assertIn("GS", self.adapter.node_label(6))
-
-    def test_ptype_label_known(self):
-        self.assertIn("CMD", self.adapter.ptype_label(1))
 
 
 if __name__ == "__main__":

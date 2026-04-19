@@ -162,7 +162,7 @@ The mission owns all command parsing, validation, and encoding inside `build_tx_
 - `integrity_blocks(pkt)` → CRC/integrity check blocks
 
 **Resolution:**
-- `gs_node` property, `node_name()`, `ptype_name()`, `node_label()`, `ptype_label()`
+- `gs_node` property, `node_name()`, `ptype_name()`
 - `resolve_node(s)`, `resolve_ptype(s)`
 
 **Logging:**

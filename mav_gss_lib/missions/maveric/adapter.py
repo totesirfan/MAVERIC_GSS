@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from mav_gss_lib.missions.maveric import rendering as _rendering, rx_ops, tx_ops
 from mav_gss_lib.missions.maveric import log_format as _log_format
+from mav_gss_lib.missions.maveric.display_helpers import md as _md_helper
 from mav_gss_lib.missions.maveric.nodes import NodeTable
 
 
@@ -45,16 +46,12 @@ class MavericMissionAdapter:
     def parse_packet(self, inner_payload: bytes, warnings: list[str] | None = None):
         return rx_ops.parse_packet(inner_payload, self.cmd_defs, warnings)
 
-    @staticmethod
-    def _md(pkt) -> dict:
-        return getattr(pkt, "mission_data", {}) or {}
-
     def duplicate_fingerprint(self, parsed):
-        return rx_ops.duplicate_fingerprint(self._md(parsed))
+        return rx_ops.duplicate_fingerprint(_md_helper(parsed))
 
     def is_uplink_echo(self, cmd) -> bool:
         from mav_gss_lib.mission_adapter import ParsedPacket
-        md = self._md(cmd) if isinstance(cmd, ParsedPacket) else {"cmd": cmd}
+        md = _md_helper(cmd) if isinstance(cmd, ParsedPacket) else {"cmd": cmd}
         return rx_ops.is_uplink_echo(md, self.nodes.gs_node)
 
     def build_tx_command(self, payload):
@@ -83,7 +80,7 @@ class MavericMissionAdapter:
         return _log_format.format_log_lines(pkt, self.nodes)
 
     def is_unknown_packet(self, parsed) -> bool:
-        return _log_format.is_unknown_packet(self._md(parsed))
+        return _log_format.is_unknown_packet(_md_helper(parsed))
 
     # -- Resolution contract --
 
@@ -96,12 +93,6 @@ class MavericMissionAdapter:
 
     def ptype_name(self, ptype_id: int) -> str:
         return self.nodes.ptype_name(ptype_id)
-
-    def node_label(self, node_id: int) -> str:
-        return self.nodes.node_label(node_id)
-
-    def ptype_label(self, ptype_id: int) -> str:
-        return self.nodes.ptype_label(ptype_id)
 
     def resolve_node(self, s: str) -> int | None:
         return self.nodes.resolve_node(s)
@@ -129,7 +120,7 @@ class MavericMissionAdapter:
         2. Imaging progress — img_* and cam_capture_imgs responses fed into
            the image assembler.
         """
-        md = self._md(pkt)
+        md = _md_helper(pkt)
         cmd = md.get("cmd")
         if not cmd:
             return None

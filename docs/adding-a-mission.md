@@ -254,8 +254,7 @@ These methods translate between internal IDs and operator-facing names. They're 
 | Method | Purpose |
 |--------|---------|
 | `gs_node` (property) | Ground station node ID |
-| `node_name(id)` / `ptype_name(id)` | Short display name |
-| `node_label(id)` / `ptype_label(id)` | Full descriptive label |
+| `node_name(id)` / `ptype_name(id)` | Human-readable name (or `str(id)` if unknown) |
 | `resolve_node(s)` / `resolve_ptype(s)` | Name string → integer ID |
 
 ### Logging

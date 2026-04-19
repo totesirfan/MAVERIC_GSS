@@ -15,10 +15,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from mav_gss_lib.missions.maveric.nodes import NodeTable
 
-
-def _md(pkt) -> dict:
-    """Read mission data from a packet."""
-    return getattr(pkt, "mission_data", {}) or {}
+from mav_gss_lib.missions.maveric.display_helpers import (
+    md as _md,
+    has_decoded_gnc as _has_decoded_gnc,
+    unwrap_typed_arg_for_display,
+    is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
+    is_gnc_mode, is_gnc_counters, is_bitfield, is_generic_dict,
+)
 
 
 # =============================================================================
@@ -46,21 +49,14 @@ def packet_list_row(pkt, nodes: NodeTable) -> dict:
     md = _md(pkt)
     cmd = md.get("cmd")
     telemetry = md.get("telemetry")
-    hide_args = bool(telemetry and telemetry.get("hide_schema_args"))
+    hide_args = bool(telemetry and telemetry.get("hide_schema_args")) or _has_decoded_gnc(md)
 
     args_str = ""
     if not hide_args:
         if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
             important = [ta for ta in cmd["typed_args"] if ta.get("important")]
             show = important if important else cmd["typed_args"]
-            parts = []
-            for ta in show:
-                val = ta.get("value", "")
-                if ta["type"] == "epoch_ms":
-                    val = val.ms if hasattr(val, "ms") else (val["ms"] if isinstance(val, dict) and "ms" in val else val)
-                if isinstance(val, (bytes, bytearray)):
-                    val = val.hex()
-                parts.append(str(val))
+            parts = [str(unwrap_typed_arg_for_display(ta)) for ta in show]
             args_str = " ".join(parts)
         elif cmd:
             raw = cmd.get("args", [])
@@ -185,18 +181,14 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
         ]})
 
     telemetry = md.get("telemetry")
-    hide_args = bool(telemetry and telemetry.get("hide_schema_args"))
+    hide_args = bool(telemetry and telemetry.get("hide_schema_args")) or _has_decoded_gnc(md)
 
     if not hide_args:
         if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
-            args_fields = []
-            for ta in cmd["typed_args"]:
-                val = ta.get("value", "")
-                if ta["type"] == "epoch_ms":
-                    val = val.ms if hasattr(val, "ms") else (val["ms"] if isinstance(val, dict) and "ms" in val else val)
-                if isinstance(val, (bytes, bytearray)):
-                    val = val.hex()
-                args_fields.append({"name": ta["name"], "value": str(val)})
+            args_fields = [
+                {"name": ta["name"], "value": str(unwrap_typed_arg_for_display(ta))}
+                for ta in cmd["typed_args"]
+            ]
             for i, extra in enumerate(cmd.get("extra_args", [])):
                 args_fields.append({"name": f"arg{len(cmd.get('typed_args', [])) + i}", "value": str(extra)})
             if args_fields:
@@ -263,84 +255,72 @@ def _gnc_register_detail_fields(snap: dict) -> list[dict]:
     unit = snap.get("unit") or ""
     suffix = f" {unit}" if unit else ""
 
-    if isinstance(value, dict):
-        # NVG sensor snapshot
-        if "sensor_id" in value and "values" in value:
-            fields = [
-                {"name": "Display", "value": str(value.get("display", ""))},
-                {"name": "Status",  "value": str(value.get("status"))},
-            ]
-            ts = value.get("timestamp")
-            if ts is not None:
-                fields.append({"name": "Timestamp", "value": str(ts)})
-            names = value.get("fields") or []
-            vals  = value.get("values") or []
-            if names and len(vals) == len(names):
-                for n, v in zip(names, vals):
-                    fields.append({"name": n, "value": f"{v}{suffix}"})
-            else:
-                for i, v in enumerate(vals):
-                    fields.append({"name": f"v[{i}]", "value": f"{v}{suffix}"})
-            return fields
+    if is_nvg_sensor(value):
+        fields = [
+            {"name": "Display", "value": str(value.get("display", ""))},
+            {"name": "Status",  "value": str(value.get("status"))},
+        ]
+        ts = value.get("timestamp")
+        if ts is not None:
+            fields.append({"name": "Timestamp", "value": str(ts)})
+        names = value.get("fields") or []
+        vals  = value.get("values") or []
+        if names and len(vals) == len(names):
+            for n, v in zip(names, vals):
+                fields.append({"name": n, "value": f"{v}{suffix}"})
+        else:
+            for i, v in enumerate(vals):
+                fields.append({"name": f"v[{i}]", "value": f"{v}{suffix}"})
+        return fields
 
-        # BCD (TIME/DATE)
-        if "display" in value and isinstance(value["display"], str):
-            return [{"name": "Display", "value": value["display"]}]
+    if is_bcd_display(value):
+        return [{"name": "Display", "value": value["display"]}]
 
-        # ADCS_TMP: {brdtmp, celsius, comm_fault}
-        if "celsius" in value:
-            if value.get("comm_fault"):
-                return [{"name": "Status", "value": "SENSOR FAULT"}]
-            return [
-                {"name": "Celsius", "value": f"{value.get('celsius'):.2f} °C"},
-                {"name": "Raw",     "value": str(value.get("brdtmp"))},
-            ]
+    if is_adcs_tmp(value):
+        if value.get("comm_fault"):
+            return [{"name": "Status", "value": "SENSOR FAULT"}]
+        return [
+            {"name": "Celsius", "value": f"{value.get('celsius'):.2f} °C"},
+            {"name": "Raw",     "value": str(value.get("brdtmp"))},
+        ]
 
-        # NVG heartbeat: {status, label}
-        if "label" in value and "status" in value and "sensor_id" not in value and "mode" not in value:
-            return [
-                {"name": "Label",  "value": str(value.get("label"))},
-                {"name": "Status", "value": str(value.get("status"))},
-            ]
+    if is_nvg_heartbeat(value):
+        return [
+            {"name": "Label",  "value": str(value.get("label"))},
+            {"name": "Status", "value": str(value.get("status"))},
+        ]
 
-        # GNC Planner mode: {mode, mode_name}
-        if "mode_name" in value and "mode" in value and "MODE" not in value:
-            return [
-                {"name": "Mode", "value": str(value.get("mode_name"))},
-                {"name": "Code", "value": str(value.get("mode"))},
-            ]
+    if is_gnc_mode(value):
+        return [
+            {"name": "Mode", "value": str(value.get("mode_name"))},
+            {"name": "Code", "value": str(value.get("mode"))},
+        ]
 
-        # GNC counters: {reboot, detumble, sunspin}
-        if "sunspin" in value and "detumble" in value:
-            return [
-                {"name": "Reboot",    "value": str(value.get("reboot"))},
-                {"name": "De-Tumble", "value": str(value.get("detumble"))},
-                {"name": "Sunspin",   "value": str(value.get("sunspin"))},
-            ]
+    if is_gnc_counters(value):
+        return [
+            {"name": "Reboot",    "value": str(value.get("reboot"))},
+            {"name": "De-Tumble", "value": str(value.get("detumble"))},
+            {"name": "Sunspin",   "value": str(value.get("sunspin"))},
+        ]
 
-        # Bitfield (STAT/ACT_ERR/SEN_ERR/CONF). Shows MODE + truthy flags
-        # only — we suppress the "all False" noise (each uint8[4] has
-        # ~18 flag fields, most of which are nominal).
+    if is_bitfield(value):
+        fields: list[dict] = []
         has_bool_flags = any(isinstance(v, bool) for v in value.values())
-        if has_bool_flags or "MODE" in value or "TARGET_ELEV" in value:
-            fields: list[dict] = []
-            if "MODE" in value:
-                mode_name = value.get("MODE_NAME", str(value.get("MODE")))
-                fields.append({"name": "Mode", "value": f"{mode_name} ({value.get('MODE')})"})
-            if "TARGET_ELEV" in value:
-                fields.append({"name": "Target Elev", "value": f"{value['TARGET_ELEV']}°"})
-            truthy = [k for k, v in value.items() if v is True]
-            if truthy:
-                fields.append({"name": "Flags", "value": ", ".join(truthy)})
-            elif has_bool_flags and "MODE" not in value:
-                # Pure-error register (ACT_ERR/SEN_ERR) with nothing set
-                fields.append({"name": "Status", "value": "All nominal"})
-            return fields
+        if "MODE" in value:
+            mode_name = value.get("MODE_NAME", str(value.get("MODE")))
+            fields.append({"name": "Mode", "value": f"{mode_name} ({value.get('MODE')})"})
+        if "TARGET_ELEV" in value:
+            fields.append({"name": "Target Elev", "value": f"{value['TARGET_ELEV']}°"})
+        truthy = [k for k, v in value.items() if v is True]
+        if truthy:
+            fields.append({"name": "Flags", "value": ", ".join(truthy)})
+        elif has_bool_flags and "MODE" not in value:
+            fields.append({"name": "Status", "value": "All nominal"})
+        return fields
 
-        # Generic dict fallback — list every key
+    if is_generic_dict(value):
         return [{"name": str(k), "value": str(v)} for k, v in value.items()]
 
-    # Scalar / list fallback
     if isinstance(value, list):
         joined = ", ".join(f"{v:.4f}" if isinstance(v, float) else str(v) for v in value)
         return [{"name": "Value", "value": f"{joined}{suffix}"}]

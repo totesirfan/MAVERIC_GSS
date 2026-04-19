@@ -150,12 +150,6 @@ class TemplateMissionAdapter:
     def ptype_name(self, ptype_id: int) -> str:
         return str(ptype_id)
 
-    def node_label(self, node_id: int) -> str:
-        return str(node_id)
-
-    def ptype_label(self, ptype_id: int) -> str:
-        return str(ptype_id)
-
     def resolve_node(self, s: str) -> int | None:
         try:
             return int(s)

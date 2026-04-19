@@ -285,10 +285,3 @@ def validate_args(cmd_id, args_str, cmd_defs):
             )
 
     return not issues, issues
-
-
-def format_arg_value(typed_arg):
-    """Format a schema-typed argument value for display/logging."""
-    if typed_arg["type"] == "epoch_ms" and isinstance(typed_arg["value"], (_LazyEpochMs, dict)):
-        return str(typed_arg["value"]["ms"])
-    return str(typed_arg["value"])

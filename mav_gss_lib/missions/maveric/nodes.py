@@ -29,12 +29,6 @@ class NodeTable:
     def ptype_name(self, ptype_id: int) -> str:
         return self.ptype_names.get(ptype_id, str(ptype_id))
 
-    def node_label(self, node_id: int) -> str:
-        return self.node_names.get(node_id, str(node_id))
-
-    def ptype_label(self, ptype_id: int) -> str:
-        return self.ptype_names.get(ptype_id, str(ptype_id))
-
     def resolve_node(self, s: str) -> int | None:
         upper = s.upper()
         if upper in self.node_ids:

@@ -193,8 +193,8 @@ class _BaseLog:
     @staticmethod
     def _route_line(src, dest, echo, ptype, adapter=None):
         """Format routing fields: Src:x  Dest:x  Echo:x  Type:x"""
-        nl = adapter.node_label if adapter else str
-        pl = adapter.ptype_label if adapter else str
+        nl = adapter.node_name if adapter else str
+        pl = adapter.ptype_name if adapter else str
         return (f"Src:{nl(src)}  Dest:{nl(dest)}  "
                 f"Echo:{nl(echo)}  Type:{pl(ptype)}")
 
