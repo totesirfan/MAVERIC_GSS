@@ -30,8 +30,8 @@ from .session_ws import router as session_router
 from .preflight_ws import (
     router as preflight_router,
     run_preflight_and_broadcast,
-    schedule_update_check,
 )
+from .update_ws import schedule_update_check
 from .tx import router as tx_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
 from .state import WEB_DIR, create_runtime, get_runtime
