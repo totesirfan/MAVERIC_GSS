@@ -12,7 +12,7 @@ import type {
 } from '@/lib/types'
 import { PlanetGlobe } from './PlanetGlobe'
 import { SLATE_ACCENT, USC_GOLD } from './PreflightScreen.constants'
-import { UpdatesGroupExtras, UpdaterStage } from './PreflightScreen.updater'
+import { UpdaterStage } from './PreflightScreen.updater'
 
 // =============================================================================
 //  Constants
@@ -258,15 +258,6 @@ export function PreflightScreen({
                             />
                           ) : null
                         }
-                      />
-                      <UpdatesGroupExtras
-                        meta={updatesMeta}
-                        updateState={updateState}
-                        updatePhases={updatePhases}
-                        onShowConfirm={onShowConfirm}
-                        onCancelConfirm={onCancelConfirm}
-                        onApplyUpdate={onApplyUpdate}
-                        onReloadPage={onReloadPage}
                       />
                     </div>
                   )}
