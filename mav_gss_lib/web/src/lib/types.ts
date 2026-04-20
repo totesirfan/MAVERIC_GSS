@@ -192,6 +192,7 @@ export interface GssConfig {
     rx_title?: string
     tx_title?: string
     version: string
+    build_sha?: string
     log_dir: string
     gs_node: string
   }

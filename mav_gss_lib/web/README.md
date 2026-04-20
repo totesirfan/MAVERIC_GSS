@@ -58,7 +58,7 @@ src/
   App.tsx                Top-level router (?panel= pop-out, ?page= plugins, else AppShell → MainDashboard)
   main.tsx               React root; mounts <App /> and imports index.css
   index.css              Tailwind directives, token definitions, and @font-face declarations
-  vite-env.d.ts          Vite ambient types (including __BUILD_SHA__)
+  vite-env.d.ts          Vite ambient types
   components/
     MainDashboard.tsx    Split-pane RX/TX layout; reads RX/TX state via provider hooks
     rx/                  RxPanel, PacketList/Row/Detail, SessionBanner, BlackoutPill

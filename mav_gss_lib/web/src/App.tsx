@@ -256,7 +256,7 @@ function PreflightOverlay() {
   const preflight = usePreflight()
   const { config } = useConfig()
   const version = config?.general?.version
-  const buildSha = typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : undefined
+  const buildSha = config?.general?.build_sha
   const [dismissing, setDismissing] = useState(false)
   const [dismissed, setDismissed] = useState(false)
 

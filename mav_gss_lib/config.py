@@ -33,6 +33,29 @@ def _read_version() -> str:
         return "0.0.0"
 
 
+def _read_build_sha() -> str:
+    """Short git SHA of the working tree, resolved at module import.
+
+    Runtime-derived (not baked into the JS bundle), so a backend-only
+    commit no longer dirties dist/. Returned via /api/config as
+    general.build_sha and displayed on the preflight screen.
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(_PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "unknown"
+
+
 from mav_gss_lib.constants import (
     DEFAULT_MISSION,
     DEFAULT_RX_ZMQ_ADDR,
@@ -51,6 +74,7 @@ _DEFAULTS = {
     "general": {
         "mission":      DEFAULT_MISSION,
         "version":      _read_version(),
+        "build_sha":    _read_build_sha(),
         "log_dir":      "logs",
         "generated_commands_dir": "generated_commands",
     },

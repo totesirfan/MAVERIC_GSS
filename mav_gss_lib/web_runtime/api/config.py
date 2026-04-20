@@ -111,7 +111,7 @@ _STRICT_MISSION_GENERAL_KEYS = {
     "tx_title",
     "splash_subtitle",
 }
-_PLATFORM_DERIVED_GENERAL_KEYS = {"version"}
+_PLATFORM_DERIVED_GENERAL_KEYS = {"version", "build_sha"}
 
 
 def _strip_persisted_junk(update: dict) -> dict:
