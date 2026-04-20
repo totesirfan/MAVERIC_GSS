@@ -28,6 +28,32 @@ const EMPTY_PHASES: Record<UpdatePhase, UpdateProgress> = {
   restart:   { phase: 'restart',   status: 'pending' },
 }
 
+/** Poll `/api/status` until the restarted uvicorn is accepting requests,
+ *  then trigger a full page reload. Gives up after MAX_WAIT_MS and reloads
+ *  anyway so the operator is never stuck on a stale page forever. */
+async function waitForServerThenReload(signal: AbortSignal): Promise<void> {
+  const INITIAL_GRACE_MS = 500   // let os.execv finish replacing the image
+  const POLL_INTERVAL_MS = 400
+  const POLL_TIMEOUT_MS  = 1500
+  const MAX_WAIT_MS      = 30_000
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+  await sleep(INITIAL_GRACE_MS)
+  const deadline = Date.now() + MAX_WAIT_MS
+  while (!signal.aborted && Date.now() < deadline) {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), POLL_TIMEOUT_MS)
+      const resp = await fetch('/api/status', { cache: 'no-store', signal: ctrl.signal })
+      clearTimeout(timer)
+      if (resp.ok) break
+    } catch {
+      // server not back yet — keep polling
+    }
+    await sleep(POLL_INTERVAL_MS)
+  }
+  if (!signal.aborted) window.location.reload()
+}
+
 export function usePreflight(): PreflightState {
   const [checks, setChecks] = useState<PreflightCheck[]>([])
   const [summary, setSummary] = useState<PreflightSummary | null>(null)
@@ -42,6 +68,7 @@ export function usePreflight(): PreflightState {
   const updateStateRef = useRef<UpdateUIState>('idle')
   const restartArmedRef = useRef(false)
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reloadAbortRef = useRef<AbortController | null>(null)
 
   // Keep a ref mirror of updateState so the socket callbacks (stable closures)
   // can read the latest value without re-subscribing.
@@ -93,17 +120,21 @@ export function usePreflight(): PreflightState {
             socketRef.current?.send({ action: 'launched' })
           }
         } else {
-          // WS disconnect during the 'restart' phase is the success signal.
-          // Transition to 'reloading' and refresh the page after a brief delay.
+          // WS disconnect during the 'restart' phase is the success signal
+          // that os.execv has fired. Transition to 'reloading' and poll
+          // /api/status until the new uvicorn is bound and serving, then
+          // reload. A fixed timeout would either reload too early (broken
+          // "can't reach this page" while the interpreter re-imports) or
+          // too late. Polling adapts to the actual boot time.
           if (
             updateStateRef.current === 'applying'
             && restartArmedRef.current
           ) {
             setUpdateState('reloading')
             if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current)
-            reloadTimerRef.current = setTimeout(() => {
-              window.location.reload()
-            }, 2000)
+            reloadAbortRef.current?.abort()
+            reloadAbortRef.current = new AbortController()
+            void waitForServerThenReload(reloadAbortRef.current.signal)
           }
         }
       },
@@ -115,6 +146,8 @@ export function usePreflight(): PreflightState {
         clearTimeout(reloadTimerRef.current)
         reloadTimerRef.current = null
       }
+      reloadAbortRef.current?.abort()
+      reloadAbortRef.current = null
     }
   }, [])
 
