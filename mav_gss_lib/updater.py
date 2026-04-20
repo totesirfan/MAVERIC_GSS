@@ -218,7 +218,7 @@ def _ensure_git_repo(timeout_s: float) -> Optional[str]:
 def _clean_dist_strays() -> None:
     """Delete untracked files under `mav_gss_lib/web/dist/assets/`.
 
-    Vite writes content-hashed bundle filenames (e.g. `index-DpEPWUcJ.js`).
+    Vite writes content-hashed bundle filenames (e.g. `index-Djcvb32_.js`).
     When a remote commit changes the hash, `git pull --ff-only` on a machine
     that happens to have a differently-hashed leftover refuses to proceed,
     and even when it does, the stray file leaves `git status --porcelain`
