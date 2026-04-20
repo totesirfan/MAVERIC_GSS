@@ -38,7 +38,6 @@ class _SendContext:
     """Per-run state shared across per-item handlers."""
     sent: int
     total: int
-    prev_was_cmd: bool
     sock: object
     uplink_mode: str
     default_delay: int
@@ -176,7 +175,6 @@ class TxService:
 
     async def _run_delay_item(self, item, ctx: _SendContext) -> _RunResult:
         """Execute a ``delay`` queue item."""
-        ctx.prev_was_cmd = False
         with self.send_lock:
             self.sending["sent_at"] = 0
             self.sending["waiting"] = True  # Flag MUST be set before the broadcast below — tests observing the broadcast assume the flag is already True.
@@ -191,15 +189,6 @@ class TxService:
             return _RunResult(aborted=True, sent_delta=0)
         self._pop_and_renumber()
         return _RunResult(aborted=False, sent_delta=0)
-
-    async def _run_inter_cmd_delay(self, default_delay: int) -> bool:
-        """Wait the inter-command gap between two back-to-back commands."""
-        with self.send_lock:
-            self.sending["waiting"] = True
-        aborted = await self._wait_ms(default_delay)
-        with self.send_lock:
-            self.sending["waiting"] = False
-        return aborted
 
     async def _run_guard_wait(self, item) -> bool:
         """Broadcast guard prompt and block until approved or aborted.
@@ -284,12 +273,8 @@ class TxService:
         await self.broadcast({"type": "history", "items": self.history[-self.runtime.max_history :]})
 
     async def _run_mission_cmd_item(self, item, ctx: _SendContext) -> _RunResult:
-        """Execute one ``mission_cmd`` queue item end-to-end: inter-cmd gap,
-        optional guard, frame build, ZMQ send, blackout arm, history record."""
-        if ctx.prev_was_cmd and ctx.default_delay > 0:
-            if await self._run_inter_cmd_delay(ctx.default_delay):
-                return _RunResult(aborted=True, sent_delta=0)
-
+        """Execute one ``mission_cmd`` queue item end-to-end: optional guard,
+        frame build, ZMQ send, blackout arm, history record, post-send dwell."""
         if item.get("guard"):
             if await self._run_guard_wait(item):
                 return _RunResult(aborted=True, sent_delta=0)
@@ -340,14 +325,29 @@ class TxService:
         current_label = item.get("display", {}).get("title", "?")
         await self.broadcast({"type": "send_progress", "sent": new_sent, "total": ctx.total, "current": current_label, "waiting": False})
 
+        # Post-send visible dwell. The sent item stays at queue-front for
+        # `tx.delay_ms` so operators see the SENDING animation and the
+        # "— delay" indicator; aborts wake immediately. `delay_ms=0` skips
+        # the dwell for zero-overhead back-to-back sends.
+        dwell_aborted = False
+        if ctx.default_delay > 0:
+            with self.send_lock:
+                self.sending["waiting"] = True
+            await self.broadcast({
+                "type": "send_progress", "sent": new_sent, "total": ctx.total,
+                "current": current_label, "waiting": True,
+            })
+            dwell_aborted = await self._wait_ms(ctx.default_delay)
+            with self.send_lock:
+                self.sending["waiting"] = False
+
         with self.send_lock:
             if self.queue:
                 self.queue.pop(0)
             self.sending["sent_at"] = 0
             self.renumber_queue()
             self.save_queue()
-        ctx.prev_was_cmd = True
-        return _RunResult(aborted=False, sent_delta=1)
+        return _RunResult(aborted=dwell_aborted, sent_delta=1)
 
     async def run_send(self):
         """Run the serialized TX send loop until queue exhaustion or abort."""
@@ -368,7 +368,6 @@ class TxService:
         ctx = _SendContext(
             sent=0,
             total=self.sending.get("total", len(self.queue)),
-            prev_was_cmd=False,
             sock=self.zmq_sock,
             uplink_mode=uplink_mode,
             default_delay=default_delay,

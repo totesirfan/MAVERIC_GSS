@@ -223,15 +223,13 @@ class TestTxRuntime(unittest.TestCase):
         self.assertEqual(projected[0]["payload"]["cmd_id"], "com_ping")
 
 
-    def test_run_send_has_no_hidden_post_send_sleep(self):
-        """Regression for C-1: two back-to-back commands must not take ≥1.0 s.
+    def test_delay_ms_zero_has_no_post_send_dwell(self):
+        """With `tx.delay_ms=0`, back-to-back commands must not accrue dwell time.
 
-        `tx.delay_ms` is already 0 in setUp. `_run_inter_cmd_delay` is the
-        only legitimate spacing mechanism between commands. If a hidden
-        `await asyncio.sleep(0.5)` remains in the send path, two
-        zero-delay commands take ≥ 1.0 s (500 ms × 2). Threshold 0.6 s
-        gives a comfortable margin below the buggy minimum while
-        tolerating slow-CI disk latency on `save_queue`'s tempfile writes.
+        The post-send dwell is bound to `tx.delay_ms`; setting it to 0
+        opts out entirely for max-throughput scenarios. Two zero-delay
+        commands should clear well under the 500 ms dwell floor. Threshold
+        0.6 s tolerates slow-CI disk latency on `save_queue` tempfile writes.
         """
         import time as _time
 
@@ -247,12 +245,59 @@ class TestTxRuntime(unittest.TestCase):
         elapsed = _time.monotonic() - t0
 
         self.assertEqual(len(self.sent_payloads), 2)
-        # Two queued commands × 500ms sleep = 1.0s minimum with the bug.
-        # Without the bug, real cost is: 3× tempfile `save_queue` writes +
-        # broadcast-send iterations + renumber. Realistic worst case on a
-        # contended CI runner is ~300ms. 0.6s gives a comfortable margin
-        # below the 1.0s minimum-with-bug while tolerating slow disks.
-        self.assertLess(elapsed, 0.6, f"run_send took {elapsed:.3f}s — expected <0.6s with delay_ms=0 (bug would push it ≥1.0s)")
+        self.assertLess(elapsed, 0.6, f"run_send took {elapsed:.3f}s — expected <0.6s with delay_ms=0")
+
+    def test_post_send_dwell_broadcasts_waiting_and_blocks(self):
+        """With `tx.delay_ms>0`, the sent item dwells at queue-front with `waiting=True`.
+
+        The dwell is what lets the UI show the SENDING animation and the
+        "— delay" indicator. This verifies (a) a `send_progress` event
+        with `waiting=True` is broadcast after the actual send, and (b)
+        the dwell actually blocks for ~delay_ms.
+        """
+        import time as _time
+
+        self.runtime.cfg["tx"]["delay_ms"] = 150
+        self.runtime.tx.queue = [self._make_item("com_ping", "")]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False)
+
+        t0 = _time.monotonic()
+        asyncio.run(self.runtime.tx.run_send())
+        elapsed = _time.monotonic() - t0
+
+        self.assertEqual(len(self.sent_payloads), 1)
+        self.assertGreaterEqual(elapsed, 0.13, f"run_send took {elapsed:.3f}s — expected ≥0.13s with delay_ms=150")
+
+        waiting_events = [
+            msg for msg in self.messages
+            if isinstance(msg, dict)
+            and msg.get("type") == "send_progress"
+            and msg.get("waiting") is True
+        ]
+        self.assertTrue(waiting_events, f"expected a send_progress waiting=True broadcast after send, got {self.messages}")
+        sent_idx = next(i for i, m in enumerate(self.messages) if isinstance(m, dict) and m.get("type") == "sent")
+        waiting_idx = self.messages.index(waiting_events[0])
+        self.assertGreater(waiting_idx, sent_idx, "waiting=True must come after the 'sent' event")
+
+    def test_abort_during_post_send_dwell_still_pops_sent_item(self):
+        """Aborting during the dwell must not keep the already-transmitted cmd in queue."""
+        self.runtime.cfg["tx"]["delay_ms"] = 5000  # long dwell so abort can land inside it
+        self.runtime.tx.queue = [self._make_item("com_ping", "")]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(active=True, idx=-1, total=1, guarding=False, sent_at=0, waiting=False)
+
+        async def _run():
+            task = asyncio.create_task(self.runtime.tx.run_send())
+            await asyncio.wait_for(self.waiting_event.wait(), timeout=5.0)
+            self.runtime.tx.abort.set()
+            await task
+
+        asyncio.run(_run())
+
+        self.assertEqual(len(self.sent_payloads), 1)
+        self.assertEqual(self.runtime.tx.queue, [])
+        self.assertTrue(any(msg.get("type") == "send_aborted" for msg in self.messages if isinstance(msg, dict)))
 
 
 if __name__ == "__main__":
