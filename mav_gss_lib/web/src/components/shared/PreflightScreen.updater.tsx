@@ -266,62 +266,99 @@ export function UpdaterStage({
     return Number.isFinite(n) ? n : 0
   })()
 
+  // Status-pill copy + tone mirror the prototype: the pill morphs as the
+  // flow advances so a single glance from the panel header tells you where
+  // you are (idle/confirming/applying/success/failed).
+  const pill = (() => {
+    if (updateState === 'confirming') return { text: 'CONFIRM APPLY', tone: 'running' as const }
+    if (updateState === 'applying')   return { text: 'APPLYING UPDATE', tone: 'running' as const }
+    if (updateState === 'reloading')  return { text: 'UPDATE COMPLETE', tone: 'success' as const }
+    if (updateState === 'failed')     return { text: 'UPDATE FAILED', tone: 'fail' as const }
+    return {
+      text: behind > 0 ? `${behind} COMMIT${behind === 1 ? '' : 'S'} BEHIND` : 'UPDATE AVAILABLE',
+      tone: 'warn' as const,
+    }
+  })()
+  const pillColor =
+    pill.tone === 'success' ? colors.success :
+    pill.tone === 'fail'    ? colors.danger :
+    pill.tone === 'running' ? SLATE_ACCENT :
+    colors.warning
+
   return (
     <div
       className="flex flex-col items-stretch"
       style={{
-        width: 'clamp(380px, 44vmin, 620px)',
-        padding: 'clamp(1rem, 2vmin, 1.5rem)',
-        background: 'rgba(14, 14, 14, 0.85)',
-        border: `1px solid ${colors.borderSubtle}`,
-        borderRadius: 10,
-        boxShadow: '0 0 30px rgba(0, 0, 0, 0.4)',
-        gap: 'clamp(0.5rem, 1.2vmin, 0.9rem)',
+        width: 'clamp(420px, 48vmin, 680px)',
+        background: 'rgba(10, 10, 14, 0.82)',
+        border: `1px solid rgba(255,255,255,0.09)`,
+        borderRadius: 14,
+        padding: 'clamp(1.1rem, 2.2vmin, 1.6rem) clamp(1.2rem, 2.4vmin, 1.75rem)',
+        backdropFilter: 'blur(28px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(28px) saturate(120%)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 40px 80px -40px rgba(0,0,0,0.9)',
+        gap: 'clamp(0.6rem, 1.4vmin, 1rem)',
       }}
     >
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+      {/* Panel header — "UPDATES" label + state-aware status pill */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingBottom: 'clamp(0.7rem, 1.4vmin, 1rem)',
+          borderBottom: `1px solid rgba(255,255,255,0.055)`,
+        }}
+      >
         <div
           style={{
-            fontFamily: 'Inter, sans-serif',
-            fontWeight: 600,
-            letterSpacing: '0.12em',
-            fontSize: 'clamp(11px, 1.2vmin, 13px)',
-            color: SLATE_ACCENT,
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: 'clamp(9px, 1vmin, 10.5px)',
+            letterSpacing: '0.28em',
+            color: 'rgba(245,245,245,0.55)',
             textTransform: 'uppercase',
           }}
         >
-          Update Available
+          Updates · {meta?.branch ?? 'main'}
         </div>
         <div
           style={{
             fontFamily: '"JetBrains Mono", monospace',
-            fontSize: 'clamp(9.5px, 1vmin, 11px)',
-            color: colors.textMuted,
+            fontSize: 'clamp(8.5px, 0.9vmin, 9.5px)',
+            letterSpacing: '0.2em',
+            padding: '3px 9px',
+            borderRadius: 999,
+            color: pillColor,
+            border: `1px solid ${pillColor}59`,
+            background: `${pillColor}10`,
+            textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
           }}
         >
-          {meta?.branch ?? 'main'} · {behind} commit{behind === 1 ? '' : 's'} behind
+          {pill.text}
         </div>
       </div>
 
-      {/* Commit list */}
+      {/* Commit list — no height cap; card grows to fit commits so long
+          conventional-commit subjects wrap cleanly instead of being
+          truncated or hidden behind a tiny scroll viewport. */}
       {commits.length > 0 && (
         <div
-          className="overflow-auto"
           style={{
-            maxHeight: 'clamp(120px, 22vmin, 200px)',
             fontFamily: '"JetBrains Mono", monospace',
             fontSize: 'clamp(9.5px, 1vmin, 10.5px)',
-            color: colors.textSecondary,
-            borderTop: `1px solid ${colors.borderSubtle}`,
-            borderBottom: `1px solid ${colors.borderSubtle}`,
-            padding: '0.5rem 0',
+            color: 'rgba(245,245,245,0.78)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.28rem',
+            paddingBottom: 'clamp(0.4rem, 1vmin, 0.6rem)',
+            borderBottom: `1px solid rgba(255,255,255,0.055)`,
           }}
         >
           {commits.map((c) => (
-            <div key={c.sha} style={{ display: 'flex', gap: '0.6rem', padding: '2px 0', alignItems: 'flex-start' }}>
-              <span style={{ color: colors.textMuted, flexShrink: 0 }}>{c.sha.slice(0, 7)}</span>
-              <span style={{ minWidth: 0, flex: 1, overflowWrap: 'anywhere', lineHeight: 1.4 }}>
+            <div key={c.sha} style={{ display: 'flex', gap: '0.7rem', alignItems: 'flex-start' }}>
+              <span style={{ color: 'rgba(245,245,245,0.42)', flexShrink: 0 }}>{c.sha.slice(0, 7)}</span>
+              <span style={{ minWidth: 0, flex: 1, overflowWrap: 'anywhere', lineHeight: 1.5 }}>
                 {c.subject}
               </span>
             </div>
