@@ -155,6 +155,23 @@ export function GlobalHeader({
             {elapsed && (
               <span style={{ fontSize: '11px', color: colors.textMuted }}>{elapsed}</span>
             )}
+            {session?.operator && session?.station && (
+              <span style={{
+                marginLeft: 8,
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
+                color: colors.textMuted,
+                fontFamily: "'Inter', sans-serif",
+                fontSize: '11px',
+                letterSpacing: '0.04em',
+              }}>
+                <span style={{ opacity: 0.6 }}>·</span>{' '}
+                <span style={{ textTransform: 'uppercase', opacity: 0.7 }}>OP</span>{' '}
+                <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                  {session.operator}@{session.station}
+                </span>
+              </span>
+            )}
             <Popover open={session.openNewSession} onOpenChange={session.setOpenNewSession}>
               <PopoverTrigger
                 className="px-1.5 py-0.5 rounded text-[11px] cursor-pointer hover:bg-white/[0.04]"
