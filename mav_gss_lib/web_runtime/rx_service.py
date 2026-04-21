@@ -128,7 +128,10 @@ class RxService:
                 if self._should_drop_noise(meta, raw):
                     continue  # gr-satellites noise — behave as if never received
                 pkt = self.pipeline.process(meta, raw)
-                record = build_rx_log_record(pkt, version, meta, self.runtime.adapter)
+                record = build_rx_log_record(
+                    pkt, version, meta, self.runtime.adapter,
+                    operator=self.runtime.operator, station=self.runtime.station,
+                )
                 try:
                     if self.log:
                         self.log.write_jsonl(record)

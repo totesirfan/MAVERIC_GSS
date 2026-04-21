@@ -178,10 +178,11 @@ class RxPipeline:
             self.pkt_times.popleft()
 
 
-def build_rx_log_record(pkt, version, meta, adapter):
+def build_rx_log_record(pkt, version, meta, adapter, *, operator="", station=""):
     """Build a JSONL log record from a Packet.
 
-    Platform envelope: stable fields shared by all missions.
+    Platform envelope: stable fields shared by all missions, plus operator
+    and station stamps so merged logs from multiple laptops self-identify.
     Mission block: adapter-provided opaque payload.
     Rendering: full _rendering for replay passthrough.
     """
@@ -189,6 +190,7 @@ def build_rx_log_record(pkt, version, meta, adapter):
 
     record = {
         "v": version, "pkt": pkt.pkt_num, "gs_ts": pkt.gs_ts,
+        "operator": operator, "station": station,
         "frame_type": pkt.frame_type,
         "tx_meta": str(meta.get("transmitter", "")),
         "raw_hex": pkt.raw.hex(), "payload_hex": pkt.inner_payload.hex(),
