@@ -420,7 +420,8 @@ class TXLog(_BaseLog):
         super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr, mission_name=mission_name)
 
     def write_mission_command(self, n, display, mission_payload,
-                              raw_cmd, payload, ax25, csp, uplink_mode="AX.25"):
+                              raw_cmd, payload, ax25, csp, uplink_mode="AX.25",
+                              *, operator="", station=""):
         """Write one mission-built TX command entry with protocol details."""
         title = display.get("title", "?")
         subtitle = display.get("subtitle", "")
@@ -464,6 +465,7 @@ class TXLog(_BaseLog):
         rec = {
             "n": n, "ts": datetime.now().astimezone().isoformat(),
             "type": "mission_cmd",
+            "operator": operator, "station": station,
             "uplink_mode": uplink_mode,
             "display": display,
             "mission_payload": mission_payload,

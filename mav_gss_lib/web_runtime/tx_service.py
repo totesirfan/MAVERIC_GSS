@@ -247,6 +247,8 @@ class TxService:
                     item.get("payload", {}),
                     raw_cmd, payload, send_ax25, send_csp,
                     uplink_mode=uplink_mode,
+                    operator=self.runtime.operator,
+                    station=self.runtime.station,
                 )
             except Exception as exc:
                 logging.warning("TX log write failed: %s", exc)
@@ -255,6 +257,8 @@ class TxService:
             "n": self.count,
             "ts": datetime.now().strftime("%H:%M:%S"),
             "type": "mission_cmd",
+            "operator": self.runtime.operator,
+            "station": self.runtime.station,
             "display": item.get("display", {}),
             "payload": item.get("payload", {}),
             "size": len(payload),

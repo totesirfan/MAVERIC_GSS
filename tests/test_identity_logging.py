@@ -17,3 +17,34 @@ def test_rx_record_carries_identity():
     )
     assert record["operator"] == "irfan"
     assert record["station"] == "GS-0"
+
+
+import json
+import os
+
+from mav_gss_lib.logging import TXLog
+from mav_gss_lib.protocols.ax25 import AX25Config
+from mav_gss_lib.protocols.csp import CSPConfig
+
+
+def test_tx_record_carries_identity(tmp_path):
+    log = TXLog(str(tmp_path), zmq_addr="tcp://127.0.0.1:52002", version="1.2.3")
+    try:
+        log.write_mission_command(
+            n=1,
+            display={"title": "PING", "subtitle": ""},
+            mission_payload={"cmd": "ping"},
+            raw_cmd=b"\x01\x02",
+            payload=b"\x01\x02",
+            ax25=AX25Config(),
+            csp=CSPConfig(),
+            operator="irfan",
+            station="GS-0",
+        )
+    finally:
+        log.close()
+
+    with open(log.jsonl_path) as f:
+        rec = json.loads(f.readline())
+    assert rec["operator"] == "irfan"
+    assert rec["station"] == "GS-0"
