@@ -150,9 +150,13 @@ async def api_config_put(update: dict, request: Request):
     if sending_active and (requested_rx_addr != old_rx_addr or requested_tx_addr != old_tx_addr):
         return JSONResponse(status_code=409, content={"error": "cannot change ZMQ addresses during active send"})
 
-    # Mission selection is startup-only — strip it from runtime updates
+    # Mission selection and station identity are install-time — strip from runtime updates.
+    # station_id is intentionally NOT in _PLATFORM_DERIVED_GENERAL_KEYS because
+    # that list is stripped from the disk-merged config too, which would wipe
+    # the laptop's persisted station_id on every UI config save.
     if isinstance(update.get("general"), dict):
         update["general"].pop("mission", None)
+        update["general"].pop("station_id", None)
 
     # Strip mission-owned, runtime-derived, and platform-derived keys from
     # the client payload before it reaches runtime state or disk.
