@@ -35,6 +35,19 @@ mav_gss_lib/missions/*/mission.yml
 # === Operator-Local Config ===
 # Main station config — operator ZMQ addresses, local paths
 mav_gss_lib/gss.yml
+# Common local secret/config files
+.env
+.env.*
+*.local
+*.secret
+*.secrets
+# Private key / certificate material
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
 # Legacy config names (pre-consolidation)
 maveric_commands.yml
 maveric_gss.yml

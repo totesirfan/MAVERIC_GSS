@@ -20,6 +20,6 @@ general:
 # hostname at startup. Unknown hosts fall back to the raw hostname label.
 # UI config saves CANNOT change this catalog — edit the file directly.
 stations:
-  Irfans-MacBook-Pro.local: GS-0
-  d23ll-barnhart: GS-1
-  d30ll-barnhart: GS-2
+  gs-laptop-0.local: GS-0
+  gs-laptop-1.local: GS-1
+  gs-laptop-2.local: GS-2
