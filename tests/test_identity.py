@@ -24,56 +24,56 @@ def test_capture_host_returns_socket_hostname():
 
 
 def test_capture_station_returns_config_override_when_set():
-    cfg = {"general": {"station_id": "GS-1"}}
-    assert capture_station(cfg, host="d23ll-barnhart") == "GS-1"
+    cfg = {"stations": {"h": "GS-9"}}
+    assert capture_station(cfg, "h") == "GS-9"
 
 
 def test_capture_station_falls_back_to_host_when_override_missing():
-    cfg = {"general": {}}
-    assert capture_station(cfg, host="d23ll-barnhart") == "d23ll-barnhart"
+    cfg = {"stations": {}}
+    assert capture_station(cfg, "d23ll-barnhart") == "d23ll-barnhart"
 
 
 def test_capture_station_falls_back_to_host_when_override_blank():
-    cfg = {"general": {"station_id": ""}}
-    assert capture_station(cfg, host="d23ll-barnhart") == "d23ll-barnhart"
+    cfg = {"stations": {"d23ll-barnhart": ""}}
+    assert capture_station(cfg, "d23ll-barnhart") == "d23ll-barnhart"
 
 
-def test_capture_station_handles_missing_general_section():
+def test_capture_station_handles_missing_stations_section():
     cfg = {}
-    assert capture_station(cfg, host="host1") == "host1"
+    assert capture_station(cfg, "host1") == "host1"
 
 
 from mav_gss_lib.config import _DEFAULTS
 
 
-def test_station_id_is_in_defaults():
-    assert "station_id" in _DEFAULTS["general"]
-    assert _DEFAULTS["general"]["station_id"] is None
+def test_stations_is_in_defaults():
+    assert "stations" in _DEFAULTS
+    assert _DEFAULTS["stations"] == {}
+    assert "station_id" not in _DEFAULTS["general"]
 
 
-def test_station_id_strip_preserves_disk_value(tmp_path, monkeypatch):
-    """A UI config save must not wipe station_id from the persisted YAML."""
+def test_stations_strip_preserves_disk_value(tmp_path, monkeypatch):
+    """A UI config save must not wipe the stations catalog from the persisted YAML."""
     import yaml
     from mav_gss_lib import config as cfg_module
 
     gss_path = tmp_path / "gss.yml"
-    gss_path.write_text("general:\n  station_id: GS-7\ntx:\n  delay_ms: 500\n")
+    gss_path.write_text("stations:\n  host1: GS-7\ntx:\n  delay_ms: 500\n")
     monkeypatch.setattr(cfg_module, "_DEFAULT_GSS_PATH", gss_path)
     monkeypatch.setattr(cfg_module, "get_operator_config_path", lambda: gss_path)
 
-    # Simulate UI save: operator changes delay_ms, sends "station_id": "BAD" too.
+    # Simulate UI save: operator changes delay_ms and tries to overwrite stations.
     from mav_gss_lib.web_runtime.api.config import _strip_persisted_junk
     raw = cfg_module.load_operator_config_raw()
-    update = {"tx": {"delay_ms": 1000}, "general": {"station_id": "BAD"}}
+    update = {"tx": {"delay_ms": 1000}, "stations": {"host1": "MALICIOUS"}}
     # Mirror the handler's inline strip:
-    if isinstance(update.get("general"), dict):
-        update["general"].pop("station_id", None)
+    update.pop("stations", None)
     cfg_module.deep_merge_inplace(raw, update)
     raw = _strip_persisted_junk(raw)
     cfg_module.save_operator_config_raw(raw)
 
     reloaded = yaml.safe_load(gss_path.read_text())
-    assert reloaded["general"]["station_id"] == "GS-7"
+    assert reloaded["stations"]["host1"] == "GS-7"
     assert reloaded["tx"]["delay_ms"] == 1000
 
 
@@ -81,7 +81,7 @@ def test_preflight_yields_identity_row_from_capture():
     """CLI path: no identity injected — falls back to capture."""
     from unittest import mock
     from mav_gss_lib.preflight import run_preflight
-    cfg = {"general": {"mission": "maveric", "station_id": "GS-0"}}
+    cfg = {"general": {"mission": "maveric"}, "stations": {"dev-host": "GS-0"}}
     with mock.patch("mav_gss_lib.identity.getpass.getuser", return_value="irfan"), \
          mock.patch("mav_gss_lib.identity.socket.gethostname", return_value="dev-host"):
         results = list(run_preflight(cfg=cfg))
@@ -96,7 +96,7 @@ def test_preflight_yields_identity_row_from_capture():
 def test_preflight_uses_injected_identity_over_capture():
     """Web path: runtime injects identity — capture must not run."""
     from mav_gss_lib.preflight import run_preflight
-    cfg = {"general": {"mission": "maveric", "station_id": "IGNORED"}}
+    cfg = {"general": {"mission": "maveric"}, "stations": {"gs1": "IGNORED"}}
     results = list(run_preflight(
         cfg=cfg,
         operator="alice", host="gs1", station="GS-1",

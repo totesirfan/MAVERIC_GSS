@@ -77,8 +77,8 @@ _DEFAULTS = {
         "build_sha":    _read_build_sha(),
         "log_dir":      "logs",
         "generated_commands_dir": "generated_commands",
-        "station_id":   None,
     },
+    "stations": {},
 }
 
 

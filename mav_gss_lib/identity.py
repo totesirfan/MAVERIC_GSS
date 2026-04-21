@@ -33,9 +33,11 @@ def capture_host() -> str:
 def capture_station(cfg: dict, host: str) -> str:
     """Return the display-label station ID.
 
-    Uses cfg.general.station_id if set (e.g. "GS-0" / "GS-1" / "GS-2"),
-    otherwise falls back to the raw hostname.
+    Looks up the hostname in the cfg `stations` catalog (top-level dict
+    shared across all laptops). If the hostname isn't catalogued, falls
+    back to the raw hostname as the display label — preserves readable
+    output on any laptop whose entry hasn't been added yet.
     """
-    general = cfg.get("general") or {}
-    override = general.get("station_id") or ""
-    return override.strip() or host
+    stations = cfg.get("stations") or {}
+    mapped = stations.get(host) or ""
+    return mapped.strip() or host
