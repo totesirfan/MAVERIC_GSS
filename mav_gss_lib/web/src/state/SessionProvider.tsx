@@ -32,7 +32,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // Destructure `session` so the memo depends on primitive-ish fields; the raw
   // `useSession()` return is a fresh object literal per render.
   const {
-    sessionTag, startedAt, sessionId, isTrafficActive,
+    sessionTag, startedAt, sessionId,
+    operator, host, station,
+    isTrafficActive,
     openNewSession, openRename,
     setOpenNewSession, setOpenRename,
     startNewSession, renameSession,
@@ -40,7 +42,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   } = session
   const value = useMemo<SessionContextValue>(
     () => ({
-      sessionTag, startedAt, sessionId, isTrafficActive,
+      sessionTag, startedAt, sessionId,
+      operator, host, station,
+      isTrafficActive,
       openNewSession, openRename,
       setOpenNewSession, setOpenRename,
       startNewSession, renameSession,
@@ -48,7 +52,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       config, setConfig, columns,
     }),
     [
-      sessionTag, startedAt, sessionId, isTrafficActive,
+      sessionTag, startedAt, sessionId,
+      operator, host, station,
+      isTrafficActive,
       openNewSession, openRename,
       setOpenNewSession, setOpenRename,
       startNewSession, renameSession,

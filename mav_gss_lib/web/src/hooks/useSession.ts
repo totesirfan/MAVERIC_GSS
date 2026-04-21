@@ -6,6 +6,9 @@ export interface SessionState {
   sessionTag: string
   startedAt: string
   sessionId: string
+  operator: string
+  host: string
+  station: string
   isTrafficActive: boolean
   openNewSession: boolean
   openRename: boolean
@@ -20,6 +23,9 @@ export function useSession(): SessionState {
   const [sessionTag, setSessionTag] = useState('untitled')
   const [startedAt, setStartedAt] = useState('')
   const [sessionId, setSessionId] = useState('')
+  const [operator, setOperator] = useState('')
+  const [host, setHost] = useState('')
+  const [station, setStation] = useState('')
   const [isTrafficActive, setIsTrafficActive] = useState(false)
   const [openNewSession, setOpenNewSession] = useState(false)
   const [openRename, setOpenRename] = useState(false)
@@ -33,6 +39,9 @@ export function useSession(): SessionState {
         setSessionTag(data.session_tag ?? 'untitled')
         setStartedAt(data.started_at ?? '')
         setSessionId(data.session_id ?? '')
+        setOperator(data.operator ?? '')
+        setHost(data.host ?? '')
+        setStation(data.station ?? '')
         setSessionGeneration(data.session_generation ?? 0)
         setIsTrafficActive(data.traffic_active ?? false)
       })
@@ -46,6 +55,9 @@ export function useSession(): SessionState {
         setSessionTag((msg.session_tag as string) ?? 'untitled')
         setStartedAt((msg.started_at as string) ?? '')
         setSessionId((msg.session_id as string) ?? '')
+        setOperator((msg.operator as string) ?? '')
+        setHost((msg.host as string) ?? '')
+        setStation((msg.station as string) ?? '')
         setSessionGeneration((msg.session_generation as number) ?? 0)
       } else if (msg.type === 'session_renamed') {
         setSessionTag((msg.session_tag as string) ?? 'untitled')
@@ -55,6 +67,9 @@ export function useSession(): SessionState {
         setSessionTag((msg.session_tag as string) ?? 'untitled')
         setStartedAt((msg.started_at as string) ?? '')
         setSessionId((msg.session_id as string) ?? '')
+        setOperator((msg.operator as string) ?? '')
+        setHost((msg.host as string) ?? '')
+        setStation((msg.station as string) ?? '')
         setSessionGeneration((msg.session_generation as number) ?? 0)
       }
     })
@@ -98,7 +113,9 @@ export function useSession(): SessionState {
   }, [])
 
   return {
-    sessionTag, startedAt, sessionId, isTrafficActive,
+    sessionTag, startedAt, sessionId,
+    operator, host, station,
+    isTrafficActive,
     openNewSession, openRename,
     setOpenNewSession, setOpenRename,
     startNewSession, renameSession,
