@@ -35,6 +35,9 @@ async def ws_session(websocket: WebSocket):
         "session_tag": runtime.session.session_tag,
         "started_at": runtime.session.started_at,
         "session_generation": runtime.session.session_generation,
+        "operator": runtime.session.operator,
+        "host": runtime.session.host,
+        "station": runtime.session.station,
     }
     await websocket.send_text(json.dumps(session_info))
 

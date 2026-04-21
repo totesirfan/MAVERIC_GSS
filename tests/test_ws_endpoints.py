@@ -27,6 +27,9 @@ def _build_stub_runtime():
     runtime.session_token = "test-token"
     runtime.had_clients = False
     runtime.shutdown_task = None
+    runtime.operator = "test-op"
+    runtime.host = "test-host"
+    runtime.station = "GS-TEST"
 
     # RX stubs
     runtime.rx.clients = []
@@ -49,6 +52,9 @@ def _build_stub_runtime():
     runtime.session.session_tag = "untitled"
     runtime.session.started_at = "2026-04-17T00:00:00Z"
     runtime.session.session_generation = 1
+    runtime.session.operator = "test-op"
+    runtime.session.host = "test-host"
+    runtime.session.station = "GS-TEST"
     runtime.session_clients = []
     runtime.session_lock = threading.Lock()
 
