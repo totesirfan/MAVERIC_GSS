@@ -62,6 +62,10 @@ interface Props {
   version?: string
   /** Optional — short git SHA shown in the meta strip. */
   buildSha?: string
+  /** Optional — operator label shown in the meta strip. */
+  operator?: string
+  /** Optional — station label shown in the meta strip. */
+  station?: string
 }
 
 // =============================================================================
@@ -83,6 +87,8 @@ export function PreflightScreen({
   onReloadPage,
   version,
   buildSha,
+  operator,
+  station,
 }: Props) {
   const groups = useMemo(() => {
     const map = new Map<string, PreflightCheck[]>()
@@ -206,7 +212,7 @@ export function PreflightScreen({
           </motion.div>
 
           {/* Meta inline */}
-          <MetaInline connected={connected} version={version} buildSha={buildSha} />
+          <MetaInline connected={connected} version={version} buildSha={buildSha} operator={operator} station={station} />
 
           {/* Section divider + groups grid — only visible when there are
               issues (or an update flow is in progress). The happy path
@@ -425,10 +431,14 @@ function MetaInline({
   connected,
   version,
   buildSha,
+  operator,
+  station,
 }: {
   connected: boolean
   version?: string
   buildSha?: string
+  operator?: string
+  station?: string
 }) {
   return (
     <motion.div
@@ -470,6 +480,12 @@ function MetaInline({
         <>
           <span style={{ color: 'rgba(255,255,255,0.22)', fontSize: '1.1em' }}>·</span>
           <span>Build {buildSha}</span>
+        </>
+      )}
+      {operator && station && (
+        <>
+          <span style={{ color: 'rgba(255,255,255,0.22)', fontSize: '1.1em' }}>·</span>
+          <span>OP {operator}@{station}</span>
         </>
       )}
     </motion.div>

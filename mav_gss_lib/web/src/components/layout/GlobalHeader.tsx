@@ -140,7 +140,7 @@ export function GlobalHeader({
 
         {/* Session info */}
         {session && (
-          <div className="flex items-center gap-2 relative">
+          <div className="flex items-center gap-2 relative" style={{ minWidth: 0, overflow: 'hidden' }}>
             <span style={{ color: colors.borderStrong, fontSize: '11px', userSelect: 'none' }}>|</span>
             <span
               className="font-mono"
@@ -148,6 +148,11 @@ export function GlobalHeader({
                 fontSize: '11px',
                 color: isUntitled ? colors.textMuted : colors.textSecondary,
                 fontStyle: isUntitled ? 'italic' : 'normal',
+                minWidth: 0,
+                maxWidth: 'clamp(8ch, 24vw, 40ch)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
               }}
             >
               {sessionLabel}

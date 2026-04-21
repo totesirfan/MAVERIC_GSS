@@ -30,6 +30,7 @@ import { TabViewport } from '@/components/layout/TabViewport'
 import { buildNavigationTabs } from '@/components/layout/navigation'
 import { KeyboardHintBar } from '@/components/layout/KeyboardHintBar'
 import { isInputFocused } from '@/lib/utils'
+import { authFetch } from '@/lib/auth'
 import type { CommandPaletteActions } from '@/components/shared/CommandPalette'
 
 const ConfigSidebar = lazy(() => import('@/components/config/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
@@ -259,6 +260,17 @@ function PreflightOverlay() {
   const buildSha = config?.general?.build_sha
   const [dismissing, setDismissing] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+  const [identity, setIdentity] = useState<{ operator: string; station: string } | null>(null)
+  useEffect(() => {
+    authFetch('/api/identity')
+      .then((r) => r.json())
+      .then((data: { operator?: string; station?: string }) => {
+        if (data.operator && data.station) {
+          setIdentity({ operator: data.operator, station: data.station })
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // No auto-dismiss — the overlay stays visible until the user presses LAUNCH.
   // After LAUNCH triggers dismissing=true, unmount after the unblur animation (800ms).
@@ -290,6 +302,8 @@ function PreflightOverlay() {
       onReloadPage={preflight.reloadPage}
       version={version}
       buildSha={buildSha}
+      operator={identity?.operator}
+      station={identity?.station}
     />
   )
 }
