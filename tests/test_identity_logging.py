@@ -48,3 +48,31 @@ def test_tx_record_carries_identity(tmp_path):
         rec = json.loads(f.readline())
     assert rec["operator"] == "irfan"
     assert rec["station"] == "GS-0"
+
+
+import re
+
+
+def test_rx_filename_includes_station_and_operator(tmp_path):
+    from mav_gss_lib.logging import SessionLog
+    log = SessionLog(str(tmp_path), zmq_addr="tcp://127.0.0.1:52001", version="1.2.3",
+                     station="GS-0", operator="irfan")
+    try:
+        name = os.path.basename(log.jsonl_path)
+        # shape: downlink_<ts>_<station>_<operator>_<tag>.jsonl (tag empty)
+        assert re.match(r"downlink_\d{8}_\d{6}_GS-0_irfan(?:_.*)?\.jsonl$", name), name
+    finally:
+        log.close()
+
+
+def test_text_banner_includes_identity_lines(tmp_path):
+    from mav_gss_lib.logging import SessionLog
+    log = SessionLog(str(tmp_path), zmq_addr="tcp://127.0.0.1:52001", version="1.2.3",
+                     station="GS-0", operator="irfan")
+    try:
+        with open(log.text_path) as f:
+            text = f.read()
+        assert "Operator:" in text and "irfan" in text
+        assert "Station:" in text and "GS-0" in text
+    finally:
+        log.close()

@@ -27,26 +27,40 @@ SEP_CHAR = "\u2500"      # ─
 HEADER_CHAR = "\u2550"   # ═
 
 
-def _format_session_header(mission_name: str, version: str, mode: str, zmq_addr: str) -> str:
-    """Render the text-log banner (six lines + trailing blank). Captures its own
-    timestamp via datetime.now().astimezone() — caller invokes this immediately
-    before writing so filename-ts and session-ts reflect their real creation order."""
+def _format_session_header(mission_name: str, version: str, mode: str, zmq_addr: str,
+                           *, operator: str = "", station: str = "", host: str = "") -> str:
+    """Render the text-log banner. Adds Operator: / Station: lines when supplied."""
     session_ts = datetime.now().astimezone().strftime(TS_FULL)
+    identity_lines = ""
+    if operator:
+        identity_lines += f"  Operator:  {operator}\n"
+    if station:
+        detail = f" ({host})" if host and host != station else ""
+        identity_lines += f"  Station:   {station}{detail}\n"
     return (
         f"{HEADER_CHAR * LOG_LINE_WIDTH}\n"
         f"  {mission_name} Ground Station Log  v{version}\n"
         f"  Mode:      {mode}\n"
         f"  Session:   {session_ts}\n"
         f"  ZMQ:       {zmq_addr}\n"
+        f"{identity_lines}"
         f"{HEADER_CHAR * LOG_LINE_WIDTH}\n\n"
     )
 
 
-def _compose_log_paths(log_dir: str, prefix: str, tag: str) -> tuple[str, str]:
+def _compose_log_paths(log_dir: str, prefix: str, tag: str,
+                       station: str = "", operator: str = "") -> tuple[str, str]:
     """Return (text_path, jsonl_path) under log_dir/text and log_dir/json.
-    *tag* must be pre-sanitized — callers handle the regex."""
+    *tag*, *station*, *operator* must be pre-sanitized — callers handle it."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    name = f"{prefix}_{ts}_{tag}" if tag else f"{prefix}_{ts}"
+    parts = [prefix, ts]
+    if station:
+        parts.append(station)
+    if operator:
+        parts.append(operator)
+    if tag:
+        parts.append(tag)
+    name = "_".join(parts)
     return (
         os.path.join(log_dir, "text", f"{name}.txt"),
         os.path.join(log_dir, "json", f"{name}.jsonl"),
@@ -66,14 +80,18 @@ class _BaseLog:
 
     _SENTINEL = None  # poison pill to stop the writer thread
 
-    def __init__(self, log_dir, prefix, version, mode, zmq_addr, mission_name=DEFAULT_MISSION_NAME):
+    def __init__(self, log_dir, prefix, version, mode, zmq_addr, mission_name=DEFAULT_MISSION_NAME,
+                 *, station: str = "", operator: str = "", host: str = ""):
         self._log_dir = log_dir
         self._prefix = prefix
         self._version = version
         self._mode = mode
         self._zmq_addr = zmq_addr
         self._mission_name = mission_name
-        self._q_lock = threading.Lock()  # guards _q replacement during new_session
+        self._station = station
+        self._operator = operator
+        self._host = host
+        self._q_lock = threading.Lock()
         os.makedirs(os.path.join(log_dir, "text"), exist_ok=True)
         os.makedirs(os.path.join(log_dir, "json"), exist_ok=True)
         self._open_files()
@@ -215,17 +233,21 @@ class _BaseLog:
 
     def _open_files(self, tag=""):
         """Open new log files with fresh timestamp, write header, start writer thread."""
-        tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
-        self.text_path, self.jsonl_path = _compose_log_paths(self._log_dir, self._prefix, tag)
+        tag      = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
+        station  = re.sub(r'[^\w\-.]', '_', self._station.strip()).strip('_') if self._station else ""
+        operator = re.sub(r'[^\w\-.]', '_', self._operator.strip()).strip('_') if self._operator else ""
+        self.text_path, self.jsonl_path = _compose_log_paths(
+            self._log_dir, self._prefix, tag, station=station, operator=operator,
+        )
         self._text_f = open(self.text_path, "w")
         self._jsonl_f = open(self.jsonl_path, "a")
         self._text_f.write(_format_session_header(
             self._mission_name, self._version, self._mode, self._zmq_addr,
+            operator=self._operator, station=self._station, host=self._host,
         ))
         self._text_f.flush()
         self._q = queue.Queue()
-        self._writer = threading.Thread(target=self._writer_loop,
-                                        name="log-writer", daemon=True)
+        self._writer = threading.Thread(target=self._writer_loop, name="log-writer", daemon=True)
         self._writer.start()
 
     def prepare_new_session(self, tag=""):
@@ -234,8 +256,12 @@ class _BaseLog:
         Returns a dict with new file handles and paths. On failure,
         cleans up any partially created files and raises.
         """
-        tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
-        new_text_path, new_jsonl_path = _compose_log_paths(self._log_dir, self._prefix, tag)
+        tag      = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
+        station  = re.sub(r'[^\w\-.]', '_', self._station.strip()).strip('_') if self._station else ""
+        operator = re.sub(r'[^\w\-.]', '_', self._operator.strip()).strip('_') if self._operator else ""
+        new_text_path, new_jsonl_path = _compose_log_paths(
+            self._log_dir, self._prefix, tag, station=station, operator=operator,
+        )
         new_text_f = None
         new_jsonl_f = None
         try:
@@ -245,20 +271,16 @@ class _BaseLog:
             new_jsonl_f = open(new_jsonl_path, "a")
             new_text_f.write(_format_session_header(
                 self._mission_name, self._version, self._mode, self._zmq_addr,
+                operator=self._operator, station=self._station, host=self._host,
             ))
             new_text_f.flush()
         except Exception:
-            # Clean up partial files on failure
             if new_text_f:
-                try:
-                    new_text_f.close()
-                except Exception:
-                    pass
+                try: new_text_f.close()
+                except Exception: pass
             if new_jsonl_f:
-                try:
-                    new_jsonl_f.close()
-                except Exception:
-                    pass
+                try: new_jsonl_f.close()
+                except Exception: pass
             for p in (new_text_path, new_jsonl_path):
                 try:
                     if os.path.isfile(p):
@@ -374,8 +396,11 @@ class _BaseLog:
 class SessionLog(_BaseLog):
     """RX session log — JSONL + text."""
 
-    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME):
-        super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr, mission_name=mission_name)
+    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME,
+                 *, station: str = "", operator: str = "", host: str = ""):
+        super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr,
+                         mission_name=mission_name,
+                         station=station, operator=operator, host=host)
 
     def write_packet(self, pkt, adapter=None):
         """Write one RX packet entry. Takes a Packet instance.
@@ -416,8 +441,11 @@ class SessionLog(_BaseLog):
 class TXLog(_BaseLog):
     """TX session log — JSONL + text."""
 
-    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME):
-        super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr, mission_name=mission_name)
+    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME,
+                 *, station: str = "", operator: str = "", host: str = ""):
+        super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr,
+                         mission_name=mission_name,
+                         station=station, operator=operator, host=host)
 
     def write_mission_command(self, n, display, mission_payload,
                               raw_cmd, payload, ax25, csp, uplink_mode="AX.25",
