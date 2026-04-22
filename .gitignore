@@ -19,6 +19,8 @@ mav_gss_lib/web/node_modules/
 /images/
 tests/test_images/
 tests/images/
+# Machine-local beacon log fixtures for Task 9a regression tests
+tests/fixtures/beacon_samples/
 backup_control/logs/
 generated_commands/
 .pending_queue.jsonl
