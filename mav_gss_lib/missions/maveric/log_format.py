@@ -154,14 +154,20 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
     frags = md.get("fragments") or []
     is_beacon = bool(cmd) and cmd.get("cmd_id") == "tlm_beacon"
 
+    # Every non-GNC-detail render routes through compact_value so
+    # structured values (like spacecraft.time = {unix_ms, display, …})
+    # go through the shape dispatch and extract their display string
+    # instead of falling through to Python's dict repr. Scalar values
+    # take the scalar branch of compact_value — same output as the
+    # old direct f-string path for ints, floats, strings.
     for frag in frags:
         if frag["domain"] == "spacecraft":
-            suffix = f" {frag['unit']}" if frag.get("unit") else ""
-            lines.append(f"  {frag['key']:<16}{frag['value']}{suffix}")
+            summary = _compact_value(frag["value"], frag.get("unit", ""))
+            lines.append(f"  {frag['key']:<16}{summary}")
     for frag in frags:
         if frag["domain"] == "eps":
-            suffix = f" {frag['unit']}" if frag.get("unit") else ""
-            lines.append(f"  {frag['key']:<16}{frag['value']}{suffix}")
+            summary = _compact_value(frag["value"], frag.get("unit", ""))
+            lines.append(f"  {frag['key']:<16}{summary}")
     for frag in frags:
         if frag["domain"] != "gnc":
             continue

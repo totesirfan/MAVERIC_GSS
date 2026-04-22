@@ -214,6 +214,10 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
     frags = md.get("fragments") or []
     is_beacon = bool(cmd) and cmd.get("cmd_id") == "tlm_beacon"
 
+    # Route every field through compact_value so structured payloads
+    # (e.g. spacecraft.time = {unix_ms, display, iso_utc}) extract their
+    # display string via shape dispatch. f"{v}" on a dict would fall
+    # through to Python's repr.
     spacecraft_frags = [f for f in frags if f["domain"] == "spacecraft"]
     if spacecraft_frags:
         blocks.append({
@@ -222,7 +226,7 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
             "fields": [
                 {
                     "name": f["key"],
-                    "value": f"{f['value']}{' ' + f['unit'] if f.get('unit') else ''}",
+                    "value": _compact_value(f["value"], f.get("unit", "")),
                 }
                 for f in spacecraft_frags
             ],
@@ -236,7 +240,7 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
             "fields": [
                 {
                     "name": f["key"],
-                    "value": f"{f['value']}{' ' + f['unit'] if f.get('unit') else ''}",
+                    "value": _compact_value(f["value"], f.get("unit", "")),
                 }
                 for f in eps_frags
             ],
