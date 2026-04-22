@@ -103,5 +103,77 @@ class TestEpsHkExtractor(unittest.TestCase):
         self.assertNotIn("gnc_registers", consts)
 
 
+def _typed_cmd(cmd_id: str, *values: str) -> dict:
+    typed = [{"name": f"a{i}", "type": "str", "value": v}
+             for i, v in enumerate(values)]
+    return {"cmd_id": cmd_id, "typed_args": typed, "extra_args": []}
+
+
+def _pkt_with_cmd(ptype_id: int, cmd: dict):
+    return SimpleNamespace(mission_data={"ptype": ptype_id, "cmd": cmd})
+
+
+class TestGncResExtractor(unittest.TestCase):
+    def setUp(self) -> None:
+        from mav_gss_lib.missions.maveric.telemetry.extractors.gnc_res import extract
+        self.extract = extract
+        self.nodes = _make_nodes()
+
+    def test_gnc_get_mode_yields_one_fragment(self):
+        cmd = _typed_cmd("gnc_get_mode", "1")
+        pkt = _pkt_with_cmd(ptype_id=3, cmd=cmd)  # RES
+        frags = list(self.extract(pkt, self.nodes, now_ms=99))
+
+        self.assertEqual(len(frags), 1)
+        f = frags[0]
+        self.assertEqual(f.domain, "gnc")
+        self.assertEqual(f.key, "GNC_MODE")
+        self.assertEqual(f.ts_ms, 99)
+        # GNC_MODE is a structured value (no scalar unit).
+        self.assertEqual(f.unit, "")
+        self.assertIsInstance(f.value, dict)
+        self.assertEqual(f.value["mode"], 1)
+
+    def test_gnc_get_cnts_yields_one_counters_fragment(self):
+        cmd = _typed_cmd("gnc_get_cnts", "3", "2", "1")
+        pkt = _pkt_with_cmd(ptype_id=3, cmd=cmd)
+        frags = list(self.extract(pkt, self.nodes, now_ms=0))
+
+        self.assertEqual(len(frags), 1)
+        f = frags[0]
+        self.assertEqual(f.key, "GNC_COUNTERS")
+        self.assertIsInstance(f.value, dict)
+        self.assertEqual(f.value["reboot"], 3)
+        self.assertEqual(f.value["detumble"], 2)
+        self.assertEqual(f.value["sunspin"], 1)
+
+    def test_non_res_ptype_yields_nothing(self):
+        cmd = _typed_cmd("gnc_get_mode", "1")
+        for ptype in (0, 1, 2, 4):  # CMD, ACK, TLM, FILE
+            pkt = _pkt_with_cmd(ptype_id=ptype, cmd=cmd)
+            self.assertEqual(list(self.extract(pkt, self.nodes, 0)), [],
+                             msg=f"ptype={ptype} should not emit")
+
+    def test_unregistered_cmd_yields_nothing(self):
+        pkt = _pkt_with_cmd(ptype_id=3, cmd=_typed_cmd("no_such_cmd"))
+        self.assertEqual(list(self.extract(pkt, self.nodes, 0)), [])
+
+    def test_decode_failed_entries_are_dropped(self):
+        # gnc_get_mode with a non-integer arg → handler returns None →
+        # extractor emits nothing. Exercises the decode_ok gate indirectly
+        # (the full handler returns None on bad input, which is treated
+        # the same as decode_ok=False by the extractor).
+        cmd = _typed_cmd("gnc_get_mode", "not-a-number")
+        pkt = _pkt_with_cmd(ptype_id=3, cmd=cmd)
+        self.assertEqual(list(self.extract(pkt, self.nodes, 0)), [])
+
+    def test_extractor_does_not_read_mission_data_gnc_registers(self):
+        from mav_gss_lib.missions.maveric.telemetry.extractors import gnc_res
+        consts = set(gnc_res.extract.__code__.co_consts)
+        self.assertNotIn("gnc_registers", consts,
+                         "extractor must not subscript mission_data['gnc_registers']")
+        self.assertNotIn("telemetry", consts)
+
+
 if __name__ == "__main__":
     unittest.main()
