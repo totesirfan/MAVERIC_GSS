@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.missions.maveric.telemetry.types import TelemetryField
+from mav_gss_lib.missions.maveric.telemetry.semantics.types import TelemetryField
 
 
 class TestTelemetryField(unittest.TestCase):
@@ -32,7 +32,7 @@ class TestTelemetryField(unittest.TestCase):
             f.value = 2  # type: ignore
 
 
-from mav_gss_lib.missions.maveric.telemetry.eps import decode_eps_hk
+from mav_gss_lib.missions.maveric.telemetry.semantics.eps import decode_eps_hk
 from mav_gss_lib.missions.maveric.wire_format import try_parse_command
 
 

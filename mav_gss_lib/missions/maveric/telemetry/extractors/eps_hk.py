@@ -9,10 +9,7 @@ from __future__ import annotations
 
 from mav_gss_lib.web_runtime.telemetry import TelemetryFragment
 
-# Import target at Task 7 commit: mav_gss_lib.missions.maveric.telemetry.eps.
-# After Task 7b relocates the decoder, this line is retargeted to
-# mav_gss_lib.missions.maveric.telemetry.semantics.eps.
-from mav_gss_lib.missions.maveric.telemetry.eps import decode_eps_hk
+from mav_gss_lib.missions.maveric.telemetry.semantics.eps import decode_eps_hk
 
 
 def extract(pkt, nodes, now_ms: int):

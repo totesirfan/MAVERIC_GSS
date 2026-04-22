@@ -60,7 +60,7 @@ def _make_packet(ptype_id: int, pkt_num: int, fields_list: list[dict]):
 
 class TestEpsDecoderFixture(unittest.TestCase):
     def setUp(self) -> None:
-        from mav_gss_lib.missions.maveric.telemetry.eps import decode_eps_hk
+        from mav_gss_lib.missions.maveric.telemetry.semantics.eps import decode_eps_hk
         self.decode_eps_hk = decode_eps_hk
         self.args_raw = _load_hex(FIXTURES / "packet.hex")
         self.expected = json.loads((FIXTURES / "decoded.json").read_text())
@@ -92,7 +92,7 @@ class TestAdapterPtypeGating(unittest.TestCase):
 
     def setUp(self) -> None:
         from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter
-        from mav_gss_lib.missions.maveric.telemetry.eps import decode_eps_hk
+        from mav_gss_lib.missions.maveric.telemetry.semantics.eps import decode_eps_hk
         from mav_gss_lib.missions.maveric.telemetry.eps_store import EpsStore
 
         self._tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".json")

@@ -14,8 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from .types import TelemetryField
-from .eps import decode_eps_hk
+from .semantics.types import TelemetryField
+from .semantics.eps import decode_eps_hk
 
 
 _PTYPE_TLM = 5  # maveric mission.yml: 5 = TLM

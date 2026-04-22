@@ -49,7 +49,7 @@ class TestEpsWireUp(unittest.TestCase):
 
     def test_manifest_field_names_match_decoder(self) -> None:
         sys.path.insert(0, str(ROOT))
-        from mav_gss_lib.missions.maveric.telemetry.eps import _EPS_HK_NAMES
+        from mav_gss_lib.missions.maveric.telemetry.semantics.eps import _EPS_HK_NAMES
         manifest_names = [f["name"] for f in self.manifest["fields"]]
         self.assertEqual(
             manifest_names, list(_EPS_HK_NAMES),
