@@ -252,7 +252,17 @@ BEACON_TYPE_MAPPINGS: dict[int, tuple[Mapping, ...]] = {
     # per-row qualifier reflects whether the adapter is confirmed to
     # produce the canonical SHAPE, not merely whether the key exists.
     1: (
-        Mapping((0,),          "gnc", "ACT_ERR",       to_act_err,       "plausible"),
+        # ACT_ERR: the beacon wire carries mtq_stat as one uint32. Packing it
+        # into 4 LE bytes and feeding through _decode_act_err produces the
+        # same `{MTQ0..2, CMG0..3, byte2_raw, byte3_raw}` dict shape the
+        # RES-sourced register decoder produces — the `ActErrBitfield`
+        # consumer in types.ts reads identical keys from either source.
+        # Hand-check (plan Task 9a Step 2): mtq_stat = 0x60000000 in all
+        # 5 beacon-1 samples → LE bytes [0x00, 0x00, 0x00, 0x60] → every
+        # named bit is 0; byte3_raw = 0x60 (bits 29/30 preserved losslessly).
+        # Whatever those bits encode in the FSW is a separate semantic
+        # question; the shape contract holds.
+        Mapping((0,),          "gnc", "ACT_ERR",       to_act_err,       "verified"),
         Mapping((1,),          "gnc", "GNC_MODE",      to_gnc_mode,      "verified"),
         Mapping((2, 3, 4),     "gnc", "GNC_COUNTERS",  to_gnc_counters,  "verified"),
         # gyro_rate_src — deferred (slot reserved).
