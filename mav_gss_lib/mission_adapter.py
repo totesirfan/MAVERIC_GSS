@@ -351,6 +351,14 @@ def load_mission_adapter(cfg: dict, cmd_defs: dict | None = None):
     adapter = adapter_cls(**adapter_kwargs)
     validate_adapter(adapter, api_version, mission_name)
 
+    # Platform handoff for mission resources the adapter constructor
+    # does not directly consume. Both attributes are set unconditionally
+    # (empty dict / empty tuple when the mission provides neither) so
+    # platform callers can use direct attribute access — no getattr
+    # default shims.
+    adapter.telemetry_manifest = resources.get("telemetry_manifest") or {}
+    adapter.telemetry_extractors = tuple(resources.get("telemetry_extractors") or ())
+
     cmd_path = resources.get("cmd_path") or cfg.get("general", {}).get("command_defs_resolved") or cfg.get("general", {}).get("command_defs", "")
     cmd_warn = resources.get("cmd_warn") or cfg.get("general", {}).get("command_defs_warning", "")
     logging.info(

@@ -140,5 +140,26 @@ class TestMavericResolution(unittest.TestCase):
         self.assertEqual(cmd_id, "com_ping")
 
 
+class TestTelemetryResourceHandoff(unittest.TestCase):
+    """load_mission_adapter attaches telemetry_manifest + telemetry_extractors
+    onto the adapter unconditionally — empty dict / empty tuple when the
+    mission's init_mission does not supply them — so platform callers can
+    use direct attribute access with no getattr default shims."""
+
+    def test_attrs_present_with_empty_defaults_on_maveric(self):
+        """Before Task 11 populates the manifest, MAVERIC's init_mission
+        returns no telemetry keys. The adapter should still advertise
+        both attributes as empty containers of the right type."""
+        from mav_gss_lib.config import load_gss_config
+        from mav_gss_lib.mission_adapter import load_mission_adapter
+
+        cfg = load_gss_config()
+        adapter = load_mission_adapter(cfg)
+        self.assertTrue(hasattr(adapter, "telemetry_manifest"))
+        self.assertTrue(hasattr(adapter, "telemetry_extractors"))
+        self.assertIsInstance(adapter.telemetry_manifest, dict)
+        self.assertIsInstance(adapter.telemetry_extractors, tuple)
+
+
 if __name__ == "__main__":
     unittest.main()
