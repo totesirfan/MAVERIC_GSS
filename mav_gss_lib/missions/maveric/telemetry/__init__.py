@@ -119,10 +119,41 @@ def _spacecraft_catalog():
     return list(_SPACECRAFT_CATALOG)
 
 
+# EPS domain catalog. The 48-field eps_hk engineering vector is covered
+# by `_EPS_HK_NAMES` + `_scale_and_unit` in semantics/eps.py and is
+# discoverable by observation; the catalog here explicitly lists the
+# beacon-only canonical keys that don't appear in eps_hk so the
+# frontend + canonical-key tests have a single source of truth for
+# "what non-eps_hk canonical EPS keys exist".
+_EPS_CATALOG = [
+    {"name": "eps_heartbeat", "type": "uint8", "unit": "",
+     "notes": "EPS subsystem heartbeat byte from tlm_beacon."},
+    {"name": "eps_mode", "type": "uint8", "unit": "",
+     "notes": "EPS operating mode (raw enum) from tlm_beacon. "
+              "Promote to a structured {mode, mode_name} once FSW enum is documented."},
+]
+
+
+def _eps_catalog():
+    """Serve the eps catalog at /api/telemetry/eps/catalog.
+
+    Lists canonical EPS keys that aren't part of the eps_hk 48-field
+    vector (which is self-describing via _EPS_HK_NAMES). Beacon-only
+    canonical keys go here.
+    """
+    from mav_gss_lib.missions.maveric.telemetry.semantics.eps import _EPS_HK_NAMES
+    hk_entries = [
+        {"name": n, "type": "int16", "unit": "",
+         "notes": "From eps_hk. Unit/scale via semantics/eps.py _scale_and_unit."}
+        for n in _EPS_HK_NAMES
+    ]
+    return hk_entries + list(_EPS_CATALOG)
+
+
 TELEMETRY_MANIFEST: dict[str, dict] = {
-    # eps_hk 48 engineering fields. Default LWW merge; no catalog
-    # (field names travel on each fragment's `unit` already).
-    "eps":      {},
+    # eps_hk 48 engineering fields + beacon-only canonical keys
+    # (eps_heartbeat, eps_mode). Default LWW merge.
+    "eps":      {"catalog": _eps_catalog},
     # GNC register catalog served via the platform route; live values
     # come in through the extractor + router.
     "gnc":      {"catalog": _gnc_catalog},

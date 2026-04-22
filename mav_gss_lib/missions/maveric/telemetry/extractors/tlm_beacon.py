@@ -49,12 +49,11 @@ flight-software struct):
     uint16_t unexpected_detumble_count
     uint16_t sunspin_count
 
-``eps_heartbeat`` and ``eps_mode`` are emitted as ``display_only``
-fragments: they appear in the packet-detail view and the text / JSONL
-RX log so an operator can see every wire slot, but they do NOT flow
-into canonical domain state — no catalog entry, no dashboard
-consumer. Promote either to canonical state by dropping the flag and
-adding a catalog row.
+``eps_heartbeat`` and ``eps_mode`` are canonical ``eps`` domain keys
+(catalog entries in ``TELEMETRY_MANIFEST``). ``eps_heartbeat`` is the
+EPS subsystem heartbeat byte; ``eps_mode`` is the EPS operating-mode
+raw enum. Neither has a structured wrapper today — promote to a
+``{mode, mode_name}`` shape once the FSW enum is documented.
 """
 from __future__ import annotations
 
@@ -202,10 +201,5 @@ def extract(pkt, nodes, now_ms: int):
     yield TelemetryFragment("eps", "V_SYS",  _eps_scaled("V_SYS",  v_sys),    now_ms)
     yield TelemetryFragment("eps", "TS_ADC", _eps_scaled("TS_ADC", temp_adc), now_ms)
     yield TelemetryFragment("eps", "T_DIE",  _eps_scaled("T_DIE",  temp_die), now_ms)
-
-    # Display-only: decoded so operators see every wire slot in the
-    # detail view and JSONL, but not promoted to canonical state.
-    yield TelemetryFragment("eps", "eps_heartbeat", eps_heartbeat, now_ms,
-                            display_only=True)
-    yield TelemetryFragment("eps", "eps_mode", eps_mode, now_ms,
-                            display_only=True)
+    yield TelemetryFragment("eps", "eps_heartbeat", eps_heartbeat, now_ms)
+    yield TelemetryFragment("eps", "eps_mode", eps_mode, now_ms)
