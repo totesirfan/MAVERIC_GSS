@@ -12,16 +12,21 @@ interface GncPlannerCardProps {
 const PLANNER_MODES = ['Safe', 'Auto', 'Manual']
 
 /** GNC Planner panel.
- *  Mode:    gnc_get_mode RES (0=Safe, 1=Auto, 2=Manual)
+ *  Mode:     gnc_get_mode RES (0=Safe, 1=Auto, 2=Manual)
  *  Counters: gnc_get_cnts RES (Unexpected Safe / Detumble / Sunspin)
- *  Source:  cfg_get_datasrc — not implemented yet, kept as placeholder.
+ *  Sources:  GYRO_RATE_SRC / MAG_SRC from tlm_beacon (raw int source
+ *            selector; no enum in repo, display verbatim).
  */
 export function GncPlannerCard({ state, nowMs }: GncPlannerCardProps) {
   const mode     = state.GNC_MODE
   const counters = state.GNC_COUNTERS
+  const gyroSrc  = state.GYRO_RATE_SRC
+  const magSrc   = state.MAG_SRC
 
   const modeV = mode?.value as GncMode | undefined
   const cntV  = counters?.value as GncCounters | undefined
+  const gyroSrcV = typeof gyroSrc?.value === 'number' ? gyroSrc.value : null
+  const magSrcV  = typeof magSrc?.value === 'number' ? magSrc.value : null
 
   const modeChip = modeV ? (
     <div
@@ -57,8 +62,18 @@ export function GncPlannerCard({ state, nowMs }: GncPlannerCardProps) {
         receivedAt={counters?.t}
         nowMs={nowMs}
       />
-      <FieldDisplay label="Gyro Src"  value="— req cfg_get_datasrc" nowMs={nowMs} />
-      <FieldDisplay label="Mag Src"   value="— req cfg_get_datasrc" nowMs={nowMs} />
+      <FieldDisplay
+        label="Gyro Src"
+        value={gyroSrcV != null ? String(gyroSrcV) : '—'}
+        receivedAt={gyroSrc?.t}
+        nowMs={nowMs}
+      />
+      <FieldDisplay
+        label="Mag Src"
+        value={magSrcV != null ? String(magSrcV) : '—'}
+        receivedAt={magSrc?.t}
+        nowMs={nowMs}
+      />
     </Card>
   )
 }
