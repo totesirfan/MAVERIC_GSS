@@ -49,15 +49,19 @@ class PtypeOfTests(unittest.TestCase):
 
 
 class HasDecodedGncTests(unittest.TestCase):
-    def test_uses_gnc_registers_key(self):
-        self.assertTrue(has_decoded_gnc({"gnc_registers": {"STAT": {"decode_ok": True}}}))
+    def test_uses_fragments_with_gnc_domain(self):
+        self.assertTrue(has_decoded_gnc(
+            {"fragments": [{"domain": "gnc", "key": "STAT", "value": {}, "ts_ms": 0, "unit": ""}]}
+        ))
 
     def test_empty(self):
         self.assertFalse(has_decoded_gnc({}))
-        self.assertFalse(has_decoded_gnc({"gnc_registers": {}}))
+        self.assertFalse(has_decoded_gnc({"fragments": []}))
 
-    def test_all_failed(self):
-        self.assertFalse(has_decoded_gnc({"gnc_registers": {"STAT": {"decode_ok": False}}}))
+    def test_only_non_gnc_fragments(self):
+        self.assertFalse(has_decoded_gnc(
+            {"fragments": [{"domain": "eps", "key": "V_BAT", "value": 7.6, "ts_ms": 0, "unit": "V"}]}
+        ))
 
     def test_ignores_other_top_keys(self):
         self.assertFalse(has_decoded_gnc({"gnc": {"registers": {"STAT": {"decode_ok": True}}}}))

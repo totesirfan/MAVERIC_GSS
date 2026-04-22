@@ -61,7 +61,12 @@ def make_pkt(mission_data: dict, *, cmd_id: str | None = None,
 
 def gnc_pkt(reg_name: str, snap_value: dict, *,
             reg_type: str = "uint8[4]", unit: str = "") -> Packet:
-    """Build a Packet carrying one decoded GNC register snapshot."""
+    """Build a Packet carrying one decoded GNC telemetry fragment.
+
+    Post-v2 the mission stores decoded registers on mission_data["fragments"]
+    rather than mission_data["gnc_registers"]. The snap_value shape is the
+    same structured dict the extractor attaches to the fragment.
+    """
     md = {
         "cmd": {
             "src": 2, "dest": 6, "echo": 6, "pkt_type": 3,
@@ -73,17 +78,20 @@ def gnc_pkt(reg_name: str, snap_value: dict, *,
             ],
             "extra_args": [],
         },
-        "gnc_registers": {
-            reg_name: {
-                "name": reg_name, "module": 0, "register": 0,
-                "type": reg_type, "unit": unit,
-                "value": snap_value,
-                "raw_tokens": ["0"],
-                "decode_ok": True, "decode_error": None,
-            },
-        },
+        "fragments": [
+            {"domain": "gnc", "key": reg_name, "value": snap_value,
+             "ts_ms": 0, "unit": unit},
+        ],
     }
     return make_pkt(md)
+
+
+def gnc_fragment(jlog: dict, reg_name: str) -> dict | None:
+    """Find the fragment entry for reg_name in a JSONL mission block."""
+    for f in jlog.get("fragments", []):
+        if f.get("domain") == "gnc" and f.get("key") == reg_name:
+            return f
+    return None
 
 
 def register_block(detail_blocks: list[dict], reg_name: str) -> dict | None:
@@ -143,10 +151,11 @@ class E2ERenderAndLogTests(unittest.TestCase):
         self.assertIsNotNone(line, f"no TIME log line in {log}")
         self.assertIn(dec.value["display"], line)
 
-        # JSONL: register snapshot passes through unchanged
-        self.assertIn("gnc_registers", jlog)
-        self.assertEqual(jlog["gnc_registers"]["TIME"]["value"]["display"],
-                         dec.value["display"])
+        # JSONL: fragment passes through unchanged (post-v2 single payload)
+        self.assertIn("fragments", jlog)
+        frag = gnc_fragment(jlog, "TIME")
+        self.assertIsNotNone(frag, f"no TIME fragment in {jlog}")
+        self.assertEqual(frag["value"]["display"], dec.value["display"])
 
     # ---------- shape 2: ADCS_TMP ----------
 
@@ -401,26 +410,16 @@ class E2ERenderAndLogTests(unittest.TestCase):
                 ],
                 "extra_args": [],
             },
-            "gnc_registers": {
-                bcd.name: {
-                    "name": bcd.name, "module": 0, "register": 5,
-                    "type": bcd.type, "unit": bcd.unit, "value": bcd.value,
-                    "raw_tokens": ["0","39","38","0"], "decode_ok": True,
-                    "decode_error": None,
-                },
-                "GNC_MODE": {
-                    "name": "GNC_MODE", "module": None, "register": None,
-                    "type": "gnc_mode", "unit": "",
-                    "value": {"mode": 1, "mode_name": "Auto"},
-                    "raw_tokens": ["1"], "decode_ok": True, "decode_error": None,
-                },
-                "ACT_ERR": {
-                    "name": "ACT_ERR", "module": 0, "register": 129,
-                    "type": "uint8[4]", "unit": "",
-                    "value": {"MTQ0": False, "CMG0": False},
-                    "raw_tokens": ["0","0","0","0"], "decode_ok": True, "decode_error": None,
-                },
-            },
+            "fragments": [
+                {"domain": "gnc", "key": bcd.name, "value": bcd.value,
+                 "ts_ms": 0, "unit": bcd.unit},
+                {"domain": "gnc", "key": "GNC_MODE",
+                 "value": {"mode": 1, "mode_name": "Auto"},
+                 "ts_ms": 0, "unit": ""},
+                {"domain": "gnc", "key": "ACT_ERR",
+                 "value": {"MTQ0": False, "CMG0": False},
+                 "ts_ms": 0, "unit": ""},
+            ],
         }
         pkt = make_pkt(md)
         blocks = self.adapter.packet_detail_blocks(pkt)
@@ -474,21 +473,20 @@ class E2ERenderAndLogTests(unittest.TestCase):
 
     def test_eps_telemetry_appears_in_both_text_log_and_jsonl(self):
         """Log-sink symmetry: decoded eps_hk fields must appear in BOTH
-        the text log and the JSONL mission block. GNC has this property
-        (asserted in test_bcd_time and friends); EPS should match it.
+        the text log and the JSONL mission block.
 
-        This test locks the intended contract so the two sinks cannot
-        silently drift apart again — previously, format_log_lines
-        rendered telemetry["fields"] but build_log_mission_data only
-        serialized gnc_registers, dropping eps_hk out of JSONL.
+        Post-v2 this holds by construction — both sinks iterate the
+        same mission_data["fragments"] list populated by the extractor.
+        The test still locks the contract so a regression cannot silently
+        drop the shared list.
         """
-        fields_list = [
-            {"name": "V_BAT", "value": 7.622, "unit": "V", "raw": 7622},
-            {"name": "I_BAT", "value": 0.587, "unit": "A", "raw": 587},
-            {"name": "T_DIE", "value": 32.5,  "unit": "°C", "raw": 65},
+        eps_fragments = [
+            {"domain": "eps", "key": "V_BAT", "value": 7.622, "ts_ms": 1, "unit": "V"},
+            {"domain": "eps", "key": "I_BAT", "value": 0.587, "ts_ms": 1, "unit": "A"},
+            {"domain": "eps", "key": "T_DIE", "value": 32.5,  "ts_ms": 1, "unit": "°C"},
         ]
         pkt = make_pkt(
-            {"telemetry": {"cmd_id": "eps_hk", "fields": fields_list}},
+            {"fragments": eps_fragments},
             cmd_id="eps_hk",
             ptype=2,  # TLM
         )
@@ -500,13 +498,12 @@ class E2ERenderAndLogTests(unittest.TestCase):
         self.assertIn("V_BAT", joined_log)
         self.assertIn("7.622", joined_log)
 
-        self.assertIn("telemetry", jlog,
+        self.assertIn("fragments", jlog,
                       "eps_hk decoded fields missing from JSONL mission block")
-        self.assertEqual(jlog["telemetry"]["cmd_id"], "eps_hk")
-        jsonl_fields = {f["name"]: f for f in jlog["telemetry"]["fields"]}
-        self.assertEqual(set(jsonl_fields), {"V_BAT", "I_BAT", "T_DIE"})
-        self.assertEqual(jsonl_fields["V_BAT"]["value"], 7.622)
-        self.assertEqual(jsonl_fields["T_DIE"]["value"], 32.5)
+        jsonl_by_key = {f["key"]: f for f in jlog["fragments"] if f["domain"] == "eps"}
+        self.assertEqual(set(jsonl_by_key), {"V_BAT", "I_BAT", "T_DIE"})
+        self.assertEqual(jsonl_by_key["V_BAT"]["value"], 7.622)
+        self.assertEqual(jsonl_by_key["T_DIE"]["value"], 32.5)
 
     def test_nvg_get_1_production_decoder_round_trip(self):
         """Use the real nvg_get_1 handler (not a hand-built dict) to prove

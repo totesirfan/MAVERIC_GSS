@@ -114,75 +114,40 @@ class TestDecodeEpsHk(unittest.TestCase):
         self.assertAlmostEqual(by_name["V_BAT"], 7.532, places=6)
 
 
-from mav_gss_lib.missions.maveric.telemetry import decode_telemetry
-
-
-class TestRegistryDispatch(unittest.TestCase):
-
-    def _eps_cmd(self):
-        cmd = _parse_fixture_cmd()
-        return cmd  # has cmd_id=eps_hk, pkt_type=5 (TLM), args_raw=96 bytes
-
-    def test_dispatch_returns_dict_shape(self):
-        result = decode_telemetry(self._eps_cmd())
-        self.assertIsInstance(result, dict)
-        self.assertEqual(result["cmd_id"], "eps_hk")
-        self.assertEqual(len(result["fields"]), 48)
-        self.assertTrue(result["hide_schema_args"])
-
-    def test_dispatch_fields_are_plain_dicts(self):
-        result = decode_telemetry(self._eps_cmd())
-        first = result["fields"][0]
-        self.assertIsInstance(first, dict)
-        self.assertEqual(set(first.keys()), {"name", "value", "unit"})
-
-    def test_dispatch_returns_none_for_unknown_cmd(self):
-        self.assertIsNone(
-            decode_telemetry({"cmd_id": "other", "pkt_type": 5, "args_raw": b""})
-        )
-
-    def test_dispatch_returns_none_for_wrong_pkt_type(self):
-        cmd = self._eps_cmd()
-        cmd_cmd = {**cmd, "pkt_type": 2}
-        self.assertIsNone(decode_telemetry(cmd_cmd))
-
-
 from ops_test_support import CMD_DEFS  # noqa: E402
 from mav_gss_lib.missions.maveric import rx_ops  # noqa: E402
 
 
-class TestParsePacketAttachesTelemetry(unittest.TestCase):
+class TestParsePacketDoesNotInjectLegacyKeys(unittest.TestCase):
+    """Post-v2: rx_ops.parse_packet stops attaching mission_data['telemetry']
+    and ['gnc_registers']. The fragment list is the single per-packet
+    decoded payload, and it's populated by the mission adapter's
+    attach_fragments hook (rx_service calls it between pipeline.process
+    and build_rx_log_record).
+    """
 
-    def test_eps_hk_payload_attaches_telemetry(self):
+    def test_eps_hk_payload_carries_no_legacy_telemetry_key(self):
         raw = bytes.fromhex(PAYLOAD_HEX)
         parsed = rx_ops.parse_packet(raw, CMD_DEFS)
-        tel = parsed.mission_data.get("telemetry")
-        self.assertIsNotNone(tel, "telemetry block missing from mission_data")
-        self.assertEqual(tel["cmd_id"], "eps_hk")
-        self.assertEqual(len(tel["fields"]), 48)
-        self.assertTrue(tel["hide_schema_args"])
-        by_name = {f["name"]: f["value"] for f in tel["fields"]}
-        self.assertAlmostEqual(by_name["V_BAT"], 7.532, places=6)
-        self.assertAlmostEqual(by_name["V_BUS"], 9.192, places=6)
-
-    def test_non_telemetry_packet_sets_none(self):
-        from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
-        cmd_bytes = bytes(build_cmd_raw(6, 2, "com_ping", "", echo=0, ptype=1))
-        csp_hdr = b"\x90\x06\x00\x00"
-        parsed = rx_ops.parse_packet(csp_hdr + cmd_bytes, CMD_DEFS)
-        self.assertIsNone(parsed.mission_data.get("telemetry"))
+        self.assertNotIn("telemetry", parsed.mission_data)
+        self.assertNotIn("gnc_registers", parsed.mission_data)
+        # cmd is still there — extractors read args_raw from it.
+        self.assertEqual(parsed.mission_data["cmd"]["cmd_id"], "eps_hk")
 
 
 from ops_test_support import NODES  # noqa: E402
 from mav_gss_lib.missions.maveric.adapter import MavericMissionAdapter  # noqa: E402
+from mav_gss_lib.missions.maveric.telemetry.extractors import EXTRACTORS  # noqa: E402
 from mav_gss_lib.parsing import Packet  # noqa: E402
+from mav_gss_lib.web_runtime.telemetry.router import TelemetryRouter  # noqa: E402
 
 
-def _make_pkt_from_payload(payload_hex: str) -> Packet:
-    """Build a minimal Packet whose mission_data comes from rx_ops."""
+def _make_pkt_from_payload(payload_hex: str, adapter=None) -> Packet:
+    """Build a Packet from a raw wire payload and run the adapter's
+    attach_fragments hook, replicating production rx_service behavior."""
     raw = bytes.fromhex(payload_hex)
     parsed = rx_ops.parse_packet(raw, CMD_DEFS)
-    return Packet(
+    pkt = Packet(
         pkt_num=1,
         gs_ts="2026-04-14 18:21:09 PDT",
         gs_ts_short="18:21:09",
@@ -191,13 +156,37 @@ def _make_pkt_from_payload(payload_hex: str) -> Packet:
         inner_payload=raw,
         mission_data=parsed.mission_data,
     )
+    if adapter is not None:
+        adapter.attach_fragments(pkt)
+    return pkt
+
+
+def _adapter_with_router(tmp_path):
+    """Fresh MavericMissionAdapter with a TelemetryRouter wired up.
+
+    Replicates WebRuntime.__init__'s adapter-attachment steps so tests
+    can exercise the full attach_fragments → on_packet_received flow.
+    """
+    adapter = MavericMissionAdapter(cmd_defs=CMD_DEFS, nodes=NODES)
+    router = TelemetryRouter(tmp_path / ".telemetry")
+    router.register_domain("eps")
+    router.register_domain("gnc")
+    adapter.telemetry = router
+    adapter.extractors = EXTRACTORS
+    return adapter
 
 
 class TestDetailBlocksReplayContract(unittest.TestCase):
 
     def setUp(self):
-        self.adapter = MavericMissionAdapter(cmd_defs=CMD_DEFS, nodes=NODES)
-        self.pkt = _make_pkt_from_payload(PAYLOAD_HEX)
+        import tempfile
+        self._tmp = Path(tempfile.mkdtemp())
+        self.adapter = _adapter_with_router(self._tmp)
+        self.pkt = _make_pkt_from_payload(PAYLOAD_HEX, adapter=self.adapter)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_eps_hk_detail_has_telemetry_block(self):
         blocks = self.adapter.packet_detail_blocks(self.pkt)
@@ -261,7 +250,14 @@ from mav_gss_lib.missions.maveric import log_format  # noqa: E402
 class TestLogFormatTelemetry(unittest.TestCase):
 
     def setUp(self):
-        self.pkt = _make_pkt_from_payload(PAYLOAD_HEX)
+        import tempfile
+        self._tmp = Path(tempfile.mkdtemp())
+        adapter = _adapter_with_router(self._tmp)
+        self.pkt = _make_pkt_from_payload(PAYLOAD_HEX, adapter=adapter)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_eps_hk_log_lines_include_hk_fields(self):
         lines = log_format.format_log_lines(self.pkt, NODES)

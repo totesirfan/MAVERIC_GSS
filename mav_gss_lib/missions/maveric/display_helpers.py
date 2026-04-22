@@ -35,14 +35,37 @@ def ptype_of(mission_data: dict) -> int | None:
 
 
 def has_decoded_gnc(mission_data: dict) -> bool:
-    """True if any GNC register decoded successfully.
+    """True iff the packet produced at least one `gnc` fragment.
 
-    When a register decode succeeds the decoded block carries the full
+    When a GNC register is decoded, the decoded block carries the full
     operator-useful value, so the raw `reg_id`/`raw_bytes` request args
-    are redundant — suppress them the same way `eps_hk` telemetry does.
+    are redundant — suppress them the same way `eps_hk` fragments do.
+    Equivalent (post-v2) to the legacy check that walked
+    mission_data["gnc_registers"] for any decode_ok=True entry, because
+    the extractor already filters decode_ok=False entries out.
     """
-    regs = mission_data.get("gnc_registers") or {}
-    return any(snap.get("decode_ok") for snap in regs.values())
+    frags = mission_data.get("fragments") or []
+    return any(f.get("domain") == "gnc" for f in frags)
+
+
+# cmd_ids whose raw typed_args would render as garbage (binary parsed as
+# ASCII) and should be hidden in favor of their decoded fragments. Kept
+# as a mission-local constant so a future additional cmd_id is a one-
+# line change in one file.
+_HIDE_ARGS_CMD_IDS = frozenset({"eps_hk"})
+
+
+def should_hide_args(cmd: dict | None, mission_data: dict) -> bool:
+    """Shared predicate: should the raw typed_args view be suppressed?
+
+    True when either the cmd_id is in the explicit hide list, or the
+    packet produced at least one `gnc` fragment. Both log_format.py and
+    rendering.py import this — the hide rule lives in one place, not two.
+    """
+    cmd_id = (cmd or {}).get("cmd_id")
+    if cmd_id in _HIDE_ARGS_CMD_IDS:
+        return True
+    return has_decoded_gnc(mission_data)
 
 
 # ---------- typed-arg unwrappers ----------

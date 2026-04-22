@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING
 
 from mav_gss_lib.missions.maveric.display_helpers import (
     md as _md,
-    has_decoded_gnc as _has_decoded_gnc,
     ptype_of as _ptype_of,
+    should_hide_args as _should_hide_args,
     unwrap_typed_arg_for_log,
     format_typed_arg_value,
     is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
@@ -70,20 +70,13 @@ def build_log_mission_data(pkt) -> dict:
         if cmd_tail:
             data["tail_hex"] = cmd_tail.hex()
 
-    # Mission-specific decoded register snapshots from mtq_get_1 /
-    # nvg_get_1 / nvg_heartbeat responses. Keyed by register name.
-    gnc_registers = md.get("gnc_registers")
-    if gnc_registers:
-        data["gnc_registers"] = gnc_registers
-
-    # Decoded mission telemetry (currently just eps_hk's 48 HK fields).
-    # Symmetric with the text log path in format_log_lines, which also
-    # renders telemetry["fields"]. Keep the JSONL and text-log sinks
-    # carrying the same decoded payloads so downstream analytics match
-    # what an operator sees in the text log.
-    telemetry = md.get("telemetry")
-    if telemetry:
-        data["telemetry"] = telemetry
+    # Decoded mission telemetry — the single per-packet payload produced
+    # by mission extractors. The text-log path in format_log_lines
+    # iterates this same list; JSONL and text logs stay in sync by
+    # construction, no symmetry patch required.
+    frags = md.get("fragments")
+    if frags:
+        data["fragments"] = frags
     return data
 
 
@@ -129,8 +122,7 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
 
     # Command
     cmd = md.get("cmd")
-    telemetry = md.get("telemetry")
-    hide_args = bool(telemetry and telemetry.get("hide_schema_args")) or _has_decoded_gnc(md)
+    hide_args = _should_hide_args(cmd, md)
 
     if cmd:
         lines.append(f"  {'CMD':<12}"
@@ -150,17 +142,20 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
                 for i, arg in enumerate(cmd.get("args", [])):
                     lines.append(f"  {f'ARG {i}':<12}{arg}")
 
-    if telemetry:
-        for f in telemetry["fields"]:
-            suffix = f" {f['unit']}" if f["unit"] else ""
-            lines.append(f"  {f['name']:<12}{f['value']}{suffix}")
-
-    # Decoded GNC/NVG register snapshots — one block per register.
-    gnc_registers = md.get("gnc_registers") or {}
-    for reg_name, snap in gnc_registers.items():
-        if not snap.get("decode_ok"):
-            continue
-        lines.extend(_format_gnc_register_lines(reg_name, snap))
+    # Decoded telemetry — one source (mission extractors), one list.
+    # EPS fragments render as a simple `  <KEY>  <value> <unit>` line.
+    # GNC fragments delegate to the register block formatter, which
+    # handles structured values (BCD, bitfields, NVG sensors, etc.).
+    frags = md.get("fragments") or []
+    for frag in frags:
+        if frag["domain"] == "eps":
+            suffix = f" {frag['unit']}" if frag.get("unit") else ""
+            lines.append(f"  {frag['key']:<12}{frag['value']}{suffix}")
+    for frag in frags:
+        if frag["domain"] == "gnc":
+            lines.extend(_format_gnc_register_lines(
+                frag["key"], frag["value"], frag.get("unit", "")
+            ))
 
     # CRC
     if cmd and cmd.get("crc") is not None:
@@ -174,7 +169,7 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
     return lines
 
 
-def _format_gnc_register_lines(reg_name: str, snap: dict) -> list[str]:
+def _format_gnc_register_lines(reg_name: str, value, unit: str = "") -> list[str]:
     """Render one decoded GNC register (MTQ or NVG) as text-log lines.
 
     Handles three shapes:
@@ -182,9 +177,12 @@ def _format_gnc_register_lines(reg_name: str, snap: dict) -> list[str]:
       - BCD dict with `display` key (TIME/DATE)
       - NVG sensor dict (sensor_id, status, values, fields)
       - scalar / list / temperature dict — delegated to str()
+
+    `value` is the structured payload the extractor attached to the
+    fragment (identical in shape to the pre-v2 `snap["value"]`). `unit`
+    travels on the fragment, populated by the mission extractors from
+    the semantic decoder's unit table — no catalog lookup at render time.
     """
-    value = snap.get("value")
-    unit = snap.get("unit") or ""
     unit_suffix = f" {unit}" if unit else ""
     lines = [f"  {reg_name:<18}— decoded"]
 

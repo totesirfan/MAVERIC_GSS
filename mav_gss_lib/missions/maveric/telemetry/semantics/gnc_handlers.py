@@ -197,9 +197,10 @@ COMMAND_HANDLERS: dict[str, Callable[[dict], dict[str, dict] | None]] = {
 def decode_from_cmd(cmd: dict) -> dict[str, dict] | None:
     """Dispatch a parsed cmd dict through the command handler table.
 
-    Called from `rx_ops.parse_packet`. Returns `{register_name: decoded}`
-    or `None` if no handler is registered for this command. The caller
-    merges the returned dict into `mission_data["gnc_registers"]`.
+    Called by the mission's `extractors/gnc_res.py` extractor. Returns
+    `{register_name: decoded}` or `None` if no handler is registered for
+    this command. The extractor projects each `decode_ok` entry into a
+    TelemetryFragment targeting the `gnc` domain.
     """
     if cmd is None:
         return None

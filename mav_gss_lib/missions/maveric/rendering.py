@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 
 from mav_gss_lib.missions.maveric.display_helpers import (
     md as _md,
-    has_decoded_gnc as _has_decoded_gnc,
     ptype_of as _ptype_of,
+    should_hide_args as _should_hide_args,
     unwrap_typed_arg_for_display,
     is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
     is_gnc_mode, is_gnc_counters, is_bitfield, is_generic_dict,
@@ -49,8 +49,7 @@ def packet_list_row(pkt, nodes: NodeTable) -> dict:
     """Return row values keyed by column ID for one packet."""
     md = _md(pkt)
     cmd = md.get("cmd")
-    telemetry = md.get("telemetry")
-    hide_args = bool(telemetry and telemetry.get("hide_schema_args")) or _has_decoded_gnc(md)
+    hide_args = _should_hide_args(cmd, md)
 
     args_str = ""
     if not hide_args:
@@ -181,8 +180,7 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
             {"name": "Cmd", "value": cmd["cmd_id"]},
         ]})
 
-    telemetry = md.get("telemetry")
-    hide_args = bool(telemetry and telemetry.get("hide_schema_args")) or _has_decoded_gnc(md)
+    hide_args = _should_hide_args(cmd, md)
 
     if not hide_args:
         if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
@@ -200,34 +198,34 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
                 args_fields = [{"name": f"arg{i}", "value": str(a)} for i, a in enumerate(raw)]
                 blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
 
-    if telemetry:
+    # Decoded telemetry fragments — EPS becomes one block carrying every
+    # eps fragment; each GNC fragment becomes its own block, driven by
+    # the structured value shape.
+    frags = md.get("fragments") or []
+    eps_frags = [f for f in frags if f["domain"] == "eps"]
+    if eps_frags:
         tel_fields = []
-        for f in telemetry["fields"]:
-            suffix = f" {f['unit']}" if f["unit"] else ""
+        for frag in eps_frags:
+            unit_suffix = f" {frag['unit']}" if frag.get("unit") else ""
             tel_fields.append({
-                "name": f["name"],
-                "value": f"{f['value']}{suffix}",
+                "name": frag["key"],
+                "value": f"{frag['value']}{unit_suffix}",
             })
         blocks.append({
             "kind": "args",
-            "label": telemetry["cmd_id"].upper(),
+            "label": "EPS_HK",
             "fields": tel_fields,
         })
 
-    # Decoded GNC/NVG register snapshots — one detail block per register,
-    # matching the block style used by telemetry so the operator sees the
-    # same field/value pairs in the packet detail panel that land in the
-    # logs. Only emitted when decode_ok (error entries surface in warnings).
-    gnc_registers = md.get("gnc_registers") or {}
-    for reg_name, snap in gnc_registers.items():
-        if not snap.get("decode_ok"):
+    for frag in frags:
+        if frag["domain"] != "gnc":
             continue
-        fields = _gnc_register_detail_fields(snap)
+        fields = _gnc_register_detail_fields(frag["value"], frag.get("unit", ""))
         if not fields:
             continue
         blocks.append({
             "kind": "args",
-            "label": reg_name,
+            "label": frag["key"],
             "fields": fields,
         })
 
@@ -239,8 +237,8 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
 # =============================================================================
 
 
-def _gnc_register_detail_fields(snap: dict) -> list[dict]:
-    """Render one decoded GNC register snapshot as {name, value} pairs.
+def _gnc_register_detail_fields(value, unit: str = "") -> list[dict]:
+    """Render one decoded GNC register fragment as {name, value} pairs.
 
     Shapes handled (same as log_format._format_gnc_register_lines):
       - BCD display (TIME/DATE) → one field "Display"
@@ -251,9 +249,11 @@ def _gnc_register_detail_fields(snap: dict) -> list[dict]:
       - GNC mode → Mode + Code
       - GNC counters → Reboot / Detumble / Sunspin
       - Scalar / list fallback → comma-joined value
+
+    `value` is the structured payload the extractor attached to the
+    fragment (identical in shape to the pre-v2 `snap["value"]`). `unit`
+    travels on the fragment.
     """
-    value = snap.get("value")
-    unit = snap.get("unit") or ""
     suffix = f" {unit}" if unit else ""
 
     if is_nvg_sensor(value):
