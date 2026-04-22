@@ -33,6 +33,7 @@ from .preflight_ws import (
 )
 from .update_ws import schedule_update_check
 from .tx import router as tx_router
+from .telemetry.api import get_telemetry_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
 from .state import WEB_DIR, create_runtime, get_runtime
 from ._task_utils import log_task_exception
@@ -144,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(tx_router)
     app.include_router(session_router)
     app.include_router(preflight_router)
+    app.include_router(get_telemetry_router())
 
     # Auto-mount mission plugin routers
     import importlib

@@ -38,6 +38,7 @@ from mav_gss_lib.protocols.ax25 import AX25Config
 from mav_gss_lib.protocols.csp import CSPConfig
 from ._atomics import AtomicStatus
 from .rx_service import RxService
+from .telemetry.router import TelemetryRouter
 from .tx_service import TxService
 
 if TYPE_CHECKING:
@@ -81,6 +82,16 @@ class WebRuntime:
         self.station = capture_station(self.cfg, self.host)
         self.adapter = load_mission_adapter(self.cfg)
         self.cmd_defs = self.adapter.cmd_defs
+
+        log_dir = self.cfg.get("general", {}).get("log_dir", "logs")
+        self.telemetry = TelemetryRouter(Path(log_dir) / ".telemetry")
+        for name, spec in self.adapter.telemetry_manifest.items():
+            self.telemetry.register_domain(name, **spec)
+        # Aliases so the adapter can reach the router + its extractors
+        # without a separate handoff step. Platform still owns construction;
+        # adapter code just reads through these attrs.
+        self.adapter.extractors = self.adapter.telemetry_extractors
+        self.adapter.telemetry = self.telemetry
 
         self.tx_status = AtomicStatus()
 
