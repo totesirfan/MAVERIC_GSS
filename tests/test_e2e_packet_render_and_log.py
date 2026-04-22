@@ -505,6 +505,46 @@ class E2ERenderAndLogTests(unittest.TestCase):
         self.assertEqual(jsonl_by_key["V_BAT"]["value"], 7.622)
         self.assertEqual(jsonl_by_key["T_DIE"]["value"], 32.5)
 
+    def test_platform_fragments_render_in_log_and_detail_blocks(self):
+        """Beacon packets carry shared-prefix state in the `platform`
+        domain (time, ops_stage, reboot counters, heartbeats). Both the
+        text log and packet-detail blocks must render them so the operator
+        sees the full decoded beacon, not just the variant tail."""
+        platform_fragments = [
+            {"domain": "platform", "key": "time",          "value": 1000000, "ts_ms": 1, "unit": ""},
+            {"domain": "platform", "key": "ops_stage",     "value": 4,       "ts_ms": 1, "unit": ""},
+            {"domain": "platform", "key": "lppm_rbt_cnt",  "value": 112,     "ts_ms": 1, "unit": ""},
+            {"domain": "platform", "key": "ertc_heartbeat","value": 200,     "ts_ms": 1, "unit": ""},
+        ]
+        pkt = make_pkt(
+            {"fragments": platform_fragments},
+            cmd_id="tlm_beacon",
+            ptype=2,  # TLM
+        )
+
+        blocks = self.adapter.packet_detail_blocks(pkt)
+        log = self.adapter.format_log_lines(pkt)
+        jlog = self.adapter.build_log_mission_data(pkt)
+
+        # Detail view: one PLATFORM block carrying every platform fragment.
+        platform_block = next(
+            (b for b in blocks if b.get("kind") == "args" and b.get("label") == "PLATFORM"),
+            None,
+        )
+        self.assertIsNotNone(platform_block, f"no PLATFORM block in {blocks}")
+        names = {f["name"] for f in platform_block["fields"]}
+        self.assertEqual(names, {"time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"})
+
+        # Text log: a line per platform fragment.
+        joined = "\n".join(log)
+        for key in ("time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"):
+            self.assertIn(key, joined, f"platform key {key} missing from log")
+
+        # JSONL: fragments pass through unchanged.
+        jsonl_platform = {f["key"]: f for f in jlog["fragments"] if f["domain"] == "platform"}
+        self.assertEqual(set(jsonl_platform),
+                         {"time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"})
+
     def test_nvg_get_1_production_decoder_round_trip(self):
         """Use the real nvg_get_1 handler (not a hand-built dict) to prove
         the production decoder → display_helpers → UI + log path is intact."""

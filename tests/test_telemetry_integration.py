@@ -72,10 +72,13 @@ def _eps_pkt(ptype=2):
     })
 
 
-# Synthetic beacon 1 tokens (29 after beacon_type; 30 including it),
-# mirroring the Apr 21 fixture structure.
+# Synthetic beacon 1 tokens. Wire layout:
+#   [0]   callsign (WQ2XIC)
+#   [1]   beacon_type = 1
+#   [2..13] shared prefix (12 positions)
+#   [14..] beacon 1 tail (17 positions)
 BEACON_1 = [
-    "1",
+    "WQ2XIC", "1",
     "1000000", "4", "2", "0", "3", "4", "200", "201", "202",
     "203", "1", "2",
     "1610612736", "1",
@@ -87,9 +90,9 @@ BEACON_1 = [
     "21.5",
 ]
 
-# Synthetic beacon 2 tokens (21).
+# Synthetic beacon 2 tokens. Same layout, tail is 8 positions.
 BEACON_2 = [
-    "2",
+    "WQ2XIC", "2",
     "1000100", "4", "2", "0", "3", "4", "200", "201", "202",
     "203", "1", "2",
     "458", "-300", "7500", "7622", "7700", "512", "65", "3",
@@ -176,7 +179,8 @@ class TelemetryIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(eps_changes["V_BAT"]["v"], 7.622, places=3)
 
     def test_unknown_beacon_type_still_emits_prefix(self):
-        tokens = ["99"] + BEACON_1[1:13]  # valid prefix, no tail
+        # Swap beacon_type for an unknown value; keep callsign + prefix.
+        tokens = ["WQ2XIC", "99", *BEACON_1[2:14]]  # valid prefix, no tail
         msgs = _run(self.adapter, _beacon_pkt(tokens))
         by_domain = {m["domain"] for m in msgs if m.get("type") == "telemetry"}
         # Shared prefix routes to platform + gnc (heartbeats live under

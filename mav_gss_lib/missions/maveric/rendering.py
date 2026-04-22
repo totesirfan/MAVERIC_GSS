@@ -198,10 +198,27 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
                 args_fields = [{"name": f"arg{i}", "value": str(a)} for i, a in enumerate(raw)]
                 blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
 
-    # Decoded telemetry fragments — EPS becomes one block carrying every
-    # eps fragment; each GNC fragment becomes its own block, driven by
-    # the structured value shape.
+    # Decoded telemetry fragments. Block order mirrors wire order for
+    # beacon packets: platform prefix first, then EPS / GNC tail.
+    # Platform becomes one block carrying every platform fragment (time,
+    # ops_stage, reboot counts, heartbeats, hn/ab states). EPS becomes
+    # one block carrying every eps fragment. Each GNC fragment becomes
+    # its own block, driven by the structured value shape.
     frags = md.get("fragments") or []
+    platform_frags = [f for f in frags if f["domain"] == "platform"]
+    if platform_frags:
+        blocks.append({
+            "kind": "args",
+            "label": "PLATFORM",
+            "fields": [
+                {
+                    "name": f["key"],
+                    "value": f"{f['value']}{' ' + f['unit'] if f.get('unit') else ''}",
+                }
+                for f in platform_frags
+            ],
+        })
+
     eps_frags = [f for f in frags if f["domain"] == "eps"]
     if eps_frags:
         tel_fields = []

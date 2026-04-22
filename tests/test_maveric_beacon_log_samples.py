@@ -1,12 +1,16 @@
 """Fixture-gated regression test for tlm_beacon decoder against real bench logs.
 
-Loads the Apr 21 2026 downlink capture (machine-local, gitignored),
+Loads a current-layout downlink capture (machine-local, gitignored),
 re-parses every tlm_beacon wire frame through try_parse_command, feeds
 the resulting cmd through the extractor, and asserts every "verified"
 mapping row produces the expected canonical output.
 
-Gated on fixture presence so CI / other hosts skip gracefully. See plan
-Task 9a Step 1 for the copy instruction.
+Gated on fixture presence so CI / other hosts skip gracefully.
+
+Fixture layout must match the current wire (callsign, beacon_type,
+prefix, tail). The pre-callsign Apr 21 2026 capture is incompatible
+with today's extractor — drop a new capture under
+`tests/fixtures/beacon_samples/downlink_current.jsonl` to re-enable.
 """
 from __future__ import annotations
 
@@ -19,11 +23,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-FIXTURE = Path(__file__).parent / "fixtures" / "beacon_samples" / "downlink_2026-04-21.jsonl"
+FIXTURE = Path(__file__).parent / "fixtures" / "beacon_samples" / "downlink_current.jsonl"
 
 pytestmark = pytest.mark.skipif(
     not FIXTURE.exists(),
-    reason="beacon log fixture not present (machine-local; see plan Task 9a Step 1)",
+    reason="current-layout beacon fixture not present (machine-local; drop a "
+           "recent downlink JSONL at tests/fixtures/beacon_samples/downlink_current.jsonl)",
 )
 
 

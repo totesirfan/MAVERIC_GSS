@@ -12,12 +12,18 @@ That list carries every token on the wire regardless of the schema's
 declared rx_args, so `cmd["typed_args"]` is orthogonal to canonical
 state here.
 
-The beacon is a single telemetry family with a discriminator-first
-variant layout:
+The beacon is a single telemetry family with a callsign-prefixed,
+discriminator-second variant layout:
 
-    tokens[0]      beacon_type            (uint discriminator)
-    tokens[1..12]  shared generic prefix  (platform + gnc/eps heartbeats)
-    tokens[13..]   variant tail           (selected by beacon_type)
+    tokens[0]      callsign               (spacecraft identifier, skipped)
+    tokens[1]      beacon_type            (uint discriminator)
+    tokens[2..13]  shared generic prefix  (platform + gnc/eps heartbeats)
+    tokens[14..]   variant tail           (selected by beacon_type)
+
+The callsign is a wire routing artifact, not canonical telemetry — the
+extractor reads it to know where the discriminator lives and skips it
+otherwise. Pre-callsign wire layout (tokens[0]=btype) is not supported;
+recapture fixtures if needed.
 
 Shared prefix and tail mappings are log-derived against a local bench
 capture (10 samples, 5 x beacon_type=1 and 5 x beacon_type=2). Status
@@ -337,26 +343,29 @@ def extract(pkt, nodes, now_ms: int):
     if nodes.ptype_name(md.get("ptype")) != "TLM":
         return
     tokens = cmd.get("args") or []
-    if not tokens:
+    # Minimum legible beacon: callsign + beacon_type.
+    if len(tokens) < 2:
         return
-    btype = _to_int([tokens[0]])
+    btype = _to_int([tokens[1]])
 
     # Shared prefix — emitted on every beacon regardless of btype.
-    yield from _emit(COMMON_MAPPINGS, tokens, base_offset=1, now_ms=now_ms)
+    # tokens[0] = callsign (skipped), tokens[1] = beacon_type,
+    # tokens[2..] = shared prefix.
+    yield from _emit(COMMON_MAPPINGS, tokens, base_offset=2, now_ms=now_ms)
 
     if btype is None:
         return
     tail = BEACON_TYPE_MAPPINGS.get(btype)
     if not tail:
         return
-    # Tail offset: 1 (for the beacon_type discriminator at token[0])
-    # plus the count of prefix positions. Derive from the table so the
-    # layout stays a single source of truth. COMMON_MAPPINGS covers
-    # positions 0..11 contiguously (12 slots); eps_heartbeat_time is
-    # explicitly NOT transmitted, so no gap. Deferred rows still
-    # consume a wire slot, so they must remain in the max() computation.
-    prefix_len = 1 + (max(p for m in COMMON_MAPPINGS for p in m.positions) + 1)
-    # → with today's table: 1 + (11 + 1) = 13; tail tokens start at
-    #   tokens[13], i.e. tokens[0]=beacon_type, tokens[1..12]=prefix,
-    #   tokens[13..]=variant tail.
+    # Tail offset: 2 (callsign + beacon_type header) + prefix-length
+    # derived from the table so the layout stays a single source of
+    # truth. COMMON_MAPPINGS covers positions 0..11 contiguously
+    # (12 slots); eps_heartbeat_time is explicitly NOT transmitted, so
+    # no gap. Deferred rows still consume a wire slot, so they must
+    # remain in the max() computation.
+    prefix_len = 2 + (max(p for m in COMMON_MAPPINGS for p in m.positions) + 1)
+    # → with today's table: 2 + 12 = 14; tail tokens start at
+    #   tokens[14], i.e. tokens[0]=callsign, tokens[1]=beacon_type,
+    #   tokens[2..13]=prefix, tokens[14..]=variant tail.
     yield from _emit(tail, tokens, base_offset=prefix_len, now_ms=now_ms)

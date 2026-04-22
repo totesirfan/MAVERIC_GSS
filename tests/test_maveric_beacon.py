@@ -52,9 +52,13 @@ PREFIX_SAMPLE = [
 ]
 
 
+_CALLSIGN = "WQ2XIC"
+
+
 def _beacon_pkt(beacon_type: int, tail: list[str], cmd_id: str = "tlm_beacon",
                 ptype_id: int = 2):
-    tokens = [str(beacon_type), *PREFIX_SAMPLE, *tail]
+    # Wire layout: callsign, beacon_type, 12 prefix positions, variant tail.
+    tokens = [_CALLSIGN, str(beacon_type), *PREFIX_SAMPLE, *tail]
     return SimpleNamespace(mission_data={
         "ptype": ptype_id,
         "cmd": {"cmd_id": cmd_id, "args": tokens},

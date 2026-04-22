@@ -143,10 +143,17 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
                     lines.append(f"  {f'ARG {i}':<12}{arg}")
 
     # Decoded telemetry — one source (mission extractors), one list.
-    # EPS fragments render as a simple `  <KEY>  <value> <unit>` line.
-    # GNC fragments delegate to the register block formatter, which
+    # Platform / EPS fragments render as a simple `  <KEY>  <value> <unit>`
+    # line; GNC fragments delegate to the register block formatter, which
     # handles structured values (BCD, bitfields, NVG sensors, etc.).
+    # Platform comes first so beacon packets show the shared prefix
+    # (time, ops_stage, reboot counts, heartbeats, hn/ab states) before
+    # the variant tail — matches the wire order.
     frags = md.get("fragments") or []
+    for frag in frags:
+        if frag["domain"] == "platform":
+            suffix = f" {frag['unit']}" if frag.get("unit") else ""
+            lines.append(f"  {frag['key']:<16}{frag['value']}{suffix}")
     for frag in frags:
         if frag["domain"] == "eps":
             suffix = f" {frag['unit']}" if frag.get("unit") else ""
