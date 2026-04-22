@@ -84,6 +84,41 @@ def _to_float(vals):
         return None
 
 
+def to_spacecraft_time(vals):
+    """Raw unix ms int → canonical spacecraft-time dict.
+
+    The beacon ships wall-clock time as a unix milliseconds integer
+    (e.g. `1767229527411`). An operator reading the raw number can't
+    tell if the spacecraft clock has synced or when the sample was
+    taken. We preserve the raw value for analytics and add formatted
+    strings for display.
+
+    Shape matches the BCD/display pattern from gnc_schema's `_decode_time`
+    (`{..., "display": "..."}`), so the existing is_bcd_display shape
+    renderer handles compact/detail/log views without a new code path.
+    """
+    from datetime import datetime, timezone
+
+    raw = _to_int(vals)
+    if raw is None:
+        return None
+    try:
+        dt = datetime.fromtimestamp(raw / 1000.0, tz=timezone.utc)
+    except (OSError, OverflowError, ValueError):
+        # Out-of-range timestamp (negative, > year 9999, etc.) — preserve
+        # the raw value but mark display as unknown rather than crash.
+        return {
+            "unix_ms": raw,
+            "iso_utc": None,
+            "display": f"raw={raw}",
+        }
+    return {
+        "unix_ms": raw,
+        "iso_utc": dt.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "display": dt.strftime("%Y-%m-%d %H:%M:%S UTC"),
+    }
+
+
 # ── adapter helpers — all delegate to semantic decoders ───────────
 
 def to_gnc_mode(vals):
@@ -233,7 +268,7 @@ def to_eps_scaled(name: str):
 # exactly; commands.yml's labels for positions 4+ are misaligned and
 # should be ignored for beacon semantics.
 COMMON_MAPPINGS: tuple[Mapping, ...] = (
-    Mapping((0,),  "spacecraft", "time",           _to_int, "verified"),
+    Mapping((0,),  "spacecraft", "time",           to_spacecraft_time, "verified"),
     Mapping((1,),  "spacecraft", "ops_stage",      _to_int, "verified"),
     Mapping((2,),  "spacecraft", "lppm_rbt_cnt",   _to_int, "verified"),
     Mapping((3,),  "spacecraft", "lppm_rbt_cause", _to_int, "verified"),

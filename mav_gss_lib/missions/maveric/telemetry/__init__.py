@@ -75,6 +75,51 @@ def _gnc_catalog():
     return register_entries + list(_GNC_NON_REGISTER_ENTRIES)
 
 
+# Spacecraft domain catalog. Unlike `gnc`, these keys don't come from
+# addressable registers — they're all emitted by tlm_beacon (shared
+# prefix + callsign). The catalog gives the frontend + any future
+# consumer a single source of truth for key→metadata mapping, matching
+# the gnc pattern.
+#
+# type values:
+#   string  — the callsign
+#   unix_ms — integer unix milliseconds (decoded to display-ready dict
+#             by to_spacecraft_time; renders via is_bcd_display)
+#   uint{8,16} — raw scalars
+_SPACECRAFT_CATALOG = [
+    {"name": "callsign",       "type": "string",
+     "unit": "", "notes": "Spacecraft callsign transmitted on every beacon."},
+    {"name": "time",           "type": "unix_ms",
+     "unit": "", "notes": "Spacecraft onboard wall-clock time (unix ms)."},
+    {"name": "ops_stage",      "type": "uint8",
+     "unit": "", "notes": "Operational stage (raw enum; see FSW)."},
+    {"name": "lppm_rbt_cnt",   "type": "uint16",
+     "unit": "", "notes": "LPPM reboot count."},
+    {"name": "lppm_rbt_cause", "type": "uint8",
+     "unit": "", "notes": "LPPM last reboot cause code."},
+    {"name": "uppm_rbt_cnt",   "type": "uint16",
+     "unit": "", "notes": "UPPM reboot count."},
+    {"name": "uppm_rbt_cause", "type": "uint8",
+     "unit": "", "notes": "UPPM last reboot cause code."},
+    {"name": "ertc_heartbeat", "type": "uint8",
+     "unit": "", "notes": "ERTC (real-time clock) heartbeat byte."},
+    {"name": "hn_state",       "type": "uint8",
+     "unit": "", "notes": "HN state byte."},
+    {"name": "ab_state",       "type": "uint8",
+     "unit": "", "notes": "AB state byte."},
+]
+
+
+def _spacecraft_catalog():
+    """Serve the spacecraft catalog at /api/telemetry/spacecraft/catalog.
+
+    Matches the gnc catalog contract shape (name/type/unit/notes per entry).
+    Module/register are absent — spacecraft keys are wire-only, not
+    addressable registers.
+    """
+    return list(_SPACECRAFT_CATALOG)
+
+
 TELEMETRY_MANIFEST: dict[str, dict] = {
     # eps_hk 48 engineering fields. Default LWW merge; no catalog
     # (field names travel on each fragment's `unit` already).
@@ -82,12 +127,10 @@ TELEMETRY_MANIFEST: dict[str, dict] = {
     # GNC register catalog served via the platform route; live values
     # come in through the extractor + router.
     "gnc":      {"catalog": _gnc_catalog},
-    # Spacecraft-wide state carried in tlm_beacon's shared prefix
-    # (platform time, ops_stage, reboot counters, hn/ab state, ertc
-    # heartbeat). Populated on every beacon packet regardless of
-    # beacon_type. No catalog — field names are self-explanatory and
-    # enumerated in extractors/tlm_beacon.py's COMMON_MAPPINGS table.
-    "spacecraft": {},
+    # Spacecraft-wide state: callsign + tlm_beacon shared prefix (time,
+    # ops_stage, reboot counters, heartbeats, hn/ab states). Populated
+    # on every beacon packet regardless of beacon_type.
+    "spacecraft": {"catalog": _spacecraft_catalog},
     # Future-domain examples showing every extension point:
     #   "thermal": {
     #       "merge": sequence_monotonic("seq"),         # custom merge

@@ -20,9 +20,8 @@ from mav_gss_lib.missions.maveric.display_helpers import (
     ptype_of as _ptype_of,
     should_hide_args as _should_hide_args,
     unwrap_typed_arg_for_display,
-    gnc_compact_value as _gnc_compact_value,
-    is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
-    is_gnc_mode, is_gnc_counters, is_bitfield, is_generic_dict,
+    compact_value as _compact_value,
+    detail_fields as _detail_fields,
 )
 
 
@@ -253,7 +252,7 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
                 "fields": [
                     {
                         "name": f["key"],
-                        "value": _gnc_compact_value(f["value"], f.get("unit", "")),
+                        "value": _compact_value(f["value"], f.get("unit", "")),
                     }
                     for f in gnc_frags
                 ],
@@ -261,7 +260,7 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
         else:
             # RES packet: per-register detail block (existing behavior).
             for f in gnc_frags:
-                fields = _gnc_register_detail_fields(f["value"], f.get("unit", ""))
+                fields = _detail_fields(f["value"], f.get("unit", ""))
                 if not fields:
                     continue
                 blocks.append({
@@ -271,102 +270,6 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
                 })
 
     return blocks
-
-
-# =============================================================================
-#  GNC register → packet detail fields
-# =============================================================================
-
-
-def _gnc_register_detail_fields(value, unit: str = "") -> list[dict]:
-    """Render one decoded GNC register fragment as {name, value} pairs.
-
-    Shapes handled (same as log_format._format_gnc_register_lines):
-      - BCD display (TIME/DATE) → one field "Display"
-      - ADCS_TMP → Celsius + raw + optional fault
-      - Bitfield (STAT/ACT_ERR/SEN_ERR/CONF) → MODE + truthy flags
-      - NVG heartbeat → Status + Label
-      - NVG sensor → status, labeled payload values
-      - GNC mode → Mode + Code
-      - GNC counters → Reboot / Detumble / Sunspin
-      - Scalar / list fallback → comma-joined value
-
-    `value` is the structured payload the extractor attached to the
-    fragment (identical in shape to the pre-v2 `snap["value"]`). `unit`
-    travels on the fragment.
-    """
-    suffix = f" {unit}" if unit else ""
-
-    if is_nvg_sensor(value):
-        fields = [
-            {"name": "Display", "value": str(value.get("display", ""))},
-            {"name": "Status",  "value": str(value.get("status"))},
-        ]
-        ts = value.get("timestamp")
-        if ts is not None:
-            fields.append({"name": "Timestamp", "value": str(ts)})
-        names = value.get("fields") or []
-        vals  = value.get("values") or []
-        if names and len(vals) == len(names):
-            for n, v in zip(names, vals):
-                fields.append({"name": n, "value": f"{v}{suffix}"})
-        else:
-            for i, v in enumerate(vals):
-                fields.append({"name": f"v[{i}]", "value": f"{v}{suffix}"})
-        return fields
-
-    if is_bcd_display(value):
-        return [{"name": "Display", "value": value["display"]}]
-
-    if is_adcs_tmp(value):
-        if value.get("comm_fault"):
-            return [{"name": "Status", "value": "SENSOR FAULT"}]
-        return [
-            {"name": "Celsius", "value": f"{value.get('celsius'):.2f} °C"},
-            {"name": "Raw",     "value": str(value.get("brdtmp"))},
-        ]
-
-    if is_nvg_heartbeat(value):
-        return [
-            {"name": "Label",  "value": str(value.get("label"))},
-            {"name": "Status", "value": str(value.get("status"))},
-        ]
-
-    if is_gnc_mode(value):
-        return [
-            {"name": "Mode", "value": str(value.get("mode_name"))},
-            {"name": "Code", "value": str(value.get("mode"))},
-        ]
-
-    if is_gnc_counters(value):
-        return [
-            {"name": "Reboot",    "value": str(value.get("reboot"))},
-            {"name": "De-Tumble", "value": str(value.get("detumble"))},
-            {"name": "Sunspin",   "value": str(value.get("sunspin"))},
-        ]
-
-    if is_bitfield(value):
-        fields: list[dict] = []
-        has_bool_flags = any(isinstance(v, bool) for v in value.values())
-        if "MODE" in value:
-            mode_name = value.get("MODE_NAME", str(value.get("MODE")))
-            fields.append({"name": "Mode", "value": f"{mode_name} ({value.get('MODE')})"})
-        if "TARGET_ELEV" in value:
-            fields.append({"name": "Target Elev", "value": f"{value['TARGET_ELEV']}°"})
-        truthy = [k for k, v in value.items() if v is True]
-        if truthy:
-            fields.append({"name": "Flags", "value": ", ".join(truthy)})
-        elif has_bool_flags and "MODE" not in value:
-            fields.append({"name": "Status", "value": "All nominal"})
-        return fields
-
-    if is_generic_dict(value):
-        return [{"name": str(k), "value": str(v)} for k, v in value.items()]
-
-    if isinstance(value, list):
-        joined = ", ".join(f"{v:.4f}" if isinstance(v, float) else str(v) for v in value)
-        return [{"name": "Value", "value": f"{joined}{suffix}"}]
-    return [{"name": "Value", "value": f"{value}{suffix}"}]
 
 
 # =============================================================================

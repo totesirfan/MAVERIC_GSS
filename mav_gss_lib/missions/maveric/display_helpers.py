@@ -199,16 +199,174 @@ def is_generic_dict(value: Any) -> bool:
     return isinstance(value, dict)
 
 
-# ---------- compact one-line renderer ----------
+# ---------- shared shape-dispatch table ----------
+#
+# One entry per decoded-value shape. Each entry ships three callables:
+#   matches       — predicate (already defined above)
+#   compact_fn    — render as one display string
+#   detail_fn     — render as a list[{name, value}] (packet-detail rows)
+#
+# Iterating this list once (first match wins) means a new decoded shape
+# is added by registering ONE tuple here. Previously the same shape
+# needed a branch in `gnc_compact_value` and a branch in
+# `_gnc_register_detail_fields` — parallel duplication flagged as
+# smell #2 in the architectural audit.
+#
+# _format_gnc_register_lines (text log summary layout) stays standalone
+# — its output shape (summary line + indented subfields with register
+# name as left gutter) is legitimately different from both compact
+# strings and name/value dicts, and unifying would force the dispatch
+# into lowest-common-denominator output.
 
-def gnc_compact_value(value: Any, unit: str = "") -> str:
-    """Collapse one decoded GNC register's value into a single display string.
 
-    Used by the beacon path in BOTH rendering.py (packet-detail block rows)
-    and log_format.py (text log lines) so a beacon snapshot renders as one
-    row per register in both surfaces. RES packets continue to use
-    `rendering._gnc_register_detail_fields` + `log_format._format_gnc_register_lines`
-    for the full per-register breakdown.
+def _nvg_sensor_compact(v: dict, unit: str) -> str:
+    return f"{v.get('display', '')} (status={v.get('status')})"
+
+
+def _nvg_sensor_detail(v: dict, unit: str) -> list[dict]:
+    suffix = f" {unit}" if unit else ""
+    fields = [
+        {"name": "Display", "value": str(v.get("display", ""))},
+        {"name": "Status",  "value": str(v.get("status"))},
+    ]
+    ts = v.get("timestamp")
+    if ts is not None:
+        fields.append({"name": "Timestamp", "value": str(ts)})
+    names = v.get("fields") or []
+    vals  = v.get("values") or []
+    if names and len(vals) == len(names):
+        for n, x in zip(names, vals):
+            fields.append({"name": n, "value": f"{x}{suffix}"})
+    else:
+        for i, x in enumerate(vals):
+            fields.append({"name": f"v[{i}]", "value": f"{x}{suffix}"})
+    return fields
+
+
+def _bcd_compact(v: dict, unit: str) -> str:
+    return v["display"]
+
+
+def _bcd_detail(v: dict, unit: str) -> list[dict]:
+    return [{"name": "Display", "value": v["display"]}]
+
+
+def _adcs_tmp_compact(v: dict, unit: str) -> str:
+    if v.get("comm_fault"):
+        return "SENSOR FAULT"
+    c = v.get("celsius")
+    return f"{c:.2f} °C" if c is not None else "—"
+
+
+def _adcs_tmp_detail(v: dict, unit: str) -> list[dict]:
+    if v.get("comm_fault"):
+        return [{"name": "Status", "value": "SENSOR FAULT"}]
+    return [
+        {"name": "Celsius", "value": f"{v.get('celsius'):.2f} °C"},
+        {"name": "Raw",     "value": str(v.get("brdtmp"))},
+    ]
+
+
+def _nvg_hb_compact(v: dict, unit: str) -> str:
+    return f"{v.get('label')} (status={v.get('status')})"
+
+
+def _nvg_hb_detail(v: dict, unit: str) -> list[dict]:
+    return [
+        {"name": "Label",  "value": str(v.get("label"))},
+        {"name": "Status", "value": str(v.get("status"))},
+    ]
+
+
+def _gnc_mode_compact(v: dict, unit: str) -> str:
+    return f"{v.get('mode_name')} ({v.get('mode')})"
+
+
+def _gnc_mode_detail(v: dict, unit: str) -> list[dict]:
+    return [
+        {"name": "Mode", "value": str(v.get("mode_name"))},
+        {"name": "Code", "value": str(v.get("mode"))},
+    ]
+
+
+def _gnc_counters_compact(v: dict, unit: str) -> str:
+    return (
+        f"reboot={v.get('reboot')}  "
+        f"detumble={v.get('detumble')}  "
+        f"sunspin={v.get('sunspin')}"
+    )
+
+
+def _gnc_counters_detail(v: dict, unit: str) -> list[dict]:
+    return [
+        {"name": "Reboot",    "value": str(v.get("reboot"))},
+        {"name": "De-Tumble", "value": str(v.get("detumble"))},
+        {"name": "Sunspin",   "value": str(v.get("sunspin"))},
+    ]
+
+
+def _bitfield_compact(v: dict, unit: str) -> str:
+    parts: list[str] = []
+    if "MODE" in v:
+        parts.append(f"mode={v.get('MODE_NAME', v.get('MODE'))}")
+    truthy = [k for k, x in v.items() if x is True]
+    if truthy:
+        parts.append(",".join(truthy))
+    elif any(isinstance(x, bool) for x in v.values()) and not parts:
+        parts.append("nominal")
+    return "  ".join(parts) if parts else "—"
+
+
+def _bitfield_detail(v: dict, unit: str) -> list[dict]:
+    fields: list[dict] = []
+    has_bool = any(isinstance(x, bool) for x in v.values())
+    if "MODE" in v:
+        mode_name = v.get("MODE_NAME", str(v.get("MODE")))
+        fields.append({"name": "Mode", "value": f"{mode_name} ({v.get('MODE')})"})
+    if "TARGET_ELEV" in v:
+        fields.append({"name": "Target Elev", "value": f"{v['TARGET_ELEV']}°"})
+    truthy = [k for k, x in v.items() if x is True]
+    if truthy:
+        fields.append({"name": "Flags", "value": ", ".join(truthy)})
+    elif has_bool and "MODE" not in v:
+        fields.append({"name": "Status", "value": "All nominal"})
+    return fields
+
+
+def _generic_dict_compact(v: dict, unit: str) -> str:
+    return "  ".join(
+        f"{k}={x}" for k, x in v.items() if not str(k).startswith("_")
+    )
+
+
+def _generic_dict_detail(v: dict, unit: str) -> list[dict]:
+    return [{"name": str(k), "value": str(x)} for k, x in v.items()]
+
+
+# Shape dispatch table. Order matches the existing first-match-wins
+# priority — NVG sensor before BCD (which matches any `display` key),
+# GNC mode before bitfield (GNC mode is a special dict that would
+# otherwise be caught by is_bitfield via its bool values), etc.
+_SHAPE_DISPATCH: tuple[tuple, ...] = (
+    (is_nvg_sensor,    _nvg_sensor_compact,    _nvg_sensor_detail),
+    (is_bcd_display,   _bcd_compact,           _bcd_detail),
+    (is_adcs_tmp,      _adcs_tmp_compact,      _adcs_tmp_detail),
+    (is_nvg_heartbeat, _nvg_hb_compact,        _nvg_hb_detail),
+    (is_gnc_mode,      _gnc_mode_compact,      _gnc_mode_detail),
+    (is_gnc_counters,  _gnc_counters_compact,  _gnc_counters_detail),
+    (is_bitfield,      _bitfield_compact,      _bitfield_detail),
+    (is_generic_dict,  _generic_dict_compact,  _generic_dict_detail),
+)
+
+
+def compact_value(value: Any, unit: str = "") -> str:
+    """Collapse one decoded telemetry value into a single display string.
+
+    Used in the beacon path by both rendering.py (packet-detail block
+    rows) and log_format.py (text log lines) so a beacon snapshot
+    renders as one row per register in both surfaces. Also handles
+    spacecraft-domain structured values like time (which has a
+    `display` key and flows through the is_bcd_display branch).
     """
     suffix = f" {unit}" if unit else ""
 
@@ -225,37 +383,36 @@ def gnc_compact_value(value: Any, unit: str = "") -> str:
         )
         return f"[{body}]{suffix}"
     if isinstance(value, dict):
-        if is_bcd_display(value):
-            return value["display"]
-        if is_adcs_tmp(value):
-            if value.get("comm_fault"):
-                return "SENSOR FAULT"
-            c = value.get("celsius")
-            return f"{c:.2f} °C" if c is not None else "—"
-        if is_gnc_mode(value):
-            return f"{value.get('mode_name')} ({value.get('mode')})"
-        if is_gnc_counters(value):
-            return (
-                f"reboot={value.get('reboot')}  "
-                f"detumble={value.get('detumble')}  "
-                f"sunspin={value.get('sunspin')}"
-            )
-        if is_nvg_sensor(value):
-            return f"{value.get('display', '')} (status={value.get('status')})"
-        if is_nvg_heartbeat(value):
-            return f"{value.get('label')} (status={value.get('status')})"
-        if is_bitfield(value):
-            parts: list[str] = []
-            if "MODE" in value:
-                parts.append(f"mode={value.get('MODE_NAME', value.get('MODE'))}")
-            truthy = [k for k, v in value.items() if v is True]
-            if truthy:
-                parts.append(",".join(truthy))
-            elif any(isinstance(v, bool) for v in value.values()) and not parts:
-                parts.append("nominal")
-            return "  ".join(parts) if parts else "—"
-        if is_generic_dict(value):
-            return "  ".join(
-                f"{k}={v}" for k, v in value.items() if not str(k).startswith("_")
-            )
+        for matches, compact_fn, _detail_fn in _SHAPE_DISPATCH:
+            if matches(value):
+                return compact_fn(value, unit)
     return f"{value}{suffix}"
+
+
+def detail_fields(value: Any, unit: str = "") -> list[dict]:
+    """Render one decoded value as a list of {name, value} rows for the
+    packet-detail block layout. Mirror of compact_value but returns
+    structured rows instead of a summary string. Dispatches through
+    the same _SHAPE_DISPATCH table so a new shape is registered in
+    one place.
+    """
+    suffix = f" {unit}" if unit else ""
+
+    if isinstance(value, dict):
+        for matches, _compact_fn, detail_fn in _SHAPE_DISPATCH:
+            if matches(value):
+                return detail_fn(value, unit)
+    if isinstance(value, list):
+        joined = ", ".join(
+            f"{v:.4f}" if isinstance(v, float) else str(v)
+            for v in value
+        )
+        return [{"name": "Value", "value": f"{joined}{suffix}"}]
+    return [{"name": "Value", "value": f"{value}{suffix}"}]
+
+
+# Back-compat aliases — callers used `gnc_compact_value` before the
+# rename to `compact_value` (which reflects that the helper is now
+# domain-agnostic: spacecraft time flows through it too). Keep the old
+# name wired so downstream grep-then-import doesn't break.
+gnc_compact_value = compact_value

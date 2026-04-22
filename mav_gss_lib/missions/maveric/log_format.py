@@ -19,7 +19,7 @@ from mav_gss_lib.missions.maveric.display_helpers import (
     should_hide_args as _should_hide_args,
     unwrap_typed_arg_for_log,
     format_typed_arg_value,
-    gnc_compact_value as _gnc_compact_value,
+    compact_value as _compact_value,
     is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
     is_gnc_mode, is_gnc_counters,
 )
@@ -166,7 +166,7 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
         if frag["domain"] != "gnc":
             continue
         if is_beacon:
-            summary = _gnc_compact_value(frag["value"], frag.get("unit", ""))
+            summary = _compact_value(frag["value"], frag.get("unit", ""))
             lines.append(f"  {frag['key']:<16}{summary}")
         else:
             lines.extend(_format_gnc_register_lines(

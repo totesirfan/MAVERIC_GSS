@@ -116,7 +116,12 @@ class TestSharedPrefix(unittest.TestCase):
         by_key = {(f.domain, f.key): f for f in frags}
 
         # Every verified shared-prefix row emitted.
-        self.assertEqual(by_key[("spacecraft", "time")].value, 1000000)
+        # `time` is decoded by to_spacecraft_time into a structured dict
+        # so the operator reads a human timestamp rather than a raw ms int.
+        time_val = by_key[("spacecraft", "time")].value
+        self.assertEqual(time_val["unix_ms"], 1000000)
+        self.assertIn("display", time_val)
+        self.assertIn("UTC", time_val["display"])
         self.assertEqual(by_key[("spacecraft", "ops_stage")].value, 4)
         self.assertEqual(by_key[("spacecraft", "uppm_rbt_cnt")].value, 3)
         self.assertEqual(by_key[("spacecraft", "hn_state")].value, 1)
