@@ -8,7 +8,8 @@
  * (the global header, app chrome, etc.) are intentionally NOT
  * redeclared. Values identical to the preview.
  *
- * Extracted from docs/eps-preview.html lines 254–1394. Trimmed:
+ * Originally extracted from the retired EPS preview artifact, then
+ * kept as the production stylesheet for the live React page.
  *   - .app / .gh-*  (global header — plugin mounts inside app shell)
  *   - :root re-declaration (tokens already global)
  *   - html, body base rules

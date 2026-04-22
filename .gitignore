@@ -87,6 +87,15 @@ docs/eps-port/
 # Operator setup doc referencing the three gitignored local YAMLs — local-only
 docs/mission-config-files.md
 
+# === MAVERIC-local mission test suites (kept locally, not shipped) ===
+tests/test_maveric_*.py
+tests/test_eps_*.py
+tests/test_imaging_*.py
+tests/test_e2e_packet_render_and_log.py
+tests/test_ops_eps_hk_telemetry.py
+tests/test_telemetry_integration.py
+mav_gss_lib/web/src/plugins/maveric/**/*.test.ts
+
 # === Legacy / Retired ===
 legacy/
 perf_bench.py

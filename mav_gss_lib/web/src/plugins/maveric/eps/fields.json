@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for the 48 eps_hk fields. Order MATCHES _EPS_HK_NAMES in mav_gss_lib/missions/maveric/telemetry/eps.py and therefore the int16 LE wire order. Consumed by types.ts (generate EpsFields), FieldsPane (table rows + filter groups), and tests/test_eps_wire_up.py (asserts every data-hk in the preview resolves here).",
+  "_comment": "Single source of truth for the 48 eps_hk fields. Order matches _EPS_HK_NAMES in mav_gss_lib/missions/maveric/telemetry/semantics/eps.py and therefore the int16 LE wire order. Consumed by types.ts, FieldsPane, and tests/test_eps_wire_up.py, which asserts production data-hk/data-derived bindings resolve here.",
   "version": 1,
   "wire_struct": "<48h",
   "wire_bytes": 96,
