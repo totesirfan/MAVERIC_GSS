@@ -13,10 +13,14 @@ def test_runtime_has_telemetry_router():
 
     runtime = create_runtime()
     assert isinstance(runtime.telemetry, TelemetryRouter)
-    # Adapter sees the same router instance (Task 10 will read through this).
+    # Adapter sees the same router instance.
     assert runtime.adapter.telemetry is runtime.telemetry
-    # Extractors alias is set; currently empty until Task 11 lands the manifest.
-    assert runtime.adapter.extractors == ()
+    # Extractors alias is set from the manifest registered by Task 11
+    # (eps, gnc, platform) — 3 extractor callables.
+    assert len(runtime.adapter.extractors) == 3
+    # Domains registered from TELEMETRY_MANIFEST.
+    for name in ("eps", "gnc", "platform"):
+        assert runtime.telemetry.has_domain(name), f"{name} domain missing"
 
 
 def test_create_app_mounts_telemetry_routes():

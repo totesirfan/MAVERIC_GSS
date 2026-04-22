@@ -25,36 +25,26 @@ def init_mission(cfg: dict) -> dict:
     """Initialize MAVERIC mission resources.
 
     Called by the shared mission loader after metadata merge.
-    Builds NodeTable and loads the command schema.
+    Builds NodeTable, loads the command schema, and declares the
+    telemetry manifest + extractors the platform router consumes.
 
     Returns:
         {"cmd_defs": dict, "cmd_warn": str | None, "nodes": NodeTable,
-         "image_assembler": ImageAssembler}
+         "image_assembler": ImageAssembler,
+         "telemetry_manifest": dict, "telemetry_extractors": tuple}
     """
     import os
     from mav_gss_lib.missions.maveric.nodes import init_nodes
     from mav_gss_lib.missions.maveric.schema import load_command_defs
     from mav_gss_lib.missions.maveric.imaging import ImageAssembler
-    from mav_gss_lib.missions.maveric.telemetry.gnc_registers import GncRegisterStore
-    from mav_gss_lib.missions.maveric.telemetry.eps_store import EpsStore
+    from mav_gss_lib.missions.maveric.telemetry import TELEMETRY_MANIFEST
+    from mav_gss_lib.missions.maveric.telemetry.extractors import EXTRACTORS
 
     nodes = init_nodes(cfg)
 
     # Initialize ImageAssembler
     image_dir = cfg.get("general", {}).get("image_dir", "images")
     image_assembler = ImageAssembler(image_dir)
-
-    # Initialize persistent GNC register store. The path is hard-wired
-    # to <log_dir>/.gnc_snapshot.json — same trust boundary as the
-    # platform's pending-queue sidecar, not a separately user-editable
-    # knob. Operators change log_dir, not this path directly.
-    log_dir = cfg.get("general", {}).get("log_dir", "logs")
-    gnc_snapshot_path = os.path.join(log_dir, ".gnc_snapshot.json")
-    gnc_store = GncRegisterStore(gnc_snapshot_path)
-
-    # EPS HK snapshot — same trust boundary + path convention as GNC.
-    eps_snapshot_path = os.path.join(log_dir, ".eps_snapshot.json")
-    eps_store = EpsStore(eps_snapshot_path)
 
     # Resolve command schema path: check mission package dir first
     cmd_defs_name = cfg.get("general", {}).get("command_defs", "commands.yml")
@@ -80,18 +70,21 @@ def init_mission(cfg: dict) -> dict:
         "cmd_path": os.path.abspath(path),
         "nodes": nodes,
         "image_assembler": image_assembler,
-        "gnc_store": gnc_store,
-        "eps_store": eps_store,
+        "telemetry_manifest": TELEMETRY_MANIFEST,
+        "telemetry_extractors": EXTRACTORS,
     }
 
 
 def get_plugin_routers(adapter=None, config_accessor=None):
     """Return FastAPI routers for MAVERIC mission plugins.
 
+    Post-v2: only imaging. GNC snapshot + EPS snapshot routers are gone —
+    canonical state is served by the platform's /api/telemetry/* routes
+    (clear snapshot + catalog). Imaging is unaffected.
+
     Args:
-        adapter: MavericMissionAdapter with image_assembler / gnc_store
-                 attributes. Routers are only built for resources that
-                 the adapter actually carries.
+        adapter: MavericMissionAdapter. A router is only built for
+                 resources the adapter actually carries.
         config_accessor: Optional zero-arg callable returning the live
                  mission config dict. Passed through to plugin routers
                  that need live config lookups (e.g., the imaging router
@@ -105,15 +98,5 @@ def get_plugin_routers(adapter=None, config_accessor=None):
     if assembler is not None:
         from mav_gss_lib.missions.maveric.imaging import get_imaging_router
         routers.append(get_imaging_router(assembler, config_accessor=config_accessor))
-
-    gnc_store = getattr(adapter, "gnc_store", None)
-    if gnc_store is not None:
-        from mav_gss_lib.missions.maveric.telemetry.gnc_router import get_gnc_router
-        routers.append(get_gnc_router(gnc_store))
-
-    eps_store = getattr(adapter, "eps_store", None)
-    if eps_store is not None:
-        from mav_gss_lib.missions.maveric.telemetry.eps_router import get_eps_router
-        routers.append(get_eps_router(eps_store))
 
     return routers
