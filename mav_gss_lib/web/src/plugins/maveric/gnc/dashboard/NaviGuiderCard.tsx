@@ -118,7 +118,7 @@ export function NaviGuiderCard({ state, nowMs }: NaviGuiderCardProps) {
       <FieldDisplay
         label="Mag XYZ"
         value={magValues ? `${fmtNvgVec(magValues, 3)} µT` : '—'}
-        receivedAt={mag?.received_at_ms}
+        receivedAt={mag?.t}
         nowMs={nowMs}
       />
       <FieldDisplay
@@ -135,7 +135,7 @@ export function NaviGuiderCard({ state, nowMs }: NaviGuiderCardProps) {
         safeLoPercent={tempPercent(TEMP_BANDS.FSS_TMP1.lo)}
         safeHiPercent={tempPercent(TEMP_BANDS.FSS_TMP1.hi)}
         ticks={NVG_TEMP_RANGE_TICKS}
-        receivedAt={temp?.received_at_ms}
+        receivedAt={temp?.t}
         nowMs={nowMs}
       />
     </Card>

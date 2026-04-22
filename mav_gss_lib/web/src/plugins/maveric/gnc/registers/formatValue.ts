@@ -4,7 +4,7 @@ import type { RegisterSnapshot, RegisterValue } from '../types'
  *  for a table cell. Mirrors the backend shape dispatch used by the
  *  packet-detail renderer — same shapes in, compact readable strings out. */
 export function formatRegisterValue(snap: RegisterSnapshot | undefined): string {
-  if (!snap || !snap.decode_ok) return '—'
+  if (!snap) return '—'
 
   const v = snap.value as RegisterValue
 

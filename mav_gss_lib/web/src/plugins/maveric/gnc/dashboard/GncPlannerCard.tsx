@@ -42,19 +42,19 @@ export function GncPlannerCard({ state, nowMs }: GncPlannerCardProps) {
       <FieldDisplay
         label="Reboot"
         value={cntV != null ? String(cntV.reboot) : '—'}
-        receivedAt={counters?.received_at_ms}
+        receivedAt={counters?.t}
         nowMs={nowMs}
       />
       <FieldDisplay
         label="De-Tumble"
         value={cntV != null ? String(cntV.detumble) : '—'}
-        receivedAt={counters?.received_at_ms}
+        receivedAt={counters?.t}
         nowMs={nowMs}
       />
       <FieldDisplay
         label="Sunspin"
         value={cntV != null ? String(cntV.sunspin) : '—'}
-        receivedAt={counters?.received_at_ms}
+        receivedAt={counters?.t}
         nowMs={nowMs}
       />
       <FieldDisplay label="Gyro Src"  value="— req cfg_get_datasrc" nowMs={nowMs} />

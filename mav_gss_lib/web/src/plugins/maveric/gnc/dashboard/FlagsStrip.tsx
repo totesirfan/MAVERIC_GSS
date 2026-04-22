@@ -16,9 +16,9 @@ export function FlagsStrip({ state, nowMs }: FlagsStripProps) {
   const actV  = actErr?.value as ActErrBitfield | undefined
   const senV  = senErr?.value as SenErrBitfield | undefined
 
-  const statAt = stat?.received_at_ms ?? null
-  const actAt  = actErr?.received_at_ms ?? null
-  const senAt  = senErr?.received_at_ms ?? null
+  const statAt = stat?.t ?? null
+  const actAt  = actErr?.t ?? null
+  const senAt  = senErr?.t ?? null
 
   return (
     <div

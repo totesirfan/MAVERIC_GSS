@@ -34,8 +34,12 @@ function tsStamp(): string {
 }
 
 /** One CSV row per register. Columns: Module, Reg, Name, Type, Unit,
- *  Value (formatted), Raw Tokens, Age (ms), Last Seen (gs_ts), Decode OK, Notes.
- *  `rows` is the filtered catalog slice the operator is currently viewing. */
+ *  Value (formatted), Age (ms), Notes.
+ *  `rows` is the filtered catalog slice the operator is currently viewing.
+ *
+ *  Raw Tokens / Last Seen (gs_ts) / Decode OK columns were dropped in
+ *  v2 — raw tokens and packet provenance live in the RX log, and the
+ *  extractor filters decode_ok=False entries before they reach state. */
 export function exportRegistersCsv(
   rows: CatalogEntry[],
   state: GncState,
@@ -43,12 +47,12 @@ export function exportRegistersCsv(
 ): void {
   const header = [
     'Module', 'Reg', 'Name', 'Type', 'Unit',
-    'Value', 'Raw Tokens', 'Age (ms)', 'Last Seen', 'Decode OK', 'Notes',
+    'Value', 'Age (ms)', 'Notes',
   ]
   const lines = [header.map(csvEscape).join(',')]
   for (const e of rows) {
     const snap = state[e.name]
-    const age = snap?.received_at_ms != null ? nowMs - snap.received_at_ms : ''
+    const age = snap?.t != null ? nowMs - snap.t : ''
     lines.push([
       e.module,
       e.register,
@@ -56,10 +60,7 @@ export function exportRegistersCsv(
       e.type,
       e.unit,
       formatRegisterValue(snap),
-      snap?.raw_tokens ? snap.raw_tokens.join(' ') : '',
       age,
-      snap?.gs_ts ?? '',
-      snap?.decode_ok == null ? '' : snap.decode_ok ? 'yes' : 'no',
       e.notes,
     ].map(csvEscape).join(','))
   }
@@ -82,7 +83,7 @@ export function exportRegistersJson(
       return {
         ...e,
         snapshot: snap ?? null,
-        age_ms: snap?.received_at_ms != null ? nowMs - snap.received_at_ms : null,
+        age_ms: snap?.t != null ? nowMs - snap.t : null,
       }
     }),
   }

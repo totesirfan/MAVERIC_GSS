@@ -20,10 +20,11 @@
  */
 import type { ComponentType, PropsWithChildren } from 'react'
 import { EpsProvider } from './eps/EpsProvider'
+import { GncProvider } from './gnc/GncProvider'
 
 const providers: ComponentType<PropsWithChildren>[] = [
   EpsProvider,
-  // Add GncProvider here when GNC migrates off its per-page hook.
+  GncProvider,
 ]
 
 export default providers

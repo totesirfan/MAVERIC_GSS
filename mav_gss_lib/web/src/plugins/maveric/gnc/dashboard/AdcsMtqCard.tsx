@@ -109,7 +109,7 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
           <FieldDisplay
             label="Att Q"
             value={fmtQuat(qArr)}
-            receivedAt={q?.received_at_ms}
+            receivedAt={q?.t}
             nowMs={nowMs}
           />
           <FieldDisplay
@@ -132,7 +132,7 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
                 ? `${rateArr.map(v => v.toFixed(4)).join(', ')} rad/s`
                 : '—'
             }
-            receivedAt={rate?.received_at_ms}
+            receivedAt={rate?.t}
             nowMs={nowMs}
             forceTone={rateUninit ? 'warning' : undefined}
           />
@@ -145,13 +145,13 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
           <FieldDisplay
             label="Time"
             value={timeV?.display ?? '—'}
-            receivedAt={time?.received_at_ms}
+            receivedAt={time?.t}
             nowMs={nowMs}
           />
           <FieldDisplay
             label="Date"
             value={fmtDateDisplay(dateV)}
-            receivedAt={date?.received_at_ms}
+            receivedAt={date?.t}
             nowMs={nowMs}
           />
 
@@ -203,7 +203,7 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
             safeLoPercent={tempPercent(TEMP_BANDS.ADCS_TMP.lo)}
             safeHiPercent={tempPercent(TEMP_BANDS.ADCS_TMP.hi)}
             ticks={ADCS_TEMP_RANGE_TICKS}
-            receivedAt={tmp?.received_at_ms}
+            receivedAt={tmp?.t}
             nowMs={nowMs}
           />
         </div>

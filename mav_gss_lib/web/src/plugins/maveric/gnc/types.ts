@@ -93,7 +93,6 @@ export interface NvgSensor {
   fields: string[]
   values: (number | string)[]
   values_by_field: Record<string, number | string> | null
-  raw_tokens: string[]
 }
 
 export type RegisterValue =
@@ -112,38 +111,36 @@ export type RegisterValue =
   | string
   | null
 
+/**
+ * Live-state entry for one GNC register.
+ *
+ * Post-v2 this is a thin view model over the platform `TelemetryEntry`:
+ *   `value` is projected from `entry.v` (structured `RegisterValue`);
+ *   `t` is the server-anchored ingest timestamp used for staleness
+ *   calculations (age = Date.now() - t).
+ *
+ * Transport/debug fields (`raw_tokens`, `decode_ok`, `decode_error`,
+ * `gs_ts`, `pkt_num`) are intentionally dropped — the extractor filters
+ * decode_ok=False entries before they reach state, and per-packet
+ * provenance lives in the RX log, not in canonical state.
+ *
+ * Static metadata (`name`, `module`, `register`, `type`, `unit`, `notes`)
+ * moved to `CatalogEntry` — fetched via
+ * `useTelemetryCatalog<CatalogEntry[]>('gnc')` and keyed by register name.
+ */
 export interface RegisterSnapshot {
-  name: string
-  /** MTQ registers have module numbers; NVG snapshots emit null. */
-  module: number | null
-  /** MTQ register number; NVG sensor ID; NVG status = null. */
-  register: number | null
-  type: string
-  unit: string
   value: RegisterValue
-  raw_tokens: string[]
-  decode_ok: boolean
-  decode_error: string | null
-  /** Server-anchored Unix ms when the satellite's RES was received.
-   *  Used for age calculations so values survive MAV_WEB restart with
-   *  correct staleness (age = Date.now() - received_at_ms). */
-  received_at_ms: number
-  /** Ground-station timestamp string attached to the source packet. */
-  gs_ts: string
-  /** Source packet number for traceability. */
-  pkt_num: number
+  /** Server-anchored Unix ms — matches the platform TelemetryEntry `t`
+   *  field. */
+  t: number
 }
 
 /** Keyed by register name: "STAT", "TIME", "MTQ_USER", etc. */
 export type GncState = Record<string, RegisterSnapshot>
 
-export interface GncRegisterUpdateMsg {
-  type: 'gnc_register_update'
-  registers: Record<string, RegisterSnapshot>
-}
-
-/** One row in the register catalog, served by GET /api/plugins/gnc/catalog.
- *  Metadata only — live values come from the snapshot hook. */
+/** One row in the register catalog, served by
+ *  GET /api/telemetry/gnc/catalog. Metadata only — live values come
+ *  from useTelemetry('gnc'). */
 export interface CatalogEntry {
   module: number
   register: number

@@ -90,8 +90,8 @@ export function RegistersTable({ catalog, state, nowMs }: RegistersTableProps) {
       <div className="flex-1 overflow-auto">
         {filtered.map((e) => {
           const snap = state[e.name]
-          const age = ageMs(snap?.received_at_ms ?? null, nowMs)
-          const hasData = snap?.received_at_ms != null
+          const age = ageMs(snap?.t ?? null, nowMs)
+          const hasData = snap?.t != null
           const level: StaleLevel = hasData ? staleLevel(age) : 'critical'
           const opacity = hasData ? STALE_OPACITY[level] : NO_DATA_OPACITY
           const valueColor =

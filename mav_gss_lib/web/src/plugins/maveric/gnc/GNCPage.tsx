@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { useGncRegisters } from './useGncRegisters'
+import { useGnc } from './GncProvider'
 import { GncPlannerCard } from './dashboard/GncPlannerCard'
 import { AdcsMtqCard } from './dashboard/AdcsMtqCard'
 import { NaviGuiderCard } from './dashboard/NaviGuiderCard'
 import { FlagsStrip } from './dashboard/FlagsStrip'
 import { RegistersTable } from './registers/RegistersTable'
-import { useRegisterCatalog } from './registers/useRegisterCatalog'
 import { useTabActive } from '@/components/layout/TabActiveContext'
 import { colors } from '@/lib/colors'
 
@@ -33,8 +32,7 @@ function readTabFromUrl(): TabId {
  *                 overlaid from the same snapshot cache.
  */
 export default function GNCPage() {
-  const { state, lastUpdateAt } = useGncRegisters()
-  const catalog = useRegisterCatalog()
+  const { state, catalog, lastUpdateAt } = useGnc()
   const tabActive = useTabActive()
   const [tab, setTab] = useState<TabId>(readTabFromUrl)
 
