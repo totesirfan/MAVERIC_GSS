@@ -116,10 +116,10 @@ class TestSharedPrefix(unittest.TestCase):
         by_key = {(f.domain, f.key): f for f in frags}
 
         # Every verified shared-prefix row emitted.
-        self.assertEqual(by_key[("platform", "time")].value, 1000000)
-        self.assertEqual(by_key[("platform", "ops_stage")].value, 4)
-        self.assertEqual(by_key[("platform", "uppm_rbt_cnt")].value, 3)
-        self.assertEqual(by_key[("platform", "hn_state")].value, 1)
+        self.assertEqual(by_key[("spacecraft", "time")].value, 1000000)
+        self.assertEqual(by_key[("spacecraft", "ops_stage")].value, 4)
+        self.assertEqual(by_key[("spacecraft", "uppm_rbt_cnt")].value, 3)
+        self.assertEqual(by_key[("spacecraft", "hn_state")].value, 1)
         self.assertEqual(by_key[("gnc", "mtq_heartbeat")].value, 201)
         self.assertEqual(by_key[("gnc", "nvg_heartbeat")].value, 202)
 
@@ -136,7 +136,7 @@ class TestSharedPrefix(unittest.TestCase):
         pkt = _beacon_pkt(1, BEACON_1_TAIL)
         frags = list(extract(pkt, _nodes(), 0))
         domains = {f.domain for f in frags}
-        self.assertIn("platform", domains)
+        self.assertIn("spacecraft", domains)
         self.assertIn("gnc", domains)
 
 
@@ -185,6 +185,17 @@ class TestBeacon1Tail(unittest.TestCase):
         # mtq_stat = 0x60000000 → byte3_raw = 0x60.
         self.assertEqual(act.value["byte3_raw"], 0x60)
 
+    def test_callsign_emits_as_spacecraft_fragment(self):
+        """tokens[0] is the spacecraft callsign — emitted as a string-valued
+        fragment in the spacecraft domain so the UI can read it from
+        useTelemetry('spacecraft') alongside time/ops_stage/reboots."""
+        pkt = _beacon_pkt(1, BEACON_1_TAIL)
+        frags = {(f.domain, f.key): f for f in extract(pkt, _nodes(), 0)}
+
+        self.assertIn(("spacecraft", "callsign"), frags)
+        self.assertEqual(frags[("spacecraft", "callsign")].value, _CALLSIGN)
+        self.assertEqual(frags[("spacecraft", "callsign")].unit, "")
+
     def test_source_selectors_emit_as_canonical_gnc_keys(self):
         pkt = _beacon_pkt(1, BEACON_1_TAIL)
         frags = {f.key: f for f in extract(pkt, _nodes(), 0)
@@ -223,7 +234,7 @@ class TestBeacon2Tail(unittest.TestCase):
     def test_beacon_2_emits_platform_prefix_too(self):
         pkt = _beacon_pkt(2, BEACON_2_TAIL)
         domains = {f.domain for f in extract(pkt, _nodes(), 0)}
-        self.assertIn("platform", domains)
+        self.assertIn("spacecraft", domains)
         self.assertIn("eps", domains)
 
 
@@ -232,7 +243,7 @@ class TestUnknownBeaconType(unittest.TestCase):
         pkt = _beacon_pkt(99, BEACON_1_TAIL)
         frags = list(extract(pkt, _nodes(), 0))
         domains = {f.domain for f in frags}
-        self.assertIn("platform", domains)
+        self.assertIn("spacecraft", domains)
         # No tail — no gnc keys beyond the heartbeats in the prefix.
         gnc_keys = {f.key for f in frags if f.domain == "gnc"}
         self.assertNotIn("GNC_MODE", gnc_keys)
@@ -270,7 +281,11 @@ class TestEmptyMappingTables(unittest.TestCase):
             # present. With empty tails, extract yields only whatever
             # the (empty) prefix emits — nothing.
             frags = list(extract(pkt, _nodes(), 0))
-            self.assertEqual(frags, [])
+            # Callsign is emitted unconditionally (it's the spacecraft
+            # identifier, not a mapping-table row). With empty mapping
+            # tables nothing else should emit.
+            keys = [(f.domain, f.key) for f in frags]
+            self.assertEqual(keys, [("spacecraft", "callsign")])
         finally:
             tlm_beacon.COMMON_MAPPINGS = original_common
             tlm_beacon.BEACON_TYPE_MAPPINGS = original_tails

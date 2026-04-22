@@ -51,9 +51,9 @@ class Mapping:
                  structured targets like GNC_COUNTERS (3 positions) or
                  RATE/MAG/MTQ (3 floats each).
     domain     : destination domain — always an existing canonical
-                 domain ("gnc", "eps", "platform").
+                 domain ("gnc", "eps", "spacecraft").
     key        : canonical key in that domain. MUST already exist in
-                 the domain vocabulary unless the domain is "platform"
+                 the domain vocabulary unless the domain is "spacecraft"
                  (a v2-new spacecraft-wide domain whose keys are
                  legitimately new).
     adapter    : callable taking the raw token strings at `positions`
@@ -233,13 +233,13 @@ def to_eps_scaled(name: str):
 # exactly; commands.yml's labels for positions 4+ are misaligned and
 # should be ignored for beacon semantics.
 COMMON_MAPPINGS: tuple[Mapping, ...] = (
-    Mapping((0,),  "platform", "time",           _to_int, "verified"),
-    Mapping((1,),  "platform", "ops_stage",      _to_int, "verified"),
-    Mapping((2,),  "platform", "lppm_rbt_cnt",   _to_int, "verified"),
-    Mapping((3,),  "platform", "lppm_rbt_cause", _to_int, "verified"),
-    Mapping((4,),  "platform", "uppm_rbt_cnt",   _to_int, "verified"),
-    Mapping((5,),  "platform", "uppm_rbt_cause", _to_int, "verified"),
-    Mapping((6,),  "platform", "ertc_heartbeat", _to_int, "verified"),
+    Mapping((0,),  "spacecraft", "time",           _to_int, "verified"),
+    Mapping((1,),  "spacecraft", "ops_stage",      _to_int, "verified"),
+    Mapping((2,),  "spacecraft", "lppm_rbt_cnt",   _to_int, "verified"),
+    Mapping((3,),  "spacecraft", "lppm_rbt_cause", _to_int, "verified"),
+    Mapping((4,),  "spacecraft", "uppm_rbt_cnt",   _to_int, "verified"),
+    Mapping((5,),  "spacecraft", "uppm_rbt_cause", _to_int, "verified"),
+    Mapping((6,),  "spacecraft", "ertc_heartbeat", _to_int, "verified"),
     Mapping((7,),  "gnc",      "mtq_heartbeat",  _to_int, "verified"),
     Mapping((8,),  "gnc",      "nvg_heartbeat",  _to_int, "verified"),
     # Position 9 carries eps_heartbeat on the wire. No canonical key
@@ -247,8 +247,8 @@ COMMON_MAPPINGS: tuple[Mapping, ...] = (
     # shift. Extractor skips.
     Mapping((9,),  "eps",      "eps_heartbeat",  _to_int, "deferred"),
     # eps_heartbeat_time is explicitly NOT transmitted — no slot.
-    Mapping((10,), "platform", "hn_state",       _to_int, "verified"),
-    Mapping((11,), "platform", "ab_state",       _to_int, "verified"),
+    Mapping((10,), "spacecraft", "hn_state",       _to_int, "verified"),
+    Mapping((11,), "spacecraft", "ab_state",       _to_int, "verified"),
 )
 
 
@@ -348,8 +348,13 @@ def extract(pkt, nodes, now_ms: int):
         return
     btype = _to_int([tokens[1]])
 
+    # Callsign — canonical spacecraft identifier. Emit as a string-valued
+    # fragment so the UI can read it from useTelemetry('spacecraft')
+    # alongside every other spacecraft-wide field (time, ops_stage, …).
+    yield TelemetryFragment("spacecraft", "callsign", str(tokens[0]), now_ms)
+
     # Shared prefix — emitted on every beacon regardless of btype.
-    # tokens[0] = callsign (skipped), tokens[1] = beacon_type,
+    # tokens[0] = callsign (handled above), tokens[1] = beacon_type,
     # tokens[2..] = shared prefix.
     yield from _emit(COMMON_MAPPINGS, tokens, base_offset=2, now_ms=now_ms)
 

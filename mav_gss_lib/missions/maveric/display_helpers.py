@@ -197,3 +197,65 @@ def is_bitfield(value: Any) -> bool:
 def is_generic_dict(value: Any) -> bool:
     """Dict fallback — last dict probe before scalar/list."""
     return isinstance(value, dict)
+
+
+# ---------- compact one-line renderer ----------
+
+def gnc_compact_value(value: Any, unit: str = "") -> str:
+    """Collapse one decoded GNC register's value into a single display string.
+
+    Used by the beacon path in BOTH rendering.py (packet-detail block rows)
+    and log_format.py (text log lines) so a beacon snapshot renders as one
+    row per register in both surfaces. RES packets continue to use
+    `rendering._gnc_register_detail_fields` + `log_format._format_gnc_register_lines`
+    for the full per-register breakdown.
+    """
+    suffix = f" {unit}" if unit else ""
+
+    if value is None:
+        return "—"
+    if isinstance(value, (int, float)):
+        return f"{value}{suffix}"
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        body = ", ".join(
+            f"{v:.4f}" if isinstance(v, float) else str(v)
+            for v in value
+        )
+        return f"[{body}]{suffix}"
+    if isinstance(value, dict):
+        if is_bcd_display(value):
+            return value["display"]
+        if is_adcs_tmp(value):
+            if value.get("comm_fault"):
+                return "SENSOR FAULT"
+            c = value.get("celsius")
+            return f"{c:.2f} °C" if c is not None else "—"
+        if is_gnc_mode(value):
+            return f"{value.get('mode_name')} ({value.get('mode')})"
+        if is_gnc_counters(value):
+            return (
+                f"reboot={value.get('reboot')}  "
+                f"detumble={value.get('detumble')}  "
+                f"sunspin={value.get('sunspin')}"
+            )
+        if is_nvg_sensor(value):
+            return f"{value.get('display', '')} (status={value.get('status')})"
+        if is_nvg_heartbeat(value):
+            return f"{value.get('label')} (status={value.get('status')})"
+        if is_bitfield(value):
+            parts: list[str] = []
+            if "MODE" in value:
+                parts.append(f"mode={value.get('MODE_NAME', value.get('MODE'))}")
+            truthy = [k for k, v in value.items() if v is True]
+            if truthy:
+                parts.append(",".join(truthy))
+            elif any(isinstance(v, bool) for v in value.values()) and not parts:
+                parts.append("nominal")
+            return "  ".join(parts) if parts else "—"
+        if is_generic_dict(value):
+            return "  ".join(
+                f"{k}={v}" for k, v in value.items() if not str(k).startswith("_")
+            )
+    return f"{value}{suffix}"

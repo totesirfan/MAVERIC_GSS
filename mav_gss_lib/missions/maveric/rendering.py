@@ -20,6 +20,7 @@ from mav_gss_lib.missions.maveric.display_helpers import (
     ptype_of as _ptype_of,
     should_hide_args as _should_hide_args,
     unwrap_typed_arg_for_display,
+    gnc_compact_value as _gnc_compact_value,
     is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
     is_gnc_mode, is_gnc_counters, is_bitfield, is_generic_dict,
 )
@@ -198,53 +199,76 @@ def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
                 args_fields = [{"name": f"arg{i}", "value": str(a)} for i, a in enumerate(raw)]
                 blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
 
-    # Decoded telemetry fragments. Block order mirrors wire order for
-    # beacon packets: platform prefix first, then EPS / GNC tail.
-    # Platform becomes one block carrying every platform fragment (time,
-    # ops_stage, reboot counts, heartbeats, hn/ab states). EPS becomes
-    # one block carrying every eps fragment. Each GNC fragment becomes
-    # its own block, driven by the structured value shape.
+    # Decoded telemetry fragments. Block order mirrors wire order:
+    # SPACECRAFT prefix first (callsign + time + ops_stage + reboot
+    # counters + heartbeats + hn/ab states), then the variant tail
+    # (EPS or GNC).
+    #
+    # For tlm_beacon we collapse GNC fragments into a SINGLE block
+    # because a beacon carries 7+ gnc registers in one snapshot and
+    # per-register blocks fragment the view. The compact formatter
+    # produces one name/value row per fragment, matching the dense
+    # wire representation. For RES packets (mtq_get_1, gnc_get_mode,
+    # nvg_get_1, …) we keep per-register blocks — those carry one
+    # register at a time and the detailed field breakdown is the whole
+    # point of opening the packet.
     frags = md.get("fragments") or []
-    platform_frags = [f for f in frags if f["domain"] == "platform"]
-    if platform_frags:
+    is_beacon = bool(cmd) and cmd.get("cmd_id") == "tlm_beacon"
+
+    spacecraft_frags = [f for f in frags if f["domain"] == "spacecraft"]
+    if spacecraft_frags:
         blocks.append({
             "kind": "args",
-            "label": "PLATFORM",
+            "label": "SPACECRAFT",
             "fields": [
                 {
                     "name": f["key"],
                     "value": f"{f['value']}{' ' + f['unit'] if f.get('unit') else ''}",
                 }
-                for f in platform_frags
+                for f in spacecraft_frags
             ],
         })
 
     eps_frags = [f for f in frags if f["domain"] == "eps"]
     if eps_frags:
-        tel_fields = []
-        for frag in eps_frags:
-            unit_suffix = f" {frag['unit']}" if frag.get("unit") else ""
-            tel_fields.append({
-                "name": frag["key"],
-                "value": f"{frag['value']}{unit_suffix}",
-            })
         blocks.append({
             "kind": "args",
             "label": "EPS_HK",
-            "fields": tel_fields,
+            "fields": [
+                {
+                    "name": f["key"],
+                    "value": f"{f['value']}{' ' + f['unit'] if f.get('unit') else ''}",
+                }
+                for f in eps_frags
+            ],
         })
 
-    for frag in frags:
-        if frag["domain"] != "gnc":
-            continue
-        fields = _gnc_register_detail_fields(frag["value"], frag.get("unit", ""))
-        if not fields:
-            continue
-        blocks.append({
-            "kind": "args",
-            "label": frag["key"],
-            "fields": fields,
-        })
+    gnc_frags = [f for f in frags if f["domain"] == "gnc"]
+    if gnc_frags:
+        if is_beacon:
+            # Beacon snapshot: one GNC block with a compact row per register.
+            blocks.append({
+                "kind": "args",
+                "label": "GNC",
+                "fields": [
+                    {
+                        "name": f["key"],
+                        "value": _gnc_compact_value(f["value"], f.get("unit", "")),
+                    }
+                    for f in gnc_frags
+                ],
+            })
+        else:
+            # RES packet: per-register detail block (existing behavior).
+            for f in gnc_frags:
+                fields = _gnc_register_detail_fields(f["value"], f.get("unit", ""))
+                if not fields:
+                    continue
+                blocks.append({
+                    "kind": "args",
+                    "label": f["key"],
+                    "fields": fields,
+                })
 
     return blocks
 

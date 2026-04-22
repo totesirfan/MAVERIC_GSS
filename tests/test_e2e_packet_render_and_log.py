@@ -505,19 +505,20 @@ class E2ERenderAndLogTests(unittest.TestCase):
         self.assertEqual(jsonl_by_key["V_BAT"]["value"], 7.622)
         self.assertEqual(jsonl_by_key["T_DIE"]["value"], 32.5)
 
-    def test_platform_fragments_render_in_log_and_detail_blocks(self):
-        """Beacon packets carry shared-prefix state in the `platform`
-        domain (time, ops_stage, reboot counters, heartbeats). Both the
-        text log and packet-detail blocks must render them so the operator
-        sees the full decoded beacon, not just the variant tail."""
-        platform_fragments = [
-            {"domain": "platform", "key": "time",          "value": 1000000, "ts_ms": 1, "unit": ""},
-            {"domain": "platform", "key": "ops_stage",     "value": 4,       "ts_ms": 1, "unit": ""},
-            {"domain": "platform", "key": "lppm_rbt_cnt",  "value": 112,     "ts_ms": 1, "unit": ""},
-            {"domain": "platform", "key": "ertc_heartbeat","value": 200,     "ts_ms": 1, "unit": ""},
+    def test_spacecraft_fragments_render_in_log_detail_and_jsonl(self):
+        """Beacon packets carry shared-prefix state in the `spacecraft`
+        domain (callsign, time, ops_stage, reboot counters, heartbeats).
+        Text log, packet-detail blocks, and JSONL must all carry them so
+        the operator sees the full decoded beacon, not just the tail."""
+        spacecraft_fragments = [
+            {"domain": "spacecraft", "key": "callsign",      "value": "WQ2XIC","ts_ms": 1, "unit": ""},
+            {"domain": "spacecraft", "key": "time",          "value": 1000000, "ts_ms": 1, "unit": ""},
+            {"domain": "spacecraft", "key": "ops_stage",     "value": 4,       "ts_ms": 1, "unit": ""},
+            {"domain": "spacecraft", "key": "lppm_rbt_cnt",  "value": 112,     "ts_ms": 1, "unit": ""},
+            {"domain": "spacecraft", "key": "ertc_heartbeat","value": 200,     "ts_ms": 1, "unit": ""},
         ]
         pkt = make_pkt(
-            {"fragments": platform_fragments},
+            {"fragments": spacecraft_fragments},
             cmd_id="tlm_beacon",
             ptype=2,  # TLM
         )
@@ -526,24 +527,29 @@ class E2ERenderAndLogTests(unittest.TestCase):
         log = self.adapter.format_log_lines(pkt)
         jlog = self.adapter.build_log_mission_data(pkt)
 
-        # Detail view: one PLATFORM block carrying every platform fragment.
-        platform_block = next(
-            (b for b in blocks if b.get("kind") == "args" and b.get("label") == "PLATFORM"),
+        # Detail view: one SPACECRAFT block carrying every spacecraft fragment.
+        sc_block = next(
+            (b for b in blocks if b.get("kind") == "args" and b.get("label") == "SPACECRAFT"),
             None,
         )
-        self.assertIsNotNone(platform_block, f"no PLATFORM block in {blocks}")
-        names = {f["name"] for f in platform_block["fields"]}
-        self.assertEqual(names, {"time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"})
+        self.assertIsNotNone(sc_block, f"no SPACECRAFT block in {blocks}")
+        names = {f["name"] for f in sc_block["fields"]}
+        self.assertEqual(names,
+                         {"callsign", "time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"})
+        callsign_field = next(f for f in sc_block["fields"] if f["name"] == "callsign")
+        self.assertEqual(callsign_field["value"], "WQ2XIC")
 
-        # Text log: a line per platform fragment.
+        # Text log: a line per spacecraft fragment, callsign included.
         joined = "\n".join(log)
-        for key in ("time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"):
-            self.assertIn(key, joined, f"platform key {key} missing from log")
+        for key in ("callsign", "time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"):
+            self.assertIn(key, joined, f"spacecraft key {key} missing from log")
+        self.assertIn("WQ2XIC", joined)
 
-        # JSONL: fragments pass through unchanged.
-        jsonl_platform = {f["key"]: f for f in jlog["fragments"] if f["domain"] == "platform"}
-        self.assertEqual(set(jsonl_platform),
-                         {"time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"})
+        # JSONL: fragments pass through unchanged — full spacecraft domain.
+        jsonl_sc = {f["key"]: f for f in jlog["fragments"] if f["domain"] == "spacecraft"}
+        self.assertEqual(set(jsonl_sc),
+                         {"callsign", "time", "ops_stage", "lppm_rbt_cnt", "ertc_heartbeat"})
+        self.assertEqual(jsonl_sc["callsign"]["value"], "WQ2XIC")
 
     def test_nvg_get_1_production_decoder_round_trip(self):
         """Use the real nvg_get_1 handler (not a hand-built dict) to prove

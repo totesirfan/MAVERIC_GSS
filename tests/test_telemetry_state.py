@@ -17,7 +17,7 @@ def test_fragment_fields():
 
 
 def test_fragment_unit_defaults_to_empty():
-    f = TelemetryFragment(domain="platform", key="ops_stage", value=3, ts_ms=1)
+    f = TelemetryFragment(domain="spacecraft", key="ops_stage", value=3, ts_ms=1)
     assert f.unit == ""
 
 

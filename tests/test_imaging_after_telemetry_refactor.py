@@ -120,7 +120,7 @@ def test_imaging_and_telemetry_can_fire_from_same_session(tmp_path):
     a.telemetry = TelemetryRouter(tmp_path / ".telemetry")
     a.telemetry.register_domain("eps")
     a.telemetry.register_domain("gnc")
-    a.telemetry.register_domain("platform")
+    a.telemetry.register_domain("spacecraft")
     a.extractors = EXTRACTORS
 
     # Minimal valid 96-byte payload — decode_eps_hk parses it as

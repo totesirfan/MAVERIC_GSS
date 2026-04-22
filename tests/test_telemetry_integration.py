@@ -132,7 +132,7 @@ class TelemetryIntegrationTests(unittest.TestCase):
     def test_beacon_1_emits_platform_and_gnc(self):
         msgs = _run(self.adapter, _beacon_pkt(BEACON_1))
         by_domain = {m["domain"]: m for m in msgs if m.get("type") == "telemetry"}
-        self.assertIn("platform", by_domain)
+        self.assertIn("spacecraft", by_domain)
         self.assertIn("gnc", by_domain)
         self.assertNotIn("eps", by_domain)
 
@@ -163,7 +163,7 @@ class TelemetryIntegrationTests(unittest.TestCase):
     def test_beacon_2_emits_platform_and_eps_engineering_units(self):
         msgs = _run(self.adapter, _beacon_pkt(BEACON_2))
         by_domain = {m["domain"]: m for m in msgs if m.get("type") == "telemetry"}
-        self.assertIn("platform", by_domain)
+        self.assertIn("spacecraft", by_domain)
         self.assertIn("eps", by_domain)
         # Shared prefix puts mtq_heartbeat and nvg_heartbeat under gnc —
         # that's normal (gnc has two fields, no ADCS state from beacon 2).
@@ -185,7 +185,7 @@ class TelemetryIntegrationTests(unittest.TestCase):
         by_domain = {m["domain"] for m in msgs if m.get("type") == "telemetry"}
         # Shared prefix routes to platform + gnc (heartbeats live under
         # the gnc domain in COMMON_MAPPINGS).
-        self.assertIn("platform", by_domain)
+        self.assertIn("spacecraft", by_domain)
         self.assertNotIn("eps", by_domain)
 
     def test_clear_eps_emits_cleared_and_replay_drops_domain(self):
@@ -200,7 +200,7 @@ class TelemetryIntegrationTests(unittest.TestCase):
         self.assertEqual(msg, {"type": "telemetry", "domain": "eps", "cleared": True})
         domains_after = {m["domain"] for m in self.router.replay()}
         self.assertNotIn("eps", domains_after)
-        self.assertTrue({"gnc", "platform"} <= domains_after)
+        self.assertTrue({"gnc", "spacecraft"} <= domains_after)
 
     def test_canonical_key_invariant_beacon_gnc_keys_are_subset(self):
         """Beacon decoder must not introduce new names into the gnc

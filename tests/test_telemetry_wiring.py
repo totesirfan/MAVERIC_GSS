@@ -19,7 +19,7 @@ def test_runtime_has_telemetry_router():
     # (eps, gnc, platform) — 3 extractor callables.
     assert len(runtime.adapter.extractors) == 3
     # Domains registered from TELEMETRY_MANIFEST.
-    for name in ("eps", "gnc", "platform"):
+    for name in ("eps", "gnc", "spacecraft"):
         assert runtime.telemetry.has_domain(name), f"{name} domain missing"
 
 

@@ -133,7 +133,7 @@ class TestDomainRouting:
             if bt != 1:
                 continue
             domains = {f.domain for f in _run_extractor(cmd)}
-            assert "platform" in domains
+            assert "spacecraft" in domains
             assert "gnc" in domains
 
     def test_beacon_2_routes_to_platform_and_eps(self):
@@ -141,7 +141,7 @@ class TestDomainRouting:
             if bt != 2:
                 continue
             domains = {f.domain for f in _run_extractor(cmd)}
-            assert "platform" in domains
+            assert "spacecraft" in domains
             assert "eps" in domains
 
 

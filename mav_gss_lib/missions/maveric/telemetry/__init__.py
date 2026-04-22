@@ -87,7 +87,7 @@ TELEMETRY_MANIFEST: dict[str, dict] = {
     # heartbeat). Populated on every beacon packet regardless of
     # beacon_type. No catalog — field names are self-explanatory and
     # enumerated in extractors/tlm_beacon.py's COMMON_MAPPINGS table.
-    "platform": {},
+    "spacecraft": {},
     # Future-domain examples showing every extension point:
     #   "thermal": {
     #       "merge": sequence_monotonic("seq"),         # custom merge

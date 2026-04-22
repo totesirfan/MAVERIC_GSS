@@ -19,6 +19,7 @@ from mav_gss_lib.missions.maveric.display_helpers import (
     should_hide_args as _should_hide_args,
     unwrap_typed_arg_for_log,
     format_typed_arg_value,
+    gnc_compact_value as _gnc_compact_value,
     is_nvg_sensor, is_bcd_display, is_adcs_tmp, is_nvg_heartbeat,
     is_gnc_mode, is_gnc_counters,
 )
@@ -143,23 +144,31 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
                     lines.append(f"  {f'ARG {i}':<12}{arg}")
 
     # Decoded telemetry — one source (mission extractors), one list.
-    # Platform / EPS fragments render as a simple `  <KEY>  <value> <unit>`
-    # line; GNC fragments delegate to the register block formatter, which
-    # handles structured values (BCD, bitfields, NVG sensors, etc.).
-    # Platform comes first so beacon packets show the shared prefix
-    # (time, ops_stage, reboot counts, heartbeats, hn/ab states) before
-    # the variant tail — matches the wire order.
+    # Block order mirrors wire order: SPACECRAFT prefix first, then EPS
+    # or GNC tail. SPACECRAFT / EPS fragments render as a simple
+    # `  <KEY>  <value> <unit>` line. For tlm_beacon packets we render
+    # GNC fragments with the same compact one-line-per-register format
+    # (beacons carry 7+ registers in one snapshot); for RES packets we
+    # use the verbose per-register multi-line breakdown, which is where
+    # the register-decoder detail is actually useful.
     frags = md.get("fragments") or []
+    is_beacon = bool(cmd) and cmd.get("cmd_id") == "tlm_beacon"
+
     for frag in frags:
-        if frag["domain"] == "platform":
+        if frag["domain"] == "spacecraft":
             suffix = f" {frag['unit']}" if frag.get("unit") else ""
             lines.append(f"  {frag['key']:<16}{frag['value']}{suffix}")
     for frag in frags:
         if frag["domain"] == "eps":
             suffix = f" {frag['unit']}" if frag.get("unit") else ""
-            lines.append(f"  {frag['key']:<12}{frag['value']}{suffix}")
+            lines.append(f"  {frag['key']:<16}{frag['value']}{suffix}")
     for frag in frags:
-        if frag["domain"] == "gnc":
+        if frag["domain"] != "gnc":
+            continue
+        if is_beacon:
+            summary = _gnc_compact_value(frag["value"], frag.get("unit", ""))
+            lines.append(f"  {frag['key']:<16}{summary}")
+        else:
             lines.extend(_format_gnc_register_lines(
                 frag["key"], frag["value"], frag.get("unit", "")
             ))
