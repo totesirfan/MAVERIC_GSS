@@ -110,15 +110,17 @@ def _adcs_tmp(celsius: float) -> dict:
     return {"brdtmp": None, "celsius": float(celsius), "comm_fault": False}
 
 
-def _mtq_stat(mtq_stat: int) -> dict:
-    """uint32 mtq_stat → canonical MTQ_STAT bitfield dict.
+def _stat(mtq_stat: int) -> dict:
+    """uint32 mtq_stat → canonical STAT bitfield dict.
 
-    Splits the u32 into four LE bytes and feeds through the same
-    ``_decode_stat`` the RES path uses for the STAT register (0, 128),
-    since the beacon's ``mtq_stat`` IS the STAT register. Shape:
-    ``{MODE, MODE_NAME, HERR, SERR, WDT, UV, OC, OT, GNSS_OC,
-    GNSS_UP_TO_DATE, TLE, DES, SUN, TGL, TUMB, AME, CUSSV, EKF,
-    byte2_raw}``.
+    The beacon's ``mtq_stat`` IS the STAT register (0, 128) — same
+    bit layout, same decoder. Emitting under the same key (``STAT``)
+    as the RES path means LWW merge across sources gives one
+    canonical status-word value per spacecraft, and existing STAT
+    consumers (FlagsStrip, RegistersTable, …) pick up beacon-sourced
+    updates with no change. Shape: ``{MODE, MODE_NAME, HERR, SERR,
+    WDT, UV, OC, OT, GNSS_OC, GNSS_UP_TO_DATE, TLE, DES, SUN, TGL,
+    TUMB, AME, CUSSV, EKF, byte2_raw}``.
     """
     from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import (
         _decode_stat,
@@ -181,7 +183,7 @@ def extract(pkt, nodes, now_ms: int):
     # GNC domain — ADCS state + mode + counters.
     yield TelemetryFragment("gnc", "mtq_heartbeat", mtq_heartbeat, now_ms)
     yield TelemetryFragment("gnc", "nvg_heartbeat", nvg_heartbeat, now_ms)
-    yield TelemetryFragment("gnc", "MTQ_STAT", _mtq_stat(mtq_stat), now_ms)
+    yield TelemetryFragment("gnc", "STAT", _stat(mtq_stat), now_ms)
     yield TelemetryFragment("gnc", "GYRO_RATE_SRC", gyro_rate_src, now_ms)
     yield TelemetryFragment("gnc", "MAG_SRC", mag_src, now_ms)
     yield TelemetryFragment("gnc", "RATE", [gyro_x, gyro_y, gyro_z], now_ms)

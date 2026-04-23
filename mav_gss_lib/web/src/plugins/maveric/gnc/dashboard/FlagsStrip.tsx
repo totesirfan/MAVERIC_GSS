@@ -8,6 +8,10 @@ interface FlagsStripProps {
 }
 
 export function FlagsStrip({ state, nowMs }: FlagsStripProps) {
+  // state.STAT is the STAT register (module 0, reg 128). Both the RES
+  // path (mtq_get_1 / mtq_get_fast) and tlm_beacon populate it; the
+  // platform router LWW-merges them, so this consumer sees the newest
+  // value regardless of source.
   const stat = state.STAT
   const actErr = state.ACT_ERR
   const senErr = state.SEN_ERR
