@@ -48,6 +48,12 @@ _GNC_NON_REGISTER_ENTRIES = [
     {"module": None, "register": None, "name": "nvg_heartbeat",
      "type": "uint8", "unit": "",
      "notes": "NVG subsystem heartbeat byte from tlm_beacon."},
+    {"module": None, "register": None, "name": "MTQ_STAT",
+     "type": "stat_bitfield", "unit": "",
+     "notes": "MTQ status word (uint32) from tlm_beacon, decoded via "
+              "the STAT register's _decode_stat shape — carries MODE "
+              "plus HERR/SERR/WDT/UV/OC/OT/GNSS_* and TLE/DES/SUN/TGL/"
+              "TUMB/AME/CUSSV/EKF flags."},
 ]
 
 

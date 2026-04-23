@@ -110,19 +110,21 @@ def _adcs_tmp(celsius: float) -> dict:
     return {"brdtmp": None, "celsius": float(celsius), "comm_fault": False}
 
 
-def _act_err(mtq_stat: int) -> dict:
-    """uint32 mtq_stat → canonical ACT_ERR bitfield dict.
+def _mtq_stat(mtq_stat: int) -> dict:
+    """uint32 mtq_stat → canonical MTQ_STAT bitfield dict.
 
     Splits the u32 into four LE bytes and feeds through the same
-    ``_decode_act_err`` the RES path uses, so beacon-sourced and
-    RES-sourced ACT_ERR share the {MTQ0..2, CMG0..3, byte2_raw, byte3_raw}
-    dict shape the dashboard's ``ActErrBitfield`` consumer relies on.
+    ``_decode_stat`` the RES path uses for the STAT register (0, 128),
+    since the beacon's ``mtq_stat`` IS the STAT register. Shape:
+    ``{MODE, MODE_NAME, HERR, SERR, WDT, UV, OC, OT, GNSS_OC,
+    GNSS_UP_TO_DATE, TLE, DES, SUN, TGL, TUMB, AME, CUSSV, EKF,
+    byte2_raw}``.
     """
     from mav_gss_lib.missions.maveric.telemetry.semantics.gnc_schema import (
-        _decode_act_err,
+        _decode_stat,
     )
     bytes_le = list(struct.pack("<I", mtq_stat & 0xFFFFFFFF))
-    return _decode_act_err(bytes_le)
+    return _decode_stat(bytes_le)
 
 
 def _eps_scaled(name: str, raw: int) -> float:
@@ -179,7 +181,7 @@ def extract(pkt, nodes, now_ms: int):
     # GNC domain — ADCS state + mode + counters.
     yield TelemetryFragment("gnc", "mtq_heartbeat", mtq_heartbeat, now_ms)
     yield TelemetryFragment("gnc", "nvg_heartbeat", nvg_heartbeat, now_ms)
-    yield TelemetryFragment("gnc", "ACT_ERR", _act_err(mtq_stat), now_ms)
+    yield TelemetryFragment("gnc", "MTQ_STAT", _mtq_stat(mtq_stat), now_ms)
     yield TelemetryFragment("gnc", "GYRO_RATE_SRC", gyro_rate_src, now_ms)
     yield TelemetryFragment("gnc", "MAG_SRC", mag_src, now_ms)
     yield TelemetryFragment("gnc", "RATE", [gyro_x, gyro_y, gyro_z], now_ms)

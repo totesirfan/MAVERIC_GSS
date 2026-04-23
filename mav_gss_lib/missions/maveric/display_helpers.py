@@ -75,6 +75,7 @@ _DISPLAY_LABELS: dict[str, str] = {
     "mtq_heartbeat":   "MTQ Heartbeat",
     "nvg_heartbeat":   "NVG Heartbeat",
     "ACT_ERR":         "Actuator Errors",
+    "MTQ_STAT":        "MTQ Status",
     "GYRO_RATE_SRC":   "Gyro Source",
     "MAG_SRC":         "Mag Source",
     "RATE":            "Gyro Rate",
