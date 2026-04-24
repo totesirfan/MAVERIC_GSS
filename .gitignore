@@ -109,3 +109,6 @@ history/
 
 # === Performance benchmarks (local-only harness, results, reports) ===
 benchmarks/
+
+# === Local design sandbox (HTML previews, component comparisons) ===
+.preview/
