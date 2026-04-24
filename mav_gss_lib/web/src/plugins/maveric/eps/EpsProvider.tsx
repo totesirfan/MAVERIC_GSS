@@ -79,6 +79,14 @@ interface EpsState {
    *  Cleared per-field by acknowledgeLatch() or wholesale by a
    *  cleared telemetry domain. */
   latched: Record<string, number>
+  /** Raw eps_mode byte from beacon (FSW enum pending). */
+  epsMode: number | null
+  /** Timestamp of the latest eps_mode update. */
+  epsModeT: number | null
+  /** Raw eps_heartbeat byte — health flag: 1=alive, 0=dead. */
+  epsHeartbeat: number | null
+  /** Timestamp of the latest eps_heartbeat update. */
+  epsHeartbeatT: number | null
 }
 
 interface EpsApi extends EpsState {
@@ -99,6 +107,10 @@ const INITIAL_STATE: EpsState = {
   linkGeneration: 0,
   chargeDir: 'idle',
   latched: {},
+  epsMode: null,
+  epsModeT: null,
+  epsHeartbeat: null,
+  epsHeartbeatT: null,
 }
 
 const LATCH_BURN_FIELDS = ['VBRN1', 'VBRN2'] as const
@@ -135,6 +147,10 @@ export function EpsProvider({ children }: PropsWithChildren) {
           prev_field_t: EMPTY_MAP,
           latched: {},
           chargeDir: 'idle',
+          epsMode: null,
+          epsModeT: null,
+          epsHeartbeat: null,
+          epsHeartbeatT: null,
         }))
       }
       return
@@ -170,6 +186,24 @@ export function EpsProvider({ children }: PropsWithChildren) {
         }
         fields[name]  = newV
         field_t[name] = newT
+        anyChanged = true
+      }
+
+      // Beacon-only fields (not in FIELD_NAMES): track raw value + timestamp.
+      let epsMode = s.epsMode
+      let epsModeT = s.epsModeT
+      const modeEntry = (eps as Record<string, { v?: unknown; t: number } | undefined>)['eps_mode']
+      if (modeEntry && modeEntry.t !== epsModeT) {
+        epsMode = typeof modeEntry.v === 'number' ? modeEntry.v : Number(modeEntry.v)
+        epsModeT = modeEntry.t
+        anyChanged = true
+      }
+      let epsHeartbeat = s.epsHeartbeat
+      let epsHeartbeatT = s.epsHeartbeatT
+      const hbEntry = (eps as Record<string, { v?: unknown; t: number } | undefined>)['eps_heartbeat']
+      if (hbEntry && hbEntry.t !== epsHeartbeatT) {
+        epsHeartbeat = typeof hbEntry.v === 'number' ? hbEntry.v : Number(hbEntry.v)
+        epsHeartbeatT = hbEntry.t
         anyChanged = true
       }
 
@@ -218,6 +252,10 @@ export function EpsProvider({ children }: PropsWithChildren) {
         receivedThisLink: isReplay ? s.receivedThisLink : s.receivedThisLink + 1,
         chargeDir,
         latched: newLatched,
+        epsMode,
+        epsModeT,
+        epsHeartbeat,
+        epsHeartbeatT,
       }
     })
   }, [eps])
