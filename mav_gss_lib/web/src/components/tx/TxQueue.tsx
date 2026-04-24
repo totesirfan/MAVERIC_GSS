@@ -1,21 +1,22 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   DndContext, closestCenter,
   PointerSensor, useSensor, useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
-import { Trash2, Send, Timer, Save } from 'lucide-react'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { Trash2, Send, Timer, Save, ArrowDownToLine, History } from 'lucide-react'
 import { useTabActive } from '@/components/layout/TabActiveContext'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
+import { useFollowScroll } from '@/hooks/useFollowScroll'
 import { isInputFocused } from '@/lib/utils'
 import { PromptDialog } from '@/components/shared/PromptDialog'
 import { showToast } from '@/components/shared/StatusToast'
 import { authFetch } from '@/lib/auth'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem,
+  ContextMenuItem, ContextMenuSeparator,
 } from '@/components/shared/ContextMenu'
 import { Button } from '@/components/ui/button'
 import { ConfirmBar } from '@/components/shared/ConfirmBar'
@@ -25,10 +26,12 @@ import { NoteItem } from './NoteItem'
 import { colors } from '@/lib/colors'
 import { cellText } from '@/lib/rendering'
 import { col } from '@/lib/columns'
-import type { TxQueueItem, TxQueueSummary, SendProgress, TxColumnDef } from '@/lib/types'
+import { useTx } from '@/state/tx'
+import type {
+  TxQueueSummary, SendProgress, TxColumnDef, TxHistoryItem, TxQueueCmd,
+} from '@/lib/types'
 
 interface TxQueueProps {
-  queue: TxQueueItem[]
   summary: TxQueueSummary
   sendProgress: SendProgress | null
   isGuarding: boolean
@@ -36,38 +39,37 @@ interface TxQueueProps {
   onToggleGuard: (index: number) => void
   onDelete: (index: number) => void
   onEditDelay: (index: number, ms: number) => void
-  onReorder: (oldIndex: number, newIndex: number) => void
   onAddDelay: (ms: number) => void
   onClear: () => void
   onSend: () => void
   onDuplicate: (index: number) => void
   onMoveToTop: (index: number) => void
   onMoveToBottom: (index: number) => void
+  onRequeue: (item: TxHistoryItem) => void
   triggerConfirmSend?: number
   triggerConfirmClear?: number
 }
 
-// Assign stable unique IDs to items so dnd-kit can track them across reorders
-let nextUid = 1
-function assignUids(items: TxQueueItem[]): { item: TxQueueItem; uid: number }[] {
-  return items.map(item => ({ item, uid: nextUid++ }))
-}
-
 export function TxQueue({
-  queue, summary, sendProgress, isGuarding,
+  summary, sendProgress, isGuarding,
   txColumns,
-  onToggleGuard, onDelete, onEditDelay, onReorder, onAddDelay,
-  onClear, onSend, onDuplicate, onMoveToTop, onMoveToBottom,
+  onToggleGuard, onDelete, onEditDelay, onAddDelay,
+  onClear, onSend, onDuplicate, onMoveToTop, onMoveToBottom, onRequeue,
   triggerConfirmSend, triggerConfirmClear,
 }: TxQueueProps) {
   const tabActive = useTabActive()
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
+  const { items, applyDragReorder } = useTx()
+
+  const [selectedUid, setSelectedUid] = useState<string | null>(null)
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmSend, setConfirmSend] = useState(false)
+  const [confirmClearSent, setConfirmClearSent] = useState(false)
   const [showSavePrompt, setShowSavePrompt] = useState(false)
 
-  // External triggers (from command palette)
+  const outerRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!tabActive) return
     if (triggerConfirmSend) setConfirmSend(true)
@@ -76,87 +78,54 @@ export function TxQueue({
     if (!tabActive) return
     if (triggerConfirmClear) setConfirmClear(true)
   }, [triggerConfirmClear, tabActive])
-  const [uidItems, setUidItems] = useState(() => assignUids(queue))
-  const [flashUid, setFlashUid] = useState<number | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const ignoreNextSync = useRef(false)
-  const prevLenRef = useRef(queue.length)
 
-  // Sync from backend — preserve uids for existing items
-  useEffect(() => {
-    if (ignoreNextSync.current) {
-      ignoreNextSync.current = false
-      prevLenRef.current = queue.length
-      return
-    }
-    setUidItems(prev => {
-      const prevLen = prev.length
-      const newLen = queue.length
-      if (newLen === 0) return []
-      // Items removed from front (send) — keep uids for remaining items
-      if (newLen < prevLen) {
-        const removed = prevLen - newLen
-        return prev.slice(removed).map((entry, i) => ({ item: queue[i], uid: entry.uid }))
-      }
-      // Items added at end — keep existing uids, assign new for additions
-      const kept = prev.map((entry, i) => ({ item: queue[i], uid: entry.uid }))
-      const added = queue.slice(prevLen).map(item => ({ item, uid: nextUid++ }))
-      const result = [...kept, ...added]
-      // Flash newest
-      if (added.length > 0) {
-        const newestUid = added[added.length - 1].uid
-        setFlashUid(newestUid)
-        setTimeout(() => setFlashUid(null), 300)
-      }
-      return result
-    })
-    const grew = queue.length > prevLenRef.current
-    prevLenRef.current = queue.length
-    if (grew) {
-      requestAnimationFrame(() => {
-        if (scrollRef.current) scrollRef.current.scrollTop = 0
-      })
-    }
-  }, [queue])
+  const sendingItem = items.find(i => i.status === 'sending')
+  const sendTargetUid = sendingItem?.uid ?? null
+  const resetKey: 'idle' | 'active' = sendProgress === null ? 'idle' : 'active'
+  const { detached, jumpToCurrent } = useFollowScroll({
+    containerRef: scrollRef,
+    target: sendTargetUid,
+    resetKey,
+  })
 
+  const pendingItems = useMemo(() => items.filter(i => i.source === 'queue'), [items])
 
-  // Keyboard navigation within the queue area
   const queueShortcuts = useMemo<Shortcut[]>(() => [
     {
       key: 'ArrowUp',
       action: () => setFocusedIdx(prev => prev === null ? 0 : Math.max(0, prev - 1)),
-      when: () => uidItems.length > 0 && !isInputFocused(),
+      when: () => pendingItems.length > 0 && !isInputFocused(),
     },
     {
       key: 'ArrowDown',
       action: () => setFocusedIdx(prev => {
-        const max = uidItems.length - 1
+        const max = pendingItems.length - 1
         return prev === null ? 0 : Math.min(max, prev + 1)
       }),
-      when: () => uidItems.length > 0 && !isInputFocused(),
+      when: () => pendingItems.length > 0 && !isInputFocused(),
     },
     {
       key: 'Delete',
       action: () => { if (focusedIdx !== null) onDelete(focusedIdx) },
-      when: () => focusedIdx !== null && uidItems.length > 0 && !isInputFocused(),
+      when: () => focusedIdx !== null && pendingItems.length > 0 && !isInputFocused(),
     },
     {
       key: 'Backspace',
       action: () => { if (focusedIdx !== null) onDelete(focusedIdx) },
-      when: () => focusedIdx !== null && uidItems.length > 0 && !isInputFocused(),
+      when: () => focusedIdx !== null && pendingItems.length > 0 && !isInputFocused(),
     },
     {
       key: 'g',
       action: () => { if (focusedIdx !== null) onToggleGuard(focusedIdx) },
-      when: () => focusedIdx !== null && uidItems.length > 0 && !isInputFocused(),
+      when: () => focusedIdx !== null && pendingItems.length > 0 && !isInputFocused(),
     },
     {
       key: 'G',
       shift: true,
       action: () => { if (focusedIdx !== null) onToggleGuard(focusedIdx) },
-      when: () => focusedIdx !== null && uidItems.length > 0 && !isInputFocused(),
+      when: () => focusedIdx !== null && pendingItems.length > 0 && !isInputFocused(),
     },
-  ], [uidItems.length, focusedIdx, onDelete, onToggleGuard])
+  ], [pendingItems.length, focusedIdx, onDelete, onToggleGuard])
 
   useShortcuts(queueShortcuts, tabActive)
 
@@ -166,42 +135,36 @@ export function TxQueue({
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
-    if (!over || active.id === over.id) return
-    const oldUid = Number(String(active.id).replace('uid-', ''))
-    const newUid = Number(String(over.id).replace('uid-', ''))
-    const oldIdx = uidToIndex.get(oldUid)
-    const newIdx = uidToIndex.get(newUid)
-    if (oldIdx === undefined || newIdx === undefined) return
-
-    // Optimistic: reorder locally with stable UIDs — card stays where dropped
-    setUidItems(prev => arrayMove(prev, oldIdx, newIdx))
-    ignoreNextSync.current = true
-    onReorder(oldIdx, newIdx)
-    setSelectedIdx(null)
+    if (!over) return
+    // applyDragReorder is atomic: validates pending-only, computes the new
+    // absolute order (override-aware), installs the override, and submits
+    // the full `order` array to the backend. Returns false if the drop is
+    // rejected (cross-segment or unknown uid).
+    const applied = applyDragReorder(String(active.id), String(over.id))
+    if (applied) setSelectedUid(null)
   }
 
   const visibleColumns = useMemo(() => {
-    return txColumns.filter(col => {
-      if (!col.hide_if_all?.length) return true
-      const suppressSet = new Set(col.hide_if_all)
-      return !queue.every(item => {
-        if (item.type === 'delay' || item.type === 'note') return true
-        return suppressSet.has(cellText(item.display?.row?.[col.id]))
+    return txColumns.filter(c => {
+      if (!c.hide_if_all?.length) return true
+      const suppressSet = new Set(c.hide_if_all)
+      if (items.length === 0) return true
+      return !items.every(it => {
+        if (it.source === 'queue' && (it.item.type === 'delay' || it.item.type === 'note')) return true
+        const row = (it.item as { display?: { row?: Record<string, unknown> } }).display?.row
+        return suppressSet.has(cellText(row?.[c.id] as Parameters<typeof cellText>[0]))
       })
     })
-  }, [txColumns, queue])
-
-  const uidToIndex = useMemo(
-    () => new Map(uidItems.map((u, i) => [u.uid, i])),
-    [uidItems],
-  )
+  }, [txColumns, items])
 
   const estStr = summary.est_time_s > 0 ? `~${summary.est_time_s.toFixed(1)}s` : ''
+  const hasSent = items.some(i => i.source === 'history')
+  const hasPending = pendingItems.length > 0
+  const isActivelySending = sendProgress !== null
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      {/* Column headers — fixed above scroll */}
-      {uidItems.length > 0 && (
+      {items.length > 0 && (
         <div className="flex items-center gap-1.5 px-3.5 py-0.5 text-[11px] font-light shrink-0" style={{ color: colors.dim }}>
           <span className={col.grip} />
           <span className={`${col.num} text-right`}>#</span>
@@ -217,63 +180,83 @@ export function TxQueue({
       )}
       <ContextMenuRoot>
       <ContextMenuTrigger>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 flex flex-col">
-        {uidItems.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-xs" style={{ color: colors.dim }}>
-            Queue empty — type a command below
-          </div>
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={[...uidItems].reverse().map(u => `uid-${u.uid}`)} strategy={verticalListSortingStrategy}>
-              <div className="mt-auto" />
-              <AnimatePresence initial={false}>
-              {[...uidItems].reverse().map(({ item, uid }) => {
-                const realIdx = uidToIndex.get(uid)!
-                const isFlashing = flashUid === uid
-                if (item.type === 'delay') {
-                  const delayActive = sendProgress !== null && sendProgress.waiting === true && realIdx === 0
+      <div ref={outerRef} className="relative flex-1 min-h-0 flex flex-col">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1">
+          {items.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-xs" style={{ color: colors.dim }}>
+              Queue empty — type a command below
+            </div>
+          ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={items.map(i => i.uid)} strategy={verticalListSortingStrategy}>
+                {items.map((it) => {
+                  if (it.source === 'queue' && it.item.type === 'delay') {
+                    const delayActive = sendProgress !== null && sendProgress.waiting === true && it.queueIndex === 0
+                    return (
+                      <motion.div key={it.uid} layout transition={{ duration: 0.15 }}>
+                        <DelayItem
+                          delayMs={it.item.delay_ms}
+                          index={it.queueIndex!}
+                          sortId={it.uid}
+                          isActive={delayActive}
+                          status={it.status}
+                          onEditDelay={onEditDelay}
+                          onDelete={onDelete}
+                        />
+                      </motion.div>
+                    )
+                  }
+                  if (it.source === 'queue' && it.item.type === 'note') {
+                    return (
+                      <motion.div key={it.uid} layout transition={{ duration: 0.15 }}>
+                        <NoteItem
+                          text={it.item.text}
+                          index={it.queueIndex!}
+                          sortId={it.uid}
+                          status={it.status}
+                          onDelete={onDelete}
+                        />
+                      </motion.div>
+                    )
+                  }
+                  const itemGuarding = isGuarding && it.status === 'sending'
+                  const idx = it.queueIndex ?? 0
+                  const handle = (it.item as TxQueueCmd | TxHistoryItem)
                   return (
-                    <motion.div key={uid} exit={{ opacity: 0, x: 30 }} transition={{ duration: 0.15 }} className={isFlashing ? 'animate-slide-in' : ''}>
-                      <DelayItem delayMs={item.delay_ms} index={realIdx} sortId={`uid-${uid}`} isActive={delayActive} onEditDelay={onEditDelay} onDelete={onDelete} />
+                    <motion.div key={it.uid} layout transition={{ duration: 0.15 }}>
+                      <QueueItem
+                        item={handle}
+                        status={it.status}
+                        index={idx}
+                        sortId={it.uid}
+                        expanded={selectedUid === it.uid}
+                        isGuarding={itemGuarding}
+                        visibleColumns={visibleColumns}
+                        onSelect={() => setSelectedUid(selectedUid === it.uid ? null : it.uid)}
+                        onToggleGuard={onToggleGuard}
+                        onDelete={onDelete}
+                        onDuplicate={onDuplicate}
+                        onMoveToTop={onMoveToTop}
+                        onMoveToBottom={onMoveToBottom}
+                        onRequeue={onRequeue}
+                      />
                     </motion.div>
                   )
-                }
-                if (item.type === 'note') {
-                  return (
-                    <motion.div key={uid} exit={{ opacity: 0, x: 30 }} transition={{ duration: 0.15 }}>
-                      <NoteItem text={item.text} index={realIdx} sortId={`uid-${uid}`} flash={isFlashing} onDelete={onDelete} />
-                    </motion.div>
-                  )
-                }
-                // Index 0 = next to send (now at bottom visually)
-                const isSending = sendProgress !== null && realIdx === 0
-                const isNext = !sendProgress && realIdx === 0
-                const itemGuarding = isGuarding && realIdx === 0
-                return (
-                  <motion.div key={uid} exit={{ opacity: 0, x: 30 }} transition={{ duration: 0.15 }}>
-                    <QueueItem
-                      item={{ ...item, num: realIdx + 1 }}
-                      index={realIdx}
-                      sortId={`uid-${uid}`}
-                      expanded={selectedIdx === realIdx}
-                      isNext={isNext}
-                      isSending={isSending}
-                      isGuarding={itemGuarding}
-                      flash={isFlashing}
-                      visibleColumns={visibleColumns}
-                      onSelect={() => setSelectedIdx(selectedIdx === realIdx ? null : realIdx)}
-                      onToggleGuard={onToggleGuard}
-                      onDelete={onDelete}
-                      onDuplicate={onDuplicate}
-                      onMoveToTop={onMoveToTop}
-                      onMoveToBottom={onMoveToBottom}
-                    />
-                  </motion.div>
-                )
-              })}
-              </AnimatePresence>
-            </SortableContext>
-          </DndContext>
+                })}
+              </SortableContext>
+            </DndContext>
+          )}
+        </div>
+
+        {detached && sendTargetUid && (
+          <button
+            onClick={jumpToCurrent}
+            className="absolute top-2 right-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium shadow-float btn-feedback"
+            style={{ backgroundColor: colors.info, color: colors.bgApp, zIndex: 20 }}
+          >
+            <ArrowDownToLine className="size-3" />
+            Jump to current
+          </button>
         )}
       </div>
       </ContextMenuTrigger>
@@ -281,16 +264,43 @@ export function TxQueue({
         <ContextMenuItem icon={Save} onSelect={() => setShowSavePrompt(true)}>
           Save Queue
         </ContextMenuItem>
+        {hasSent && !isActivelySending && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              icon={History}
+              destructive
+              onSelect={() => setConfirmClearSent(true)}
+            >
+              Clear Sent
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
       </ContextMenuRoot>
 
-      {/* Bottom bar: normal or full-bar confirm */}
       {confirmClear ? (
         <ConfirmBar
-          label="Clear all commands?"
+          label={`Clear ${summary.cmds} pending command${summary.cmds !== 1 ? 's' : ''}?`}
           color={colors.error}
           onConfirm={() => { onClear(); setConfirmClear(false) }}
           onCancel={() => setConfirmClear(false)}
+        />
+      ) : confirmClearSent ? (
+        <ConfirmBar
+          label="Clear all sent history?"
+          color={colors.error}
+          onConfirm={() => {
+            authFetch('/api/tx/clear-sent', { method: 'POST' })
+              .then(r => r.json())
+              .then(d => {
+                if (d.ok) showToast(`Cleared ${d.cleared} sent`, 'success')
+                else showToast(d.error || 'Clear failed', 'error')
+              })
+              .catch(() => showToast('Clear failed', 'error'))
+            setConfirmClearSent(false)
+          }}
+          onCancel={() => setConfirmClearSent(false)}
         />
       ) : confirmSend ? (
         <ConfirmBar
@@ -302,20 +312,20 @@ export function TxQueue({
       ) : (
         <div className="flex items-center justify-between px-3 py-1 border-t shrink-0" style={{ borderColor: colors.borderSubtle }}>
           <span className="text-[11px]" style={{ color: colors.dim }}>
-            {summary.cmds} cmd{summary.cmds !== 1 ? 's' : ''}
+            {summary.cmds} pending
             {summary.guards > 0 ? ` · ${summary.guards} guarded` : ''}
             {estStr ? ` · ${estStr}` : ''}
           </span>
           <div className="flex items-center gap-1.5">
-            <Button variant="ghost" size="sm" onClick={() => onAddDelay(2000)} className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }}>
+            <Button variant="ghost" size="sm" onClick={() => onAddDelay(2000)} className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }} disabled={!hasPending}>
               <Timer className="size-3" /> Delay
             </Button>
             <Button variant="ghost" size="sm" onClick={() => { setConfirmClear(true); setConfirmSend(false) }}
-              className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }}>
+              className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }} disabled={!hasPending}>
               <Trash2 className="size-3" /> Clear
             </Button>
             <Button size="sm" onClick={() => { setConfirmSend(true); setConfirmClear(false) }}
-              className="h-6 px-2 text-xs gap-1 btn-feedback"
+              className="h-6 px-2 text-xs gap-1 btn-feedback" disabled={!hasPending || isActivelySending}
               style={{ color: colors.bgBase, backgroundColor: colors.success }}>
               <Send className="size-3" /> Send All
             </Button>
