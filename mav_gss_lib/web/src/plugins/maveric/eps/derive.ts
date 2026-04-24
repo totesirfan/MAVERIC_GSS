@@ -74,23 +74,27 @@ export function thermalEta(
 
 export function efficiency(
   fields: EpsFields | Partial<EpsFields> | null | undefined,
-  source: SourceId | null,
+  _source: SourceId | null,
 ): number | null {
   if (!fields) return null
-  if (source === 'V_AC1' || source === 'V_AC2') return null
-  const { V_BUS, I_BUS, V_BAT, I_BAT, PSIN1, PSIN2, PSIN3 } = fields as Partial<EpsFields>
+  const f = fields as Partial<EpsFields>
+  const { V_BUS, I_BUS } = f
   if (!isFiniteNumber(V_BUS) || !isFiniteNumber(I_BUS)) return null
-  const pOut = V_BUS * I_BUS
-  const pSin = (isFiniteNumber(PSIN1) ? PSIN1 : 0)
-    + (isFiniteNumber(PSIN2) ? PSIN2 : 0)
-    + (isFiniteNumber(PSIN3) ? PSIN3 : 0)
-  const batContrib =
-    isFiniteNumber(V_BAT) && isFiniteNumber(I_BAT) && I_BAT < 0
-      ? V_BAT * -I_BAT
-      : 0
-  const pIn = pSin + batContrib
-  if (pIn < 0.1) return null
-  return pOut / pIn
+  const pBus = V_BUS * I_BUS
+  if (pBus < 0.1) return null
+  const usefulKeys: ReadonlyArray<keyof EpsFields> = [
+    'P3V3', 'P5V0',
+    'POUT1', 'POUT2', 'POUT3', 'POUT4', 'POUT5', 'POUT6',
+    'PBRN1', 'PBRN2',
+  ]
+  let useful = 0
+  for (const k of usefulKeys) {
+    const v = f[k]
+    if (isFiniteNumber(v)) useful += v
+  }
+  const ratio = useful / pBus
+  if (!Number.isFinite(ratio)) return null
+  return Math.max(0, Math.min(1, ratio))
 }
 
 const V_BAT_CAUTION = 6.8
