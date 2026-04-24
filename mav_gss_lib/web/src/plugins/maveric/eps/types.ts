@@ -96,6 +96,6 @@ export const GROUP_DEFS: readonly EpsGroupDef[] = rawGroups.map((g) => ({
   count: g.count,
 }))
 
-export type DerivedName = 'P_BUS' | 'P_IN' | 'P_OUT' | 'EFFICIENCY'
+export type DerivedName = 'P_BUS' | 'P_AC' | 'P_IN' | 'P_OUT' | 'EFFICIENCY'
 
 export const DERIVED_NAMES: readonly DerivedName[] = rawDerived.map((d) => d.name as DerivedName)
