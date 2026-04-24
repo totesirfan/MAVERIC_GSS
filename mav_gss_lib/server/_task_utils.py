@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime._task_utils -- Shared asyncio task utilities.
+mav_gss_lib.server._task_utils -- Shared asyncio task utilities.
 
 Provides `log_task_exception` — the done-callback used by every background
 asyncio task in the web runtime to surface silent failures to the standard

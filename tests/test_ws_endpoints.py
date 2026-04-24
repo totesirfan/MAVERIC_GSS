@@ -16,10 +16,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mav_gss_lib.platform import ColumnDef, EventOps
-from mav_gss_lib.web_runtime.rx import router as rx_router
-from mav_gss_lib.web_runtime.tx import router as tx_router
-from mav_gss_lib.web_runtime.session_ws import router as session_router
-from mav_gss_lib.web_runtime.state import PORT
+from mav_gss_lib.server.ws.rx import router as rx_router
+from mav_gss_lib.server.ws.tx import router as tx_router
+from mav_gss_lib.server.ws.session import router as session_router
+from mav_gss_lib.server.state import PORT
 
 
 def _build_stub_runtime():

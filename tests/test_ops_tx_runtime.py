@@ -10,9 +10,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import mav_gss_lib.web_runtime.tx_service as tx_service
-from mav_gss_lib.web_runtime.tx_queue import make_mission_cmd, sanitize_queue_items, validate_mission_cmd
-from mav_gss_lib.web_runtime.state import create_runtime
+import mav_gss_lib.server.tx.service as tx_service
+from mav_gss_lib.server.tx.queue import make_mission_cmd, sanitize_queue_items, validate_mission_cmd
+from mav_gss_lib.server.state import create_runtime
 
 
 def _make_payload(cmd_id, args="", dest="LPPM", guard=False):

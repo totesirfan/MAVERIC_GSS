@@ -24,8 +24,8 @@ def test_platform_package_does_not_import_maveric():
     assert offenders == []
 
 
-def test_web_runtime_does_not_use_legacy_adapter_boundary():
-    root = Path("mav_gss_lib/web_runtime")
+def test_server_does_not_use_legacy_adapter_boundary():
+    root = Path("mav_gss_lib/server")
     forbidden = (
         "runtime.adapter",
         "load_mission_adapter",

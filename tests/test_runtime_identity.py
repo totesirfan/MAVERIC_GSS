@@ -1,7 +1,7 @@
 from unittest import mock
 
 from mav_gss_lib.config import load_split_config
-from mav_gss_lib.web_runtime.state import create_runtime
+from mav_gss_lib.server.state import create_runtime
 
 
 def _split_without_stations_catalog():
@@ -17,7 +17,7 @@ def test_runtime_captures_identity_on_construction(tmp_path, monkeypatch):
     monkeypatch.delenv("SUDO_USER", raising=False)
     with mock.patch("mav_gss_lib.identity.getpass.getuser", return_value="irfan"), \
          mock.patch("mav_gss_lib.identity.socket.gethostname", return_value="host-under-test"), \
-         mock.patch("mav_gss_lib.web_runtime.state.load_split_config",
+         mock.patch("mav_gss_lib.server.state.load_split_config",
                     return_value=_split_without_stations_catalog()):
         runtime = create_runtime()
         assert runtime.operator == "irfan"

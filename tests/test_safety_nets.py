@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.web_runtime._task_utils import log_task_exception
+from mav_gss_lib.server._task_utils import log_task_exception
 
 
 class TestLogTaskException(unittest.TestCase):
@@ -83,19 +83,19 @@ class TestTaskCallbacksWired(unittest.TestCase):
 
     def test_rx_broadcast_task_has_callback(self):
         self._assert_callback_wired(
-            "mav_gss_lib/web_runtime/app.py",
+            "mav_gss_lib/server/app.py",
             "runtime.rx.broadcast_task = asyncio.create_task(runtime.rx.broadcast_loop())",
         )
 
     def test_preflight_task_has_callback(self):
         self._assert_callback_wired(
-            "mav_gss_lib/web_runtime/app.py",
+            "mav_gss_lib/server/app.py",
             "runtime.preflight_task = asyncio.create_task(run_preflight_and_broadcast(runtime))",
         )
 
     def test_tx_send_task_has_callback(self):
         self._assert_callback_wired(
-            "mav_gss_lib/web_runtime/tx_actions.py",
+            "mav_gss_lib/server/tx/actions.py",
             "runtime.tx.send_task = asyncio.create_task(runtime.tx.run_send())",
         )
 
@@ -103,7 +103,7 @@ class TestTaskCallbacksWired(unittest.TestCase):
         # shutdown.py uses loop.create_task(...) after modernizing away from
         # the deprecated asyncio.get_event_loop() form.
         self._assert_callback_wired(
-            "mav_gss_lib/web_runtime/shutdown.py",
+            "mav_gss_lib/server/shutdown.py",
             "runtime.shutdown_task = loop.create_task(check_shutdown(runtime))",
         )
 
@@ -114,7 +114,7 @@ class TestPreflightBroadcastCullsDeadClients(unittest.TestCase):
     def test_dead_client_is_removed(self):
         import threading
 
-        from mav_gss_lib.web_runtime.preflight_ws import _broadcast
+        from mav_gss_lib.server.ws.preflight import _broadcast
 
         class FakeRuntime:
             def __init__(self):
@@ -163,7 +163,7 @@ class TestPreflightBroadcastCullsDeadClients(unittest.TestCase):
     def test_backlog_still_records_event(self):
         import threading
 
-        from mav_gss_lib.web_runtime.preflight_ws import _broadcast
+        from mav_gss_lib.server.ws.preflight import _broadcast
 
         class FakeRuntime:
             def __init__(self):
@@ -322,14 +322,14 @@ class TestTxEventsAreAsyncio(unittest.TestCase):
 
     def test_abort_is_asyncio_event(self):
         import asyncio as _asyncio
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
 
         runtime = create_runtime()
         self.assertIsInstance(runtime.tx.abort, _asyncio.Event)
 
     def test_guard_ok_is_asyncio_event(self):
         import asyncio as _asyncio
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
 
         runtime = create_runtime()
         self.assertIsInstance(runtime.tx.guard_ok, _asyncio.Event)
@@ -338,7 +338,7 @@ class TestTxEventsAreAsyncio(unittest.TestCase):
         """abort during a 5s delay must wake within ~50 ms, not within 100 ms polling."""
         import asyncio as _asyncio
         import time as _time
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
 
         runtime = create_runtime()
 

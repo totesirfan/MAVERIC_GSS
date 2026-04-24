@@ -12,15 +12,15 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mav_gss_lib.config import get_generated_commands_dir
-from mav_gss_lib.web_runtime.api.queue_io import (
+from mav_gss_lib.server.api.queue_io import (
     export_queue,
     import_file,
     list_import_files,
     parse_import_file,
     preview_import,
 )
-from mav_gss_lib.web_runtime.tx_queue import make_delay, validate_mission_cmd
-from mav_gss_lib.web_runtime.state import create_runtime
+from mav_gss_lib.server.tx.queue import make_delay, validate_mission_cmd
+from mav_gss_lib.server.state import create_runtime
 
 
 def _request_for(runtime, *, token=True):
@@ -157,7 +157,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         log_file.write_text("\n".join(entries) + "\n")
 
         # Call the endpoint with offset=1, limit=2
-        from mav_gss_lib.web_runtime.api.logs import api_log_entries
+        from mav_gss_lib.server.api.logs import api_log_entries
 
         req = _request_for(self.runtime)
         result = asyncio.run(api_log_entries(

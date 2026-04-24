@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mav_gss_lib.web_runtime import shutdown as shutdown_mod
+from mav_gss_lib.server import shutdown as shutdown_mod
 
 
 class _FakeService:
@@ -138,7 +138,7 @@ class TestCheckShutdownLocksSendingRead(unittest.TestCase):
 class TestLifespanCancelsPreflightTask(unittest.TestCase):
     def test_preflight_task_is_cancelled_on_shutdown(self):
         """Lifespan shutdown must cancel runtime.preflight_task if it's still running."""
-        from mav_gss_lib.web_runtime import app as app_mod
+        from mav_gss_lib.server import app as app_mod
 
         async def never_ending():
             try:

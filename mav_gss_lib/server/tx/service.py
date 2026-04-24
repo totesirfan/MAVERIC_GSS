@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.tx_service -- TX Service
+mav_gss_lib.server.tx.service -- TX Service
 
 Owns the TX side of the web runtime: queue, send state, history, and ZMQ PUB.
 
@@ -20,11 +20,11 @@ from typing import TYPE_CHECKING, Awaitable, Callable, NamedTuple
 from mav_gss_lib.platform import EncodedCommand, FramedCommand
 from mav_gss_lib.transport import PUB_STATUS, init_zmq_pub, send_pdu, zmq_cleanup
 
-from ._broadcast import broadcast_safe
-from .tx_queue import QueueItem
+from .._broadcast import broadcast_safe
+from .queue import QueueItem
 
 if TYPE_CHECKING:
-    from .state import WebRuntime
+    from ..state import WebRuntime
 
 
 class _RunResult(NamedTuple):
@@ -87,27 +87,27 @@ class TxService:
 
     def save_queue(self) -> None:
         """Persist the current queue to disk as JSONL."""
-        from . import tx_queue as _tq
+        from . import queue as _tq
         _tq.save_queue(self.queue, self.queue_file())
 
     def load_queue(self):
         """Load any persisted queue items from disk."""
-        from . import tx_queue as _tq
+        from . import queue as _tq
         return _tq.load_queue(self.queue_file(), runtime=self.runtime)
 
     def renumber_queue(self) -> None:
         """Assign sequential display numbers to queued command items."""
-        from . import tx_queue as _tq
+        from . import queue as _tq
         _tq.renumber_queue(self.queue)
 
     def queue_summary(self):
         """Summarize queue size, guard count, and rough execution time."""
-        from . import tx_queue as _tq
+        from . import queue as _tq
         return _tq.queue_summary(self.queue, self.runtime.tx_delay_ms)
 
     def queue_items_json(self):
         """Project the current queue into the websocket/API JSON shape."""
-        from . import tx_queue as _tq
+        from . import queue as _tq
         return _tq.queue_items_json(self.queue)
 
     async def broadcast(self, msg):

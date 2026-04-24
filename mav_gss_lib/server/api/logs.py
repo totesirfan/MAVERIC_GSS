@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.api.logs -- Log Browsing Routes
+mav_gss_lib.server.api.logs -- Log Browsing Routes
 
 Endpoints: api_logs, api_log_entries
 Helpers:   parse_replay_entry

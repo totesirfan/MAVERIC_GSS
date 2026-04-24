@@ -53,7 +53,7 @@ class TestBackendHasNoFramingImports(unittest.TestCase):
 
 class TestMavericFramerReadsLiveConfig(unittest.TestCase):
     def test_ax25_call_change_takes_effect_on_next_frame(self):
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
         payload = {"cmd_id": "com_ping", "args": "", "dest": "LPPM", "echo": "NONE", "ptype": "CMD"}
         prep = rt.platform.prepare_tx(payload)
@@ -78,7 +78,7 @@ class TestMavericFramerReadsLiveConfig(unittest.TestCase):
         self.assertEqual(framed_after.log_fields["ax25"]["src_call"], "WBBBBB")
 
     def test_asm_golay_mtu_is_enforced_via_mission_framer(self):
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
         rt.platform_cfg["tx"]["uplink_mode"] = "ASM+Golay"
         # Assemble an oversized command bytes payload directly to exercise

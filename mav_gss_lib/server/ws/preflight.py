@@ -19,8 +19,8 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from mav_gss_lib.preflight import CheckResult, run_preflight, summarize
-from .state import get_runtime
-from .security import authorize_websocket
+from ..state import get_runtime
+from ..security import authorize_websocket
 
 router = APIRouter()
 

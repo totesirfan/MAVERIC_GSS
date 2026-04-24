@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.api -- REST API Routes Package
+mav_gss_lib.server.api -- REST API Routes Package
 
 Combines sub-routers from focused route modules into a single router
 that app.py can mount unchanged.

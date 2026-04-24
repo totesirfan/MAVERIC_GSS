@@ -4,7 +4,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from mav_gss_lib.config import load_split_config
-from mav_gss_lib.web_runtime.app import create_app
+from mav_gss_lib.server.app import create_app
 
 
 def _split_without_stations_catalog():
@@ -19,7 +19,7 @@ def _split_without_stations_catalog():
 def _client():
     with mock.patch("mav_gss_lib.identity.getpass.getuser", return_value="irfan"), \
          mock.patch("mav_gss_lib.identity.socket.gethostname", return_value="gs-test"), \
-         mock.patch("mav_gss_lib.web_runtime.state.load_split_config",
+         mock.patch("mav_gss_lib.server.state.load_split_config",
                     return_value=_split_without_stations_catalog()):
         app = create_app()
     return TestClient(app), app

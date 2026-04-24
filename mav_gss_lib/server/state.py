@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.state -- Web Runtime State Container
+mav_gss_lib.server.state -- Web Runtime State Container
 
 Owns the long-lived mutable backend state used by the FastAPI app:
 active config, protocol objects, mission spec, RX/TX services, and
@@ -35,9 +35,9 @@ from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 from mav_gss_lib.identity import capture_host, capture_operator, capture_station
 from mav_gss_lib.platform import PlatformRuntime
 from ._atomics import AtomicStatus
-from .rx_service import RxService
+from .rx.service import RxService
 from .telemetry import reset_legacy_snapshots
-from .tx_service import TxService
+from .tx.service import TxService
 
 if TYPE_CHECKING:
     from mav_gss_lib.updater import UpdateStatus

@@ -16,8 +16,8 @@ bootstrap_dependencies()
 # Safe — all critical deps guaranteed importable past this line.
 import uvicorn
 
-from mav_gss_lib.web_runtime.app import create_app
-from mav_gss_lib.web_runtime.state import HOST, PORT
+from mav_gss_lib.server.app import create_app
+from mav_gss_lib.server.state import HOST, PORT
 
 app = create_app()
 

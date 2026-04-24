@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.api.session -- Session Lifecycle Routes
+mav_gss_lib.server.api.session -- Session Lifecycle Routes
 
 Endpoints: api_session_get, api_session_new, api_session_rename
 Helpers:   _session_info

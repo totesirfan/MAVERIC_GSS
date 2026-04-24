@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime._broadcast -- Shared WebSocket broadcast helper
+mav_gss_lib.server._broadcast -- Shared WebSocket broadcast helper
 
 Used by RxService, TxService, and api/session.py.
 """

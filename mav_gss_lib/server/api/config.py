@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.api.config -- Status / Config Routes
+mav_gss_lib.server.api.config -- Status / Config Routes
 
 Endpoints: api_status, api_selfcheck, api_config_get, api_config_put
 

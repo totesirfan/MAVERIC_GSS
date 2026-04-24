@@ -33,7 +33,7 @@ class TestColumnDefToggleSerializes(unittest.TestCase):
 
 class TestMavericColumnsCarryToggle(unittest.TestCase):
     def test_maveric_packet_columns_include_frame_toggle(self):
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
         cols = rt.mission.ui.packet_columns()
         by_id = {c.id: c for c in cols}
@@ -44,7 +44,7 @@ class TestMavericColumnsCarryToggle(unittest.TestCase):
 
     def test_api_columns_emits_toggle(self):
         from fastapi.testclient import TestClient
-        from mav_gss_lib.web_runtime.app import create_app
+        from mav_gss_lib.server.app import create_app
 
         client = TestClient(create_app())
         cols = client.get("/api/columns").json()

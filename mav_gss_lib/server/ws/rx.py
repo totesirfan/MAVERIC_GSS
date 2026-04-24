@@ -8,9 +8,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from mav_gss_lib.platform import collect_connect_events
 
-from .state import get_runtime
-from .shutdown import schedule_shutdown_check
-from .security import authorize_websocket
+from ..state import get_runtime
+from ..shutdown import schedule_shutdown_check
+from ..security import authorize_websocket
 
 router = APIRouter()
 

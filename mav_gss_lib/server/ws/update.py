@@ -28,8 +28,8 @@ from mav_gss_lib.updater import (
     apply_update,
     check_for_updates,
 )
-from ._ws_utils import send_phase_fail
-from .preflight_ws import _broadcast
+from ._utils import send_phase_fail
+from .preflight import _broadcast
 
 
 # =============================================================================

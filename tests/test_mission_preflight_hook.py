@@ -123,7 +123,7 @@ class TestPlatformPreflightIsMissionNeutral(unittest.TestCase):
 
 class TestMavericPreflightHook(unittest.TestCase):
     def test_maveric_mission_spec_exposes_a_preflight_callable(self):
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
         self.assertIsNotNone(rt.mission.preflight)
         # Invoking the hook yields at least the command-schema and uplink

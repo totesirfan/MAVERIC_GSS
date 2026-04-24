@@ -34,7 +34,7 @@ class TestIsNoiseFrame(unittest.TestCase):
         self.assertTrue(is_noise_frame("AX.25", b""))
 
 
-from mav_gss_lib.web_runtime.state import create_runtime
+from mav_gss_lib.server.state import create_runtime
 
 
 META_AX25 = {"transmitter": "9k6 FSK AX.25 downlink"}
@@ -101,7 +101,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
             else:
                 raise AssertionError(f"broadcast to unknown client list: {clients!r}")
 
-        import mav_gss_lib.web_runtime.rx_service as rx_mod
+        import mav_gss_lib.server.rx.service as rx_mod
         self._orig_broadcast_safe = rx_mod.broadcast_safe
         rx_mod.broadcast_safe = _capture_broadcast
 
@@ -139,7 +139,7 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         self.rx.log = self.spy_log
 
     def tearDown(self):
-        import mav_gss_lib.web_runtime.rx_service as rx_mod
+        import mav_gss_lib.server.rx.service as rx_mod
         rx_mod.broadcast_safe = self._orig_broadcast_safe
         self.runtime.mission.events.sources[:] = self._orig_event_sources
 

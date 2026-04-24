@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.rx_service -- RX Service
+mav_gss_lib.server.rx.service -- RX Service
 
 Owns the RX side of the web runtime: ZMQ SUB → pipeline → log → WS broadcast.
 
@@ -19,15 +19,15 @@ from typing import TYPE_CHECKING
 
 from mav_gss_lib.config import get_rx_zmq_addr
 
-from ._atomics import AtomicStatus
+from .._atomics import AtomicStatus
 from mav_gss_lib.platform.rx.logging import rx_log_record, rx_log_text
 from mav_gss_lib.protocols.frame_detect import detect_frame_type, is_noise_frame
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
-from ._broadcast import broadcast_safe
+from .._broadcast import broadcast_safe
 
 if TYPE_CHECKING:
-    from .state import WebRuntime
+    from ..state import WebRuntime
 
 
 class RxService:

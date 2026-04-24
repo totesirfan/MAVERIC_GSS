@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mav_gss_lib.web_runtime.state import create_runtime
+from mav_gss_lib.server.state import create_runtime
 
 
 class TestRxBlackoutDrop(unittest.TestCase):
@@ -34,8 +34,8 @@ class TestRxBlackoutDrop(unittest.TestCase):
 import asyncio
 import tempfile
 
-import mav_gss_lib.web_runtime.tx_service as tx_service
-from mav_gss_lib.web_runtime.tx_queue import validate_mission_cmd
+import mav_gss_lib.server.tx.service as tx_service
+from mav_gss_lib.server.tx.queue import validate_mission_cmd
 
 
 def _make_payload(cmd_id="com_ping", args="", dest="LPPM"):

@@ -8,12 +8,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mav_gss_lib.web_runtime.security import (
+from mav_gss_lib.server.security import (
     authorize_websocket,
     origin_allowed,
     require_api_token,
 )
-from mav_gss_lib.web_runtime.state import PORT
+from mav_gss_lib.server.state import PORT
 
 
 class _FakeRuntime:

@@ -88,7 +88,7 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
 
     def _build_app(self, runtime):
         from fastapi import FastAPI
-        from mav_gss_lib.web_runtime.api.config import router
+        from mav_gss_lib.server.api.config import router
         app = FastAPI()
         app.state.runtime = runtime
         app.include_router(router)

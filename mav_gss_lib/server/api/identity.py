@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.api.identity -- Identity Route
+mav_gss_lib.server.api.identity -- Identity Route
 
 Returns the operator, host, and station captured at runtime startup.
 Local-only — no auth gate (matches /api/status).

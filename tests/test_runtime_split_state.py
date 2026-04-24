@@ -87,7 +87,7 @@ class TestSplitToPersistable(unittest.TestCase):
 
 class TestWebRuntimePrimarySplitState(unittest.TestCase):
     def test_runtime_exposes_split_state_without_mission_leak(self):
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
         self.assertIsInstance(rt.platform_cfg, dict)
         self.assertIsInstance(rt.mission_cfg, dict)
@@ -100,7 +100,7 @@ class TestWebRuntimePrimarySplitState(unittest.TestCase):
         self.assertFalse(hasattr(rt, "rebuild_flat_cfg"))
 
     def test_typed_accessors_read_from_split_state(self):
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
         self.assertEqual(rt.log_dir, rt.platform_cfg["general"].get("log_dir", "logs"))
         self.assertEqual(rt.version, rt.platform_cfg["general"].get("version", ""))
@@ -166,7 +166,7 @@ class TestBackendHasNoFlatCfgReads(unittest.TestCase):
         """Constructing a WebRuntime must not silently materialize a `cfg`
         attribute. A regression here indicates someone re-added the flat
         projection without updating the primary-state contract."""
-        from mav_gss_lib.web_runtime.state import create_runtime
+        from mav_gss_lib.server.state import create_runtime
         rt = create_runtime()
         self.assertFalse(
             hasattr(rt, "cfg"),

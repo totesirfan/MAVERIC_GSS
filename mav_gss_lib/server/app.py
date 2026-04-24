@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.app -- FastAPI App Assembly
+mav_gss_lib.server.app -- FastAPI App Assembly
 
 Creates the FastAPI application, wires in the shared runtime, mounts
 the built frontend assets, and manages backend startup/shutdown tasks
@@ -23,15 +23,15 @@ from mav_gss_lib.config import get_rx_zmq_addr, get_tx_zmq_addr
 from mav_gss_lib.logging import SessionLog, TXLog
 
 from .api import router as api_router
-from .rx import router as rx_router
-from .tx_queue import sanitize_queue_items
-from .session_ws import router as session_router
-from .preflight_ws import (
+from .ws.rx import router as rx_router
+from .tx.queue import sanitize_queue_items
+from .ws.session import router as session_router
+from .ws.preflight import (
     router as preflight_router,
     run_preflight_and_broadcast,
 )
-from .update_ws import schedule_update_check
-from .tx import router as tx_router
+from .ws.update import schedule_update_check
+from .ws.tx import router as tx_router
 from .telemetry.api import get_telemetry_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
 from .state import WEB_DIR, create_runtime, get_runtime

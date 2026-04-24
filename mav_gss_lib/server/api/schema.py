@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.api.schema -- Schema / Column Routes
+mav_gss_lib.server.api.schema -- Schema / Column Routes
 
 Endpoints: api_schema, api_columns, api_tx_capabilities, api_tx_columns
 

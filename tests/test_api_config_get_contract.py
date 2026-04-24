@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 class TestApiConfigGetReturnsNativeShape(unittest.TestCase):
     def _client(self):
         from fastapi.testclient import TestClient
-        from mav_gss_lib.web_runtime.app import create_app
+        from mav_gss_lib.server.app import create_app
         return TestClient(create_app())
 
     def test_get_does_not_crash(self):
@@ -47,7 +47,7 @@ class TestApiConfigGetReturnsNativeShape(unittest.TestCase):
     def test_response_reflects_mission_config_mutations(self):
         """Primary state lives on the split; GET must reflect runtime edits."""
         from fastapi.testclient import TestClient
-        from mav_gss_lib.web_runtime.app import create_app
+        from mav_gss_lib.server.app import create_app
 
         app = create_app()
         client = TestClient(app)

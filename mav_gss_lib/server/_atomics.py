@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime._atomics -- Thread-safe small-state primitives.
+mav_gss_lib.server._atomics -- Thread-safe small-state primitives.
 
 Author: Irfan Annuar - USC ISI SERC
 """

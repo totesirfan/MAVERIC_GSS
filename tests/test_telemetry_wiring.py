@@ -6,7 +6,7 @@ from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
 
 def test_runtime_has_telemetry_router():
-    from mav_gss_lib.web_runtime.state import create_runtime
+    from mav_gss_lib.server.state import create_runtime
 
     runtime = create_runtime()
     assert isinstance(runtime.telemetry, TelemetryRouter)
@@ -17,7 +17,7 @@ def test_runtime_has_telemetry_router():
 
 
 def test_create_app_mounts_telemetry_routes():
-    from mav_gss_lib.web_runtime.app import create_app
+    from mav_gss_lib.server.app import create_app
 
     app = create_app()
     # Register a domain directly so the DELETE hits a real state bucket.
@@ -30,7 +30,7 @@ def test_create_app_mounts_telemetry_routes():
 
 
 def test_create_app_catalog_404_on_unknown_domain():
-    from mav_gss_lib.web_runtime.app import create_app
+    from mav_gss_lib.server.app import create_app
 
     app = create_app()
     with TestClient(app) as client:

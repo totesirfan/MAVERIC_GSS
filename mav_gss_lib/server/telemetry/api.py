@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from mav_gss_lib.web_runtime.state import get_runtime
+from mav_gss_lib.server.state import get_runtime
 
 
 def get_telemetry_router() -> APIRouter:

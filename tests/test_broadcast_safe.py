@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mav_gss_lib.web_runtime._broadcast import broadcast_safe
+from mav_gss_lib.server._broadcast import broadcast_safe
 
 
 class _RecordingWS:

@@ -1,4 +1,4 @@
-"""Direct tests for web_runtime.tx_actions handlers."""
+"""Direct tests for server.tx.actions handlers."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mav_gss_lib.web_runtime import tx_actions
+from mav_gss_lib.server.tx import actions as tx_actions
 
 
 class _RecordingWS:

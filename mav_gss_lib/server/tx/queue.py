@@ -1,5 +1,5 @@
 """
-mav_gss_lib.web_runtime.tx_queue -- Pure TX Queue Operations
+mav_gss_lib.server.tx.queue -- Pure TX Queue Operations
 
 Stateless queue helper functions: item construction, validation,
 serialization, persistence, import/export parsing, and summary.
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, Union
 from mav_gss_lib.platform import EncodedCommand
 
 if TYPE_CHECKING:
-    from .state import WebRuntime
+    from ..state import WebRuntime
 
 
 class MissionCmdItem(TypedDict):
@@ -100,7 +100,7 @@ def validate_mission_cmd(payload, runtime: "WebRuntime | None" = None):
     mission's MTU rule — it just runs the mission framer against the
     encoded bytes and surfaces whatever ValueError the mission raises.
     """
-    from .state import ensure_runtime
+    from ..state import ensure_runtime
 
     runtime = ensure_runtime(runtime)
 
@@ -125,7 +125,7 @@ def validate_mission_cmd(payload, runtime: "WebRuntime | None" = None):
 
 def sanitize_queue_items(items, runtime: "WebRuntime | None" = None):
     """Filter a queue restore/import set down to valid command/delay items."""
-    from .state import ensure_runtime
+    from ..state import ensure_runtime
 
     runtime = ensure_runtime(runtime)
     accepted = []
