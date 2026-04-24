@@ -10,9 +10,12 @@ transfers survive server restarts. A .meta.json sidecar tracks progress.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+from __future__ import annotations
+
 import json
 import os
 import shutil
+from typing import Any
 
 
 def derive_thumb_filename(full_filename: str, prefix: str | None) -> str | None:
@@ -51,23 +54,23 @@ class ImageAssembler:
         <output_dir>/<filename>.meta.json
     """
 
-    def __init__(self, output_dir="images"):
+    def __init__(self, output_dir: str = "images") -> None:
         self.output_dir = output_dir
-        self.totals = {}      # {filename: total_chunk_count}
-        self.received = {}    # {filename: set of chunk indices with real data}
-        self.chunk_sizes = {} # {filename: chunk_size_in_bytes}
-        self.completed = {}   # {filename: total_chunk_count}
+        self.totals: dict[str, int] = {}
+        self.received: dict[str, set[int]] = {}
+        self.chunk_sizes: dict[str, int] = {}
+        self.completed: dict[str, int] = {}
         os.makedirs(output_dir, exist_ok=True)
         self._restore_state()
 
-    def _chunks_dir(self, filename):
+    def _chunks_dir(self, filename: str) -> str:
         """Directory for individual chunk files."""
         return os.path.join(self.output_dir, ".chunks", filename)
 
-    def _meta_path(self, filename):
+    def _meta_path(self, filename: str) -> str:
         return os.path.join(self.output_dir, filename + ".meta.json")
 
-    def _save_meta(self, filename):
+    def _save_meta(self, filename: str) -> None:
         meta = {
             "total": self.totals.get(filename),
             "chunks": sorted(self.received.get(filename, set())),
@@ -81,14 +84,14 @@ class ImageAssembler:
         except Exception:
             pass
 
-    def _save_chunk(self, filename, chunk_num, data):
+    def _save_chunk(self, filename: str, chunk_num: int, data: bytes) -> None:
         """Write one chunk to its individual file."""
         chunk_dir = self._chunks_dir(filename)
         os.makedirs(chunk_dir, exist_ok=True)
         with open(os.path.join(chunk_dir, f"{chunk_num}.bin"), "wb") as f:
             f.write(data)
 
-    def _read_chunk(self, filename, chunk_num):
+    def _read_chunk(self, filename: str, chunk_num: int) -> bytes | None:
         """Read one chunk from disk. Returns bytes or None."""
         path = os.path.join(self._chunks_dir(filename), f"{chunk_num}.bin")
         if not os.path.isfile(path):
@@ -96,7 +99,7 @@ class ImageAssembler:
         with open(path, "rb") as f:
             return f.read()
 
-    def _restore_state(self):
+    def _restore_state(self) -> None:
         """Scan output directory for .meta.json sidecars and restore state."""
         if not os.path.isdir(self.output_dir):
             return
@@ -129,7 +132,7 @@ class ImageAssembler:
                                 pass
                 self.received[filename] = real_chunks
 
-    def set_total(self, filename, total):
+    def set_total(self, filename: str, total: int) -> None:
         """Register the expected chunk count for a file (from img_cnt_chunks).
 
         Only resets state if the total changes (new transfer for same file).
@@ -152,7 +155,13 @@ class ImageAssembler:
                 pass
         self._save_meta(filename)
 
-    def feed_chunk(self, filename, chunk_num, data, chunk_size=None):
+    def feed_chunk(
+        self,
+        filename: str,
+        chunk_num: int,
+        data: bytes,
+        chunk_size: int | None = None,
+    ) -> tuple[int, int | None, bool]:
         """Store a chunk and auto-save the current image state to disk.
 
         Returns (received, total_or_None, complete).
@@ -185,7 +194,7 @@ class ImageAssembler:
             self._save_meta(filename)
         return self.progress(filename) + (complete,)
 
-    def _is_complete(self, filename):
+    def _is_complete(self, filename: str) -> bool:
         """True if total is known and all chunks have been received."""
         total = self.totals.get(filename)
         if total is None:
@@ -193,14 +202,14 @@ class ImageAssembler:
         received = self.received.get(filename, set())
         return len(received) >= total
 
-    def is_complete(self, filename):
+    def is_complete(self, filename: str) -> bool:
         return filename in self.completed
 
     def known_filenames(self) -> list[str]:
         """Every filename the assembler has state for (pending or complete)."""
         return sorted(set(self.totals) | set(self.received) | set(self.completed))
 
-    def _meta_mtime_ms(self, filename):
+    def _meta_mtime_ms(self, filename: str) -> int | None:
         """Wall-clock millis of the last state change for a file, or None.
 
         The meta sidecar is rewritten on every set_total / feed_chunk call,
@@ -214,7 +223,7 @@ class ImageAssembler:
         except OSError:
             return None
 
-    def progress(self, filename):
+    def progress(self, filename: str) -> tuple[int, int | None]:
         """Returns (received_count, total_or_None)."""
         if filename in self.completed:
             total = self.completed[filename]
@@ -222,8 +231,8 @@ class ImageAssembler:
         received = len(self.received.get(filename, set()))
         return received, self.totals.get(filename)
 
-    def status(self):
-        files = []
+    def status(self) -> dict[str, Any]:
+        files: list[dict[str, Any]] = []
         all_filenames = set(self.totals.keys()) | set(self.received.keys()) | set(self.completed.keys())
         for fn in sorted(all_filenames):
             received, total = self.progress(fn)
@@ -235,7 +244,7 @@ class ImageAssembler:
             })
         return {"files": files}
 
-    def paired_status(self, prefix: str | None):
+    def paired_status(self, prefix: str | None) -> dict[str, Any]:
         """Return file list grouped into (full, thumb) pairs via prefix.
 
         When ``prefix`` is empty/None, every file appears as its own
@@ -259,7 +268,7 @@ class ImageAssembler:
             | set(self.completed.keys())
         )
 
-        def real_leaf(fn):
+        def real_leaf(fn: str) -> dict[str, Any]:
             received, total = self.progress(fn)
             return {
                 "filename": fn,
@@ -269,7 +278,7 @@ class ImageAssembler:
                 "chunk_size": self.chunk_sizes.get(fn),
             }
 
-        def placeholder_leaf(fn):
+        def placeholder_leaf(fn: str) -> dict[str, Any]:
             return {
                 "filename": fn,
                 "received": 0,
@@ -278,7 +287,7 @@ class ImageAssembler:
                 "chunk_size": None,
             }
 
-        def pair_mtime(*filenames):
+        def pair_mtime(*filenames: str) -> int:
             """Max mtime across the real sides of a pair, or 0 if none."""
             best = 0
             for fn in filenames:
@@ -329,13 +338,13 @@ class ImageAssembler:
         pairs.sort(key=lambda p: (-(p["last_activity_ms"] or 0), p["stem"]))
         return {"files": pairs}
 
-    def get_chunks(self, filename):
+    def get_chunks(self, filename: str) -> list[int]:
         """Return sorted list of received chunk indices."""
         if filename in self.completed:
             return list(range(self.completed[filename]))
         return sorted(self.received.get(filename, set()))
 
-    def list_files(self):
+    def list_files(self) -> list[str]:
         if not os.path.isdir(self.output_dir):
             return []
         return sorted(
@@ -345,7 +354,7 @@ class ImageAssembler:
             and not f.endswith('.meta.json')
         )
 
-    def delete_file(self, filename):
+    def delete_file(self, filename: str) -> None:
         """Remove all state for a file: image, meta, chunk dir, in-memory state."""
         for path in (
             os.path.join(self.output_dir, filename),
@@ -361,7 +370,7 @@ class ImageAssembler:
         self.chunk_sizes.pop(filename, None)
         self.completed.pop(filename, None)
 
-    def _assemble(self, filename):
+    def _assemble(self, filename: str) -> None:
         """Reassemble contiguous chunks from disk into the image file.
 
         Reads chunk files 0, 1, 2, ... until a gap. Appends JPEG EOI

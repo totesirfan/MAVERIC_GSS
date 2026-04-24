@@ -15,7 +15,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Awaitable, Callable, NamedTuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, NamedTuple
 
 from mav_gss_lib.platform import EncodedCommand, FramedCommand, tx_log_record
 from mav_gss_lib.transport import PUB_STATUS, init_zmq_pub, send_pdu, zmq_cleanup
@@ -110,7 +110,7 @@ class TxService:
         from . import queue as _tq
         return _tq.queue_items_json(self.queue)
 
-    async def broadcast(self, msg):
+    async def broadcast(self, msg: dict[str, Any] | str) -> None:
         """Broadcast one JSON-serializable message to all TX websocket clients."""
         text = json.dumps(msg) if isinstance(msg, dict) else msg
         await broadcast_safe(self.clients, self.lock, text)
@@ -158,12 +158,12 @@ class TxService:
         except asyncio.TimeoutError:
             return False
 
-    async def _run_note_item(self, item, ctx: _SendContext) -> _RunResult:
+    async def _run_note_item(self, item: QueueItem, ctx: _SendContext) -> _RunResult:
         """Drop a front-of-queue ``note`` item without numbering impact."""
         self._pop_unnumbered_note()
         return _RunResult(aborted=False, sent_delta=0)
 
-    async def _run_delay_item(self, item, ctx: _SendContext) -> _RunResult:
+    async def _run_delay_item(self, item: QueueItem, ctx: _SendContext) -> _RunResult:
         """Execute a ``delay`` queue item."""
         with self.send_lock:
             self.sending["sent_at"] = 0
@@ -180,7 +180,7 @@ class TxService:
         self._pop_and_renumber()
         return _RunResult(aborted=False, sent_delta=0)
 
-    async def _run_guard_wait(self, item) -> bool:
+    async def _run_guard_wait(self, item: QueueItem) -> bool:
         """Broadcast guard prompt and block until approved or aborted.
 
         Uses asyncio.wait on both events so either approval or abort wakes
@@ -212,7 +212,7 @@ class TxService:
                 self.sending["guarding"] = False
         return self.abort.is_set()
 
-    def _frame_mission_cmd(self, item) -> FramedCommand:
+    def _frame_mission_cmd(self, item: QueueItem) -> FramedCommand:
         """Ask the active mission to frame the command's encoded bytes.
 
         Queue items persist mission-opaque bytes only, not the EncodedCommand
@@ -232,8 +232,13 @@ class TxService:
             )
         return self.runtime.mission.commands.frame(encoded)
 
-    def _record_sent(self, item, raw_cmd: bytes, framed: FramedCommand) -> dict:
+    def _record_sent(self, item: QueueItem, raw_cmd: bytes, framed: FramedCommand) -> dict[str, Any]:
         """Write the TX log entry and append a history item; return the history entry."""
+        assert self.count > 0, "TX seq counter not incremented before _record_sent"
+        assert len(raw_cmd) > 0, "TX record: raw_cmd is empty"
+        assert len(framed.wire) > 0, "TX record: framed.wire is empty"
+        assert framed.frame_label, "TX record: framed.frame_label is empty"
+
         if self.log:
             try:
                 record = tx_log_record(
@@ -290,7 +295,7 @@ class TxService:
         await self.send_queue_update()
         await self.broadcast({"type": "history", "items": self.history[-self.runtime.max_history :]})
 
-    async def _run_mission_cmd_item(self, item, ctx: _SendContext) -> _RunResult:
+    async def _run_mission_cmd_item(self, item: QueueItem, ctx: _SendContext) -> _RunResult:
         """Execute one ``mission_cmd`` queue item end-to-end: optional guard,
         frame build, ZMQ send, blackout arm, history record, post-send dwell."""
         if item.get("guard"):

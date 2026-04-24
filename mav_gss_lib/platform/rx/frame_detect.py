@@ -10,7 +10,12 @@ Author:  Irfan Annuar - USC ISI SERC
 """
 
 
-def detect_frame_type(meta):
+from __future__ import annotations
+
+from typing import Any
+
+
+def detect_frame_type(meta: dict[str, Any]) -> str:
     """Determine frame type from gr-satellites metadata."""
     tx_info = str(meta.get("transmitter", ""))
     for keyword, label in (("AX.25", "AX.25"), ("AX100", "ASM+GOLAY")):
@@ -19,7 +24,7 @@ def detect_frame_type(meta):
     return "UNKNOWN"
 
 
-def normalize_frame(frame_type, raw):
+def normalize_frame(frame_type: str, raw: bytes) -> tuple[bytes, str | None, list[str]]:
     """Strip outer framing, return (inner_payload, stripped_header_hex, warnings)."""
     warnings = []
     if frame_type == "AX.25":

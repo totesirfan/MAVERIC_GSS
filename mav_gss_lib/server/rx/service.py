@@ -15,7 +15,7 @@ import threading
 import time
 from collections import deque
 from queue import Empty, Queue
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mav_gss_lib.config import get_rx_zmq_addr
 
@@ -63,7 +63,7 @@ class RxService:
         """
         return now < self.runtime.tx_blackout_until
 
-    def _should_drop_noise(self, meta, raw: bytes) -> bool:
+    def _should_drop_noise(self, meta: dict[str, Any], raw: bytes) -> bool:
         """Return True for gr-satellites AX.25 noise frames.
 
         Delegates to is_noise_frame after resolving the frame type from
@@ -116,7 +116,7 @@ class RxService:
 
         zmq_cleanup(monitor, SUB_STATUS, status, sock, ctx)
 
-    async def broadcast(self, msg):
+    async def broadcast(self, msg: dict[str, Any] | str) -> None:
         """Broadcast one JSON-serializable message to all RX websocket clients."""
         text = json.dumps(msg) if isinstance(msg, dict) else msg
         await broadcast_safe(self.clients, self.lock, text)

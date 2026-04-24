@@ -23,7 +23,7 @@ from ..security import authorize_websocket
 router = APIRouter()
 
 @router.websocket("/ws/rx")
-async def ws_rx(websocket: WebSocket):
+async def ws_rx(websocket: WebSocket) -> None:
     runtime = get_runtime(websocket)
     if not await authorize_websocket(websocket):
         return

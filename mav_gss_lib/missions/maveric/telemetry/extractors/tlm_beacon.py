@@ -59,8 +59,12 @@ from __future__ import annotations
 
 import struct
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Iterator
 
 from mav_gss_lib.platform.telemetry import TelemetryFragment
+
+if TYPE_CHECKING:
+    from mav_gss_lib.missions.maveric.nodes import NodeTable
 
 
 BEACON_STRUCT = struct.Struct(
@@ -155,7 +159,7 @@ def _callsign(raw7: bytes) -> str:
     return raw7.rstrip(b"\x00").decode("ascii", errors="replace")
 
 
-def extract(pkt, nodes, now_ms: int):
+def extract(pkt: Any, nodes: "NodeTable", now_ms: int) -> Iterator[TelemetryFragment]:
     md = getattr(pkt, "mission_data", None) or {}
     cmd = md.get("cmd") or {}
     if cmd.get("cmd_id") != "tlm_beacon":

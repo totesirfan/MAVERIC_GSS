@@ -15,12 +15,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from mav_gss_lib.preflight import CheckResult, run_preflight, summarize
 from ..state import get_runtime
 from ..security import authorize_websocket
+
+if TYPE_CHECKING:
+    from ..state import WebRuntime
 
 router = APIRouter()
 
@@ -29,7 +33,7 @@ router = APIRouter()
 #  BROADCAST HELPERS
 # =============================================================================
 
-async def _broadcast(runtime, event: dict) -> None:
+async def _broadcast(runtime: "WebRuntime", event: dict[str, Any]) -> None:
     """Append event to backlog, broadcast to all current clients, cull dead ones.
 
     Keeps the backlog append and the client snapshot inside a single
@@ -62,7 +66,7 @@ async def _broadcast(runtime, event: dict) -> None:
 #  PREFLIGHT DRIVER
 # =============================================================================
 
-async def run_preflight_and_broadcast(runtime, emit_reset: bool = False) -> None:
+async def run_preflight_and_broadcast(runtime: "WebRuntime", emit_reset: bool = False) -> None:
     """Run preflight checks and broadcast each result to connected clients.
 
     Guarded by runtime.preflight_running — concurrent calls are ignored.
@@ -82,7 +86,7 @@ async def run_preflight_and_broadcast(runtime, emit_reset: bool = False) -> None
         runtime.preflight_running = False
 
 
-async def _reset_snapshot(runtime, emit_reset: bool) -> None:
+async def _reset_snapshot(runtime: "WebRuntime", emit_reset: bool) -> None:
     """Clear backlog, flip preflight_done=False, optionally broadcast reset.
 
     The backlog clear and the preflight_done=False write share one lock
@@ -111,7 +115,7 @@ async def _reset_snapshot(runtime, emit_reset: bool) -> None:
                     runtime.preflight_clients.remove(ws)
 
 
-async def _run_mission_checks(runtime) -> list[CheckResult]:
+async def _run_mission_checks(runtime: "WebRuntime") -> list[CheckResult]:
     """Stream mission preflight checks, broadcast each, return the list."""
     results: list[CheckResult] = []
     try:
@@ -154,7 +158,7 @@ async def _run_mission_checks(runtime) -> list[CheckResult]:
     return results
 
 
-async def _resolve_updates(runtime) -> CheckResult:
+async def _resolve_updates(runtime: "WebRuntime") -> CheckResult:
     """Resolve update status, broadcast as a check row, return synthetic result.
 
     Does NOT call schedule_update_check — scheduling is owned by app.py
@@ -190,7 +194,7 @@ async def _resolve_updates(runtime) -> CheckResult:
         )
 
 
-async def _emit_summary(runtime, results: list[CheckResult]) -> None:
+async def _emit_summary(runtime: "WebRuntime", results: list[CheckResult]) -> None:
     """Compute summary, broadcast, and flip preflight_done=True under lock."""
     summary = summarize(results)
     # summarize() in preflight.py does not track 'skip' — compute it here
@@ -216,7 +220,7 @@ async def _emit_summary(runtime, results: list[CheckResult]) -> None:
 # =============================================================================
 
 @router.websocket("/ws/preflight")
-async def ws_preflight(websocket: WebSocket):
+async def ws_preflight(websocket: WebSocket) -> None:
     runtime = get_runtime(websocket)
     if not await authorize_websocket(websocket):
         return

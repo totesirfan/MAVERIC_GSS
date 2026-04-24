@@ -13,7 +13,7 @@ import os
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from mav_gss_lib.missions.maveric.nodes import NodeTable
@@ -42,27 +42,27 @@ class _LazyEpochMs:
     ms: int
     _resolved: dict | None
 
-    def __init__(self, ms: int):
+    def __init__(self, ms: int) -> None:
         self.ms = ms
         self._resolved = None
 
-    def _ensure(self):
+    def _ensure(self) -> dict[str, Any]:
         if self._resolved is None:
             dt_utc = datetime.fromtimestamp(self.ms / 1000.0, tz=timezone.utc)
             self._resolved = {"ms": self.ms, "utc": dt_utc, "local": dt_utc.astimezone()}
         return self._resolved
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         return key in ("ms", "utc", "local")
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         return self._ensure()[key]
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         return self._ensure().get(key, default)
 
 
-def _parse_epoch_ms(value_str):
+def _parse_epoch_ms(value_str: str) -> "_LazyEpochMs | str":
     """Convert string to a lazy timestamp wrapper."""
     try:
         ms = int(value_str)
@@ -101,9 +101,9 @@ def _coerce_arg(arg_def: dict, raw: str) -> tuple[object, bool]:
         return raw, False
 
 
-def _parse_arg_list(raw_list):
+def _parse_arg_list(raw_list: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """Parse a list of arg dicts from YAML into internal format."""
-    args = []
+    args: list[dict[str, Any]] = []
     for a in (raw_list or []):
         name = a.get("name", f"arg{len(args)}")
         typ = a.get("type", "str")
@@ -118,7 +118,10 @@ def _parse_arg_list(raw_list):
     return args
 
 
-def load_command_defs(path: str | None = None, nodes: NodeTable | None = None):
+def load_command_defs(
+    path: str | None = None,
+    nodes: "NodeTable | None" = None,
+) -> tuple[dict[str, dict[str, Any]], str | None]:
     """Load command definitions from YAML.
 
     Args:
@@ -141,10 +144,10 @@ def load_command_defs(path: str | None = None, nodes: NodeTable | None = None):
         warnings.warn(msg, stacklevel=2)
         return {}, msg
 
-    def _resolve_node(s):
+    def _resolve_node(s: str) -> int | None:
         return nodes.resolve_node(s) if nodes else None
 
-    def _resolve_ptype(s):
+    def _resolve_ptype(s: str) -> int | None:
         return nodes.resolve_ptype(s) if nodes else None
 
     try:
@@ -257,7 +260,11 @@ def enrich_cmd_in_place(cmd: dict, cmd_defs: dict) -> bool:
     return True
 
 
-def validate_args(cmd_id, args_str, cmd_defs):
+def validate_args(
+    cmd_id: str,
+    args_str: str,
+    cmd_defs: dict[str, dict[str, Any]],
+) -> tuple[bool, list[str]]:
     """Validate args string against schema before sending (TX side).
 
     Returns (is_valid, list_of_issues)."""

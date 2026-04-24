@@ -116,7 +116,7 @@ def _iter_entries(path: Path) -> Iterable[dict]:
                 continue
 
 
-def _resolve_log_file(runtime, session_id: str) -> Path | JSONResponse:
+def _resolve_log_file(runtime: Any, session_id: str) -> Path | JSONResponse:
     """Resolve a session id to its on-disk path, defending against path traversal."""
     log_dir = (Path(runtime.log_dir) / "json").resolve()
     log_file = (log_dir / f"{session_id}.jsonl").resolve()
@@ -144,7 +144,7 @@ def _session_sort_key(stem: str) -> str:
 
 
 @router.get("/api/logs")
-async def api_logs(request: Request):
+async def api_logs(request: Request) -> list[dict[str, Any]]:
     """List all sessions in <log_dir>/json, newest first.
 
     Sort by the stamp embedded in the filename rather than file mtime so
@@ -174,7 +174,7 @@ async def api_logs(request: Request):
     return sessions
 
 
-@router.get("/api/logs/{session_id}")
+@router.get("/api/logs/{session_id}", response_model=None)
 async def api_log_entries(
     session_id: str,
     request: Request,
@@ -184,7 +184,7 @@ async def api_log_entries(
     event_kind: str = _DEFAULT_KINDS,
     offset: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=_MAX_LIMIT),
-):
+) -> dict[str, Any] | JSONResponse:
     """Stream event records from one session's JSONL file.
 
     Filters:
@@ -235,7 +235,7 @@ async def api_log_entries(
     )
 
 
-@router.get("/api/logs/{session_id}/telemetry")
+@router.get("/api/logs/{session_id}/telemetry", response_model=None)
 async def api_log_telemetry(
     session_id: str,
     request: Request,
@@ -243,7 +243,7 @@ async def api_log_telemetry(
     key: Optional[str] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(1000, ge=1, le=_MAX_LIMIT),
-):
+) -> dict[str, Any] | JSONResponse:
     """Return flat telemetry rows from a session, optionally filtered.
 
     Cheap because telemetry is already one-event-per-row on disk. Intended

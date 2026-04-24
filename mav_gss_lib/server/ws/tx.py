@@ -23,7 +23,7 @@ router = APIRouter()
 
 
 @router.websocket("/ws/tx")
-async def ws_tx(websocket: WebSocket):
+async def ws_tx(websocket: WebSocket) -> None:
     runtime = get_runtime(websocket)
     if not await authorize_websocket(websocket):
         return

@@ -15,6 +15,10 @@ Wrapped CSP packet on the radio wire:
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from mav_gss_lib.protocols.crc import crc16
 
 
@@ -25,8 +29,19 @@ class CommandFrame:
     __slots__ = ("src", "dest", "echo", "pkt_type", "cmd_id", "args_str",
                  "args_raw", "crc", "crc_valid", "csp_crc32")
 
-    def __init__(self, src, dest, echo, pkt_type, cmd_id, args_str="",
-                 args_raw=b"", crc=None, crc_valid=None, csp_crc32=None):
+    def __init__(
+        self,
+        src: int,
+        dest: int,
+        echo: int,
+        pkt_type: int,
+        cmd_id: str,
+        args_str: str = "",
+        args_raw: bytes = b"",
+        crc: int | None = None,
+        crc_valid: bool | None = None,
+        csp_crc32: int | None = None,
+    ) -> None:
         self.src = src
         self.dest = dest
         self.echo = echo
@@ -38,7 +53,7 @@ class CommandFrame:
         self.crc_valid = crc_valid
         self.csp_crc32 = csp_crc32
 
-    def to_bytes(self):
+    def to_bytes(self) -> bytearray:
         """Encode to raw wire bytes including CRC-16."""
         header = bytes([self.src & 0xFF, self.dest & 0xFF,
                         self.echo & 0xFF, self.pkt_type & 0xFF,
@@ -53,7 +68,7 @@ class CommandFrame:
         return packet
 
     @classmethod
-    def from_bytes(cls, payload):
+    def from_bytes(cls, payload: bytes) -> tuple["CommandFrame | None", bytes | None]:
         """Decode wire bytes into (CommandFrame, tail) or (None, None)."""
         if len(payload) < _CMD_HDR_LEN:
             return None, None
@@ -100,7 +115,7 @@ class CommandFrame:
                     args_raw, crc_val, crc_valid, csp_crc32)
         return frame, tail
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         """Convert to the parse-output dict shape consumed by `rx_ops`."""
         d = {
             "src": self.src, "dest": self.dest, "echo": self.echo,
@@ -113,7 +128,14 @@ class CommandFrame:
         return d
 
 
-def build_cmd_raw(src, dest, cmd, args="", echo=0, ptype=1):
+def build_cmd_raw(
+    src: int,
+    dest: int,
+    cmd: str,
+    args: str = "",
+    echo: int = 0,
+    ptype: int = 1,
+) -> bytearray:
     """Build the raw inner MAVERIC command payload (with CRC-16).
 
     Caller passes `src` explicitly — the framer does not default it.
@@ -122,7 +144,7 @@ def build_cmd_raw(src, dest, cmd, args="", echo=0, ptype=1):
     return CommandFrame(src, dest, echo, ptype, cmd, args).to_bytes()
 
 
-def try_parse_command(payload):
+def try_parse_command(payload: bytes) -> tuple[dict[str, Any] | None, bytes | None]:
     """Attempt to parse a byte payload as a MAVERIC command structure.
 
     Returns (parsed_dict, remaining_bytes) or (None, None) on failure.

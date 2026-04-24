@@ -9,6 +9,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -21,7 +22,7 @@ router = APIRouter()
 
 
 @router.get("/api/import-files")
-async def list_import_files(request: Request):
+async def list_import_files(request: Request) -> list[dict[str, Any]]:
     runtime = get_runtime(request)
     import_dir = runtime.generated_commands_dir()
     if not import_dir.exists():
@@ -32,8 +33,8 @@ async def list_import_files(request: Request):
     return files
 
 
-@router.get("/api/import/{filename}/preview")
-async def preview_import(filename: str, request: Request):
+@router.get("/api/import/{filename}/preview", response_model=None)
+async def preview_import(filename: str, request: Request) -> dict[str, Any] | JSONResponse:
     runtime = get_runtime(request)
     import_dir = runtime.generated_commands_dir().resolve()
     filepath = (import_dir / filename).resolve()
@@ -61,8 +62,8 @@ async def preview_import(filename: str, request: Request):
     return {"items": preview, "skipped": skipped}
 
 
-@router.post("/api/import/{filename}")
-async def import_file(filename: str, request: Request):
+@router.post("/api/import/{filename}", response_model=None)
+async def import_file(filename: str, request: Request) -> dict[str, Any] | JSONResponse:
     runtime = get_runtime(request)
     denied = require_api_token(request)
     if denied:
@@ -92,8 +93,8 @@ async def import_file(filename: str, request: Request):
     return {"loaded": len(items), "skipped": skipped}
 
 
-@router.post("/api/export-queue")
-async def export_queue(body: dict, request: Request):
+@router.post("/api/export-queue", response_model=None)
+async def export_queue(body: dict[str, Any], request: Request) -> dict[str, Any] | JSONResponse:
     runtime = get_runtime(request)
     denied = require_api_token(request)
     if denied:

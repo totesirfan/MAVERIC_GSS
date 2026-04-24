@@ -9,6 +9,8 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Request
 
 from ..state import get_runtime
@@ -17,7 +19,7 @@ router = APIRouter()
 
 
 @router.get("/api/identity")
-async def api_identity(request: Request):
+async def api_identity(request: Request) -> dict[str, Any]:
     runtime = get_runtime(request)
     return {
         "operator": runtime.operator,

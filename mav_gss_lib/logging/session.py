@@ -3,7 +3,9 @@
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-from typing import Iterable
+from __future__ import annotations
+
+from typing import Any, Iterable
 
 from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 
@@ -13,15 +15,30 @@ from ._base import _BaseLog
 class SessionLog(_BaseLog):
     """RX session log — JSONL (rx_packet + telemetry events) + text."""
 
-    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME,
-                 *, mission_id: str = "", station: str = "", operator: str = "", host: str = ""):
+    def __init__(
+        self,
+        log_dir: str,
+        zmq_addr: str,
+        version: str = "",
+        mission_name: str = DEFAULT_MISSION_NAME,
+        *,
+        mission_id: str = "",
+        station: str = "",
+        operator: str = "",
+        host: str = "",
+    ) -> None:
         super().__init__(log_dir, "downlink", version, "RX Monitor", zmq_addr,
                          mission_name=mission_name, mission_id=mission_id,
                          station=station, operator=operator, host=host)
 
-    def write_packet(self, record, packet, *,
-                     telemetry_records: Iterable[dict] | None = None,
-                     text_lines=None):
+    def write_packet(
+        self,
+        record: dict[str, Any],
+        packet: Any,
+        *,
+        telemetry_records: Iterable[dict[str, Any]] | None = None,
+        text_lines: list[str] | None = None,
+    ) -> None:
         """Write one rx_packet record + any telemetry-event rows + text entry.
 
         *record* is the pre-built JSONL envelope from

@@ -6,7 +6,7 @@
 
 **Full-duplex-capable ground station for the MAVERIC CubeSat, built at USC SERC.**
 
-[![Version](https://img.shields.io/badge/version-5.10.0-00c9a7)](mav_gss_lib/web/package.json)
+[![Version](https://img.shields.io/badge/version-6.0.0-00c9a7)](mav_gss_lib/web/package.json)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
 [![GNU Radio](https://img.shields.io/badge/GNU%20Radio-3.10%2B-b71c1c)](https://www.gnuradio.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=white)](mav_gss_lib/web/package.json)

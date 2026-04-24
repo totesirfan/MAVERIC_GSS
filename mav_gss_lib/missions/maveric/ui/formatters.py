@@ -34,7 +34,7 @@ def ptype_of(mission_data: dict) -> int | None:
     return cmd.get("pkt_type") if cmd else None
 
 
-def has_decoded_gnc(fragments) -> bool:
+def has_decoded_gnc(fragments: "list[dict[str, Any]]") -> bool:
     """True iff the packet produced at least one `gnc` fragment.
 
     When a GNC register is decoded, the decoded block carries the full
@@ -102,7 +102,7 @@ def display_label(key: str) -> str:
     return _DISPLAY_LABELS.get(key, key)
 
 
-def should_hide_args(cmd: dict | None, fragments) -> bool:
+def should_hide_args(cmd: dict | None, fragments: "list[dict[str, Any]]") -> bool:
     """Shared predicate: should the raw typed_args view be suppressed?
 
     True when either the cmd_id is in the explicit hide list, or the

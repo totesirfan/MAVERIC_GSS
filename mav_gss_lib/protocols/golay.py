@@ -52,11 +52,14 @@ Configuration requirements:
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+from __future__ import annotations
+
 import atexit as _atexit
 import ctypes as _ctypes
 import ctypes.util as _ctypes_util
 import os as _os
 import sys as _sys
+from typing import Any
 
 
 def _find_libfec():
@@ -126,7 +129,7 @@ MAX_PAYLOAD = 223                            # max RS data capacity (255 - 32)
 
 _rs_cache = {}
 
-def _get_rs(pad):
+def _get_rs(pad: int) -> Any:
     """Get (or create and cache) an RS encoder handle for a given pad value."""
     rs = _rs_cache.get(pad)
     if rs is None:
@@ -145,7 +148,7 @@ if _GR_RS_OK:
     _atexit.register(_cleanup_rs_cache)
 
 
-def rs_encode(payload):
+def rs_encode(payload: bytes) -> bytes:
     """RS encode matching gr-satellites encode_rs_8 (Phil Karn FEC).
 
     Calls libfec's encode_rs_char directly via ctypes — same C function
@@ -170,7 +173,7 @@ def rs_encode(payload):
 
 # -- CCSDS Synchronous Scrambler (matching gr-satellites randomizer.c) ---------
 
-def ccsds_scrambler_sequence(length):
+def ccsds_scrambler_sequence(length: int) -> bytes:
     """Generate CCSDS PN sequence matching gr-satellites ccsds_generate_sequence().
 
     Uses h(x) = x^8+x^7+x^5+x^3+1 with all-ones initial state.
@@ -201,7 +204,7 @@ _GOLAY_H = [
 ]
 
 
-def golay_encode(value_12bit):
+def golay_encode(value_12bit: int) -> bytes:
     """Encode a 12-bit value into a 24-bit Golay(24,12) codeword.
 
     Codeword format: [12 parity bits (upper)] [12 data bits (lower)].
@@ -221,7 +224,7 @@ def golay_encode(value_12bit):
 
 # -- Frame Assembly -----------------------------------------------------------
 
-def build_asm_golay_frame(csp_packet):
+def build_asm_golay_frame(csp_packet: bytes) -> bytes:
     """Build complete ASM+Golay over-the-air frame from a CSP packet.
 
     Produces a 312-byte frame ready for GFSK modulation via GNU Radio's

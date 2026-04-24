@@ -26,7 +26,7 @@ class PacketPipeline:
     timestamps, duplicate-window state, and aggregate counters.
     """
 
-    def __init__(self, mission: MissionSpec, *, max_seen_fps: int = 10_000):
+    def __init__(self, mission: MissionSpec, *, max_seen_fps: int = 10_000) -> None:
         self.mission = mission
         self.max_seen_fps = max_seen_fps
         self.seen_fps: OrderedDict[Any, float] = OrderedDict()
@@ -52,8 +52,13 @@ class PacketPipeline:
         now_dt = datetime.now().astimezone()
 
         normalized = self.mission.packets.normalize(meta, raw)
+        assert isinstance(normalized.raw, (bytes, bytearray)), \
+            f"normalize must return bytes, got {type(normalized.raw).__name__}"
+
         mission_packet = self.mission.packets.parse(normalized)
         flags = self.mission.packets.classify(mission_packet)
+        assert isinstance(flags, PacketFlags), \
+            f"classify returned {type(flags).__name__}, expected PacketFlags"
 
         is_dup = self._check_duplicate(flags.duplicate_key, now)
         is_unknown = flags.is_unknown

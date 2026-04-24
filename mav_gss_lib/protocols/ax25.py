@@ -12,6 +12,10 @@ encoded bitstream ready for GFSK modulation.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 
 # =============================================================================
 #  AX.25 UI FRAME HEADER
@@ -26,7 +30,7 @@ class AX25Config:
 
     HEADER_LEN = 16  # 7 dest + 7 src + 1 control + 1 PID
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.enabled   = True
         self.dest_call = "NOCALL"
         self.dest_ssid = 0
@@ -34,7 +38,7 @@ class AX25Config:
         self.src_ssid  = 0
 
     @staticmethod
-    def _encode_callsign(call, ssid, last=False):
+    def _encode_callsign(call: str, ssid: int, last: bool = False) -> bytes:
         """Encode callsign + SSID into 7 AX.25 address bytes.
 
         Each character is shifted left 1 bit. Callsign is space-padded
@@ -56,11 +60,11 @@ class AX25Config:
         addr.append(ssid_byte)
         return bytes(addr)
 
-    def overhead(self):
+    def overhead(self) -> int:
         """Number of bytes the AX.25 header adds to a payload."""
         return self.HEADER_LEN if self.enabled else 0
 
-    def wrap(self, payload):
+    def wrap(self, payload: bytes) -> bytes:
         """Prepend 16-byte AX.25 UI frame header if enabled.
 
         Output: [dest 7B][src 7B][0x03][0xF0][payload]"""
@@ -74,7 +78,7 @@ class AX25Config:
         return payload
 
 
-def _decode_callsign(addr):
+def _decode_callsign(addr: bytes) -> dict[str, Any]:
     """Decode one 7-byte AX.25 address field into callsign metadata."""
     if len(addr) != 7:
         raise ValueError(f"AX.25 address must be 7 bytes, got {len(addr)}")
@@ -89,7 +93,7 @@ def _decode_callsign(addr):
     }
 
 
-def ax25_decode_header(frame):
+def ax25_decode_header(frame: bytes) -> dict[str, Any]:
     """Decode a 16-byte AX.25 UI frame header into structured fields.
 
     Expects [dest 7B][src 7B][control 1B][pid 1B] and returns decoded
@@ -134,7 +138,7 @@ NRZI_INIT       = 0       # NRZI encoder initial output state
 
 # -- CRC-16-CCITT (HDLC FCS) -------------------------------------------------
 
-def _crc_ccitt(data):
+def _crc_ccitt(data: bytes) -> int:
     """CRC-16-CCITT as used in HDLC/X.25 FCS.
 
     Init: 0xFFFF, reflected polynomial 0x8408, final XOR 0xFFFF.
@@ -155,18 +159,18 @@ def _crc_ccitt(data):
 _FLAG_BITS = [0, 1, 1, 1, 1, 1, 1, 0]   # 0x7E LSB first
 
 
-def _bytes_to_bits_lsb(data):
+def _bytes_to_bits_lsb(data: bytes) -> list[int]:
     """Convert bytes to bit list, LSB first per byte."""
-    bits = []
+    bits: list[int] = []
     for byte in data:
         for i in range(8):
             bits.append((byte >> i) & 1)
     return bits
 
 
-def _bit_stuff(bits):
+def _bit_stuff(bits: list[int]) -> list[int]:
     """Insert a 0 bit after every run of five consecutive 1s."""
-    out = []
+    out: list[int] = []
     ones = 0
     for b in bits:
         out.append(b)
@@ -180,7 +184,7 @@ def _bit_stuff(bits):
     return out
 
 
-def _hdlc_frame(payload):
+def _hdlc_frame(payload: bytes) -> list[int]:
     """HDLC-frame a payload, matching gr-satellites hdlc_framer.
 
     Returns a list of bits (0/1 ints): preamble flags + bit-stuffed
@@ -198,7 +202,7 @@ def _hdlc_frame(payload):
 
 # -- Top-Level Builder ---------------------------------------------------------
 
-def build_ax25_gfsk_frame(ax25_packet):
+def build_ax25_gfsk_frame(ax25_packet: bytes) -> bytes:
     """Build complete AX.25 over-the-air frame from an AX.25-wrapped CSP packet.
 
     Replicates the GNU Radio AX.25 TX chain in a single fused pass:

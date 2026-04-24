@@ -98,7 +98,7 @@ _MISSION_GENERAL_KEYS = {
 }
 
 
-def deep_merge(base, override):
+def deep_merge(base: dict, override: dict) -> dict:
     """Merge *override* into *base*, returning a new dict.
 
     Uses copy.deepcopy on *base* so the returned dict does not alias any
@@ -173,7 +173,7 @@ def _canonical_operator_config(raw: dict, *, default_mission: str = DEFAULT_MISS
     }
 
 
-def load_split_config(path=None):
+def load_split_config(path: str | None = None) -> tuple[dict, str, dict]:
     """Load operator config as native split state.
 
     Returns (platform_cfg, mission_id, mission_cfg) derived from the operator
@@ -240,7 +240,7 @@ def split_to_persistable(platform_cfg: dict, mission_id: str, mission_cfg: dict)
     }
 
 
-def resolve_project_path(path_value, *, base_dir=None):
+def resolve_project_path(path_value: str | Path, *, base_dir: str | Path | None = None) -> Path:
     """Resolve a config path relative to the chosen base directory when needed."""
     path = Path(path_value)
     if path.is_absolute():
@@ -257,7 +257,7 @@ def get_tx_zmq_addr(cfg: dict) -> str:
     return cfg.get("tx", {}).get("zmq_addr", DEFAULT_TX_ZMQ_ADDR)
 
 
-def get_generated_commands_dir(cfg):
+def get_generated_commands_dir(cfg: dict) -> Path:
     """Return the resolved import/export directory for queue JSONL files."""
     general = cfg.get("general", {})
     raw = general.get("generated_commands_dir", "generated_commands")
@@ -269,7 +269,7 @@ def get_operator_config_path() -> Path:
     return _DEFAULT_GSS_PATH
 
 
-def save_operator_config(cfg: dict, path=None) -> None:
+def save_operator_config(cfg: dict, path: str | None = None) -> None:
     """Atomically write current config back to YAML.
 
     Writes to a temp file first, then renames — prevents truncated files

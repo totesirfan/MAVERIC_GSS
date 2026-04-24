@@ -11,7 +11,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from mav_gss_lib.missions.maveric.config_access import command_defs_name
 
@@ -27,7 +27,7 @@ def build_preflight(
     platform_config: dict[str, Any],
     mission_config: dict[str, Any],
     mission_dir: Path,
-):
+) -> Callable[[], Iterable[Any]]:
     """Return a zero-arg callable that yields MAVERIC preflight CheckResults."""
 
     def _checks() -> Iterable[Any]:
@@ -41,7 +41,11 @@ def build_preflight(
     return _checks
 
 
-def _command_schema_checks(mission_config, mission_dir: Path, CheckResult):
+def _command_schema_checks(
+    mission_config: dict[str, Any],
+    mission_dir: Path,
+    CheckResult: type,
+) -> Iterable[Any]:
     cmd_defs = command_defs_name(mission_config)
     path = Path(cmd_defs)
     cmd_schema = path if path.is_absolute() else mission_dir / cmd_defs
@@ -64,7 +68,7 @@ def _command_schema_checks(mission_config, mission_dir: Path, CheckResult):
         )
 
 
-def _uplink_capability_checks(platform_config, CheckResult):
+def _uplink_capability_checks(platform_config: dict[str, Any], CheckResult: type) -> Iterable[Any]:
     try:
         from mav_gss_lib.protocols.golay import _GR_RS_OK as _golay_rs_ok
     except ImportError:

@@ -21,7 +21,7 @@ router = APIRouter()
 
 
 @router.websocket("/ws/session")
-async def ws_session(websocket: WebSocket):
+async def ws_session(websocket: WebSocket) -> None:
     runtime = get_runtime(websocket)
     if not await authorize_websocket(websocket):
         return

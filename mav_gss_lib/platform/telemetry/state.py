@@ -53,7 +53,7 @@ class DomainState:
         path: str | Path,
         merge: MergePolicy = lww_by_ts,
         load_entries: Optional[EntryLoader] = None,
-    ):
+    ) -> None:
         self.path = Path(path)
         self._merge = merge
         self._load_entries = load_entries

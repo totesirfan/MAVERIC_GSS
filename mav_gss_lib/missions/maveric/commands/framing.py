@@ -47,7 +47,7 @@ _CSP_FIELDS = [
 ]
 
 
-def _populate(section: dict[str, Any], target: Any, mapping) -> None:
+def _populate(section: dict[str, Any], target: Any, mapping: list[tuple[Any, ...]]) -> None:
     for cfg_key, attr, *rest in mapping:
         if cfg_key not in section:
             continue
@@ -106,6 +106,8 @@ class MavericFramer:
     def frame(self, encoded: EncodedCommand) -> FramedCommand:
         raw_cmd = encoded.raw
         csp_packet = self.csp.wrap(raw_cmd)
+        assert len(csp_packet) >= len(raw_cmd), \
+            f"CSP shrank payload: {len(csp_packet)} < {len(raw_cmd)}"
 
         if self.uplink_mode == "ASM+Golay":
             if not _GR_RS_OK:
@@ -125,6 +127,8 @@ class MavericFramer:
             ax25_packet = self.ax25.wrap(csp_packet)
             wire = build_ax25_gfsk_frame(ax25_packet)
 
+        assert len(wire) > len(csp_packet), \
+            f"framer produced suspiciously small wire: {len(wire)}B ≤ csp {len(csp_packet)}B"
         return FramedCommand(
             wire=wire,
             frame_label=self.uplink_mode,

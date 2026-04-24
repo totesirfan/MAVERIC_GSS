@@ -47,12 +47,15 @@ import json
 from typing import TYPE_CHECKING, Callable, NamedTuple
 
 from ..state import MAX_QUEUE
-from .queue import make_delay, validate_mission_cmd
+from .queue import QueueItem, make_delay, validate_mission_cmd
 from .._task_utils import log_task_exception
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
     from ..state import WebRuntime
+
+
+QueueMutator = Callable[[list[QueueItem]], None]
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +80,12 @@ def requires_space(runtime: "WebRuntime") -> str | None:
 #  Queue mutation helper
 # ---------------------------------------------------------------------------
 
-def mutate_queue_if_idle(runtime: "WebRuntime", fn, *, check_space: bool = False) -> str | None:
+def mutate_queue_if_idle(
+    runtime: "WebRuntime",
+    fn: QueueMutator,
+    *,
+    check_space: bool = False,
+) -> str | None:
     """Run fn(queue) under send_lock with atomic idle + capacity checks.
 
     Returns an error string if the queue is being sent or full, else None.
@@ -145,7 +153,7 @@ async def handle_queue_mission_cmd(runtime: "WebRuntime", msg: dict, ws: "WebSoc
 async def handle_delete(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Delete a queue item by index."""
     idx = msg.get("index")
-    def do_delete(q):
+    def do_delete(q: list[QueueItem]) -> None:
         if isinstance(idx, int) and 0 <= idx < len(q):
             q.pop(idx)
     err = mutate_queue_if_idle(runtime, do_delete)
@@ -176,7 +184,7 @@ async def handle_undo(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None
 async def handle_guard(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Toggle the guard flag on a queue item."""
     idx = msg.get("index")
-    def do_guard(q):
+    def do_guard(q: list[QueueItem]) -> None:
         if isinstance(idx, int) and 0 <= idx < len(q):
             item = q[idx]
             if item["type"] == "mission_cmd":
@@ -191,7 +199,7 @@ async def handle_guard(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
 async def handle_reorder(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Reorder queue items by index list."""
     order = msg.get("order", [])
-    def do_reorder(q):
+    def do_reorder(q: list[QueueItem]) -> None:
         if isinstance(order, list) and len(order) == len(q):
             try:
                 q[:] = [q[index] for index in order]
@@ -209,7 +217,7 @@ async def handle_add_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") ->
     delay_ms = max(0, min(300_000, int(msg.get("delay_ms", 1000))))
     idx = msg.get("index")
     item = make_delay(delay_ms)
-    def do_add(q):
+    def do_add(q: list[QueueItem]) -> None:
         if isinstance(idx, int) and 0 <= idx <= len(q):
             q.insert(idx, item)
         else:
@@ -225,7 +233,7 @@ async def handle_edit_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -
     """Update delay_ms on an existing delay item."""
     idx = msg.get("index")
     delay_ms = msg.get("delay_ms")
-    def do_edit(q):
+    def do_edit(q: list[QueueItem]) -> None:
         if (
             isinstance(idx, int)
             and 0 <= idx < len(q)

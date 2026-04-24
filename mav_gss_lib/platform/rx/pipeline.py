@@ -36,7 +36,7 @@ class RxPipeline:
       5. produce websocket-ready messages
     """
 
-    def __init__(self, mission: MissionSpec, telemetry_router: TelemetryRouter):
+    def __init__(self, mission: MissionSpec, telemetry_router: TelemetryRouter) -> None:
         self.mission = mission
         self.packet_pipeline = PacketPipeline(mission)
         self.telemetry_router = telemetry_router

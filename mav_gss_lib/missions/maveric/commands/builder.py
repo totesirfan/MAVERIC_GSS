@@ -13,7 +13,7 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
 from mav_gss_lib.missions.maveric.schema import validate_args
@@ -50,7 +50,10 @@ def _resolve_routing(payload: dict, nodes: NodeTable) -> tuple[int, int, int, in
     return src, dest, echo, ptype
 
 
-def _normalize_args(args_input, tx_args_schema: list) -> tuple[str, dict, list]:
+def _normalize_args(
+    args_input: str | dict[str, Any],
+    tx_args_schema: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any], list[str]]:
     """Return (args_str, args_dict, extra_tokens).
 
     `args_str` is the wire-form string; `args_dict` maps schema arg names
@@ -129,7 +132,11 @@ def _build_display(
     }
 
 
-def build_tx_command(payload, cmd_defs: dict, nodes: NodeTable):
+def build_tx_command(
+    payload: dict[str, Any],
+    cmd_defs: dict[str, Any],
+    nodes: NodeTable,
+) -> dict[str, Any]:
     """Build a mission command from a structured payload.
 
     Accepts: {cmd_id, args: str | {name: value, ...}, src?, dest, echo, ptype, guard?}

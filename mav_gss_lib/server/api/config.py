@@ -12,6 +12,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -31,22 +32,25 @@ from mav_gss_lib.platform.config import (
 from ..state import get_runtime
 from ..security import require_api_token
 
+if TYPE_CHECKING:
+    from ..state import WebRuntime
+
 router = APIRouter()
 
 
-def _schema_count(runtime) -> int:
+def _schema_count(runtime: "WebRuntime") -> int:
     if runtime.mission.commands is None:
         return 0
     return len(runtime.mission.commands.schema())
 
 
-def _mission_meta(runtime, key: str, default: str = "") -> str:
+def _mission_meta(runtime: "WebRuntime", key: str, default: str = "") -> str:
     value = runtime.mission_cfg.get(key) if isinstance(runtime.mission_cfg, dict) else None
     return str(value) if value else default
 
 
 @router.get("/api/status")
-async def api_status(request: Request):
+async def api_status(request: Request) -> dict[str, Any]:
     runtime = get_runtime(request)
     return {
         "mission": runtime.mission_id,
@@ -71,7 +75,7 @@ async def api_status(request: Request):
 
 
 @router.get("/api/selfcheck")
-async def api_selfcheck(request: Request):
+async def api_selfcheck(request: Request) -> dict[str, Any]:
     """Lightweight diagnostic for verifying runtime environment."""
     runtime = get_runtime(request)
 
@@ -108,7 +112,7 @@ async def api_selfcheck(request: Request):
 
 
 @router.get("/api/config")
-async def api_config_get(request: Request):
+async def api_config_get(request: Request) -> dict[str, Any]:
     """Return the operator config in native split shape.
 
     Response shape matches `WebRuntime`'s primary state:
@@ -127,8 +131,8 @@ async def api_config_get(request: Request):
     }
 
 
-@router.put("/api/config")
-async def api_config_put(update: dict, request: Request):
+@router.put("/api/config", response_model=None)
+async def api_config_put(update: dict[str, Any], request: Request) -> dict[str, Any] | JSONResponse:
     """Apply a native-shape config update.
 
     Accepted shape:

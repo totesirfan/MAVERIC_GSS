@@ -6,6 +6,10 @@ KISS framing for CSP transport.
 CSPConfig for TX-direction CSP wrapping with optional CRC-32C.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from mav_gss_lib.protocols.crc import crc32c
 
 
@@ -19,7 +23,7 @@ TFEND = 0xDC
 TFESC = 0xDD
 
 
-def kiss_wrap(raw_cmd):
+def kiss_wrap(raw_cmd: bytes) -> bytes:
     """KISS-wrap a raw command payload.
     Output: C0 00 [kiss-escaped data] C0
     DB must be escaped before C0 to avoid double-escaping."""
@@ -35,7 +39,7 @@ def kiss_wrap(raw_cmd):
 #    [19:14] dest_port [13:8]  src_port [7:0] flags
 # =============================================================================
 
-def try_parse_csp_v1(payload):
+def try_parse_csp_v1(payload: bytes) -> tuple[dict[str, Any] | None, bool]:
     """Parse first 4 bytes as CSP v1 header (RX direction).
     Returns (parsed_dict, is_plausible) or (None, False)."""
     if len(payload) < 4:
@@ -60,7 +64,7 @@ class CSPConfig:
     When enabled, wrap() prepends the 4-byte CSP header and appends
     a 4-byte CRC-32C (Castagnoli) over the entire CSP packet."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.enabled = True
         self.prio    = 2
         self.src     = 0
@@ -70,7 +74,7 @@ class CSPConfig:
         self.flags   = 0x00
         self.csp_crc = True
 
-    def build_header(self):
+    def build_header(self) -> bytes:
         """Pack CSP fields into 4-byte big-endian header."""
         h = ((self.prio  & 0x03) << 30 |
              (self.src   & 0x1F) << 25 |
@@ -80,13 +84,13 @@ class CSPConfig:
              (self.flags & 0xFF))
         return h.to_bytes(4, 'big')
 
-    def overhead(self):
+    def overhead(self) -> int:
         """Number of bytes the CSP header + optional CRC-32C add to a payload."""
         if not self.enabled:
             return 0
         return 8 if self.csp_crc else 4
 
-    def wrap(self, payload):
+    def wrap(self, payload: bytes) -> bytes:
         """Prepend CSP header and optionally append CRC-32C.
 
         Output: [CSP header 4B] [payload] [CRC-32C 4B BE] (if csp_crc)

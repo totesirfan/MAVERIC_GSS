@@ -13,11 +13,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, AsyncIterator
+
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+if TYPE_CHECKING:
+    from .state import WebRuntime
 
 from mav_gss_lib.config import get_rx_zmq_addr, get_tx_zmq_addr
 from mav_gss_lib.logging import SessionLog, TXLog
@@ -43,7 +47,7 @@ from ._task_utils import log_task_exception
 # =============================================================================
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
     """Manage backend startup and shutdown for one FastAPI app instance."""
     runtime = get_runtime(app)
     runtime.tx.queue, skipped = sanitize_queue_items(runtime.tx.load_queue(), runtime=runtime)
@@ -87,7 +91,7 @@ async def lifespan(app: FastAPI):
     await _shutdown_runtime(runtime)
 
 
-async def _shutdown_runtime(runtime) -> None:
+async def _shutdown_runtime(runtime: "WebRuntime") -> None:
     """Tear down RX/TX/preflight state during lifespan shutdown."""
     runtime.rx.broadcast_stop = True
     runtime.rx.stop.set()
@@ -150,7 +154,7 @@ def create_app() -> FastAPI:
     if WEB_DIR.exists():
 
         @app.get("/{full_path:path}")
-        async def serve_spa(full_path: str):
+        async def serve_spa(full_path: str) -> FileResponse:
             file_path = WEB_DIR / full_path
             if file_path.is_file():
                 return FileResponse(file_path)

@@ -19,17 +19,17 @@ _crc16_fn = _crcmod.mkCrcFun('xmodem')
 _crc32c_fn = _crcmod.mkCrcFun('crc-32c')
 
 
-def crc16(data):
+def crc16(data: bytes) -> int:
     """CRC-16 XMODEM checksum (C-accelerated via crcmod)."""
     return _crc16_fn(data)
 
 
-def crc32c(data):
+def crc32c(data: bytes) -> int:
     """CRC-32C (Castagnoli) checksum for CSP v1 packet integrity (C-accelerated via crcmod)."""
     return _crc32c_fn(data)
 
 
-def verify_csp_crc32(inner_payload):
+def verify_csp_crc32(inner_payload: bytes) -> tuple[bool | None, int | None, int | None]:
     """Verify CRC-32C over a complete CSP packet (header + data + CRC-32C).
 
     Last 4 bytes are the received CRC-32C (big-endian); computed over

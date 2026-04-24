@@ -26,7 +26,7 @@ def get_telemetry_router() -> APIRouter:
     router = APIRouter(prefix="/api/telemetry", tags=["telemetry"])
 
     @router.delete("/{domain}/snapshot")
-    async def clear_snapshot(domain: str, request: Request):
+    async def clear_snapshot(domain: str, request: Request) -> JSONResponse:
         runtime = get_runtime(request)
         msg = runtime.telemetry.clear(domain)
         if msg is None:
@@ -35,7 +35,7 @@ def get_telemetry_router() -> APIRouter:
         return JSONResponse({"ok": True})
 
     @router.get("/{domain}/catalog")
-    async def get_domain_catalog(domain: str, request: Request):
+    async def get_domain_catalog(domain: str, request: Request) -> JSONResponse:
         """Return whatever catalog the mission registered for this domain.
 
         The platform does not define the catalog shape; it is opaque

@@ -7,12 +7,17 @@ carrying engineering-unit value + unit string.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, Iterator
+
 from mav_gss_lib.platform.telemetry import TelemetryFragment
 
 from mav_gss_lib.missions.maveric.telemetry.semantics.eps import decode_eps_hk
 
+if TYPE_CHECKING:
+    from mav_gss_lib.missions.maveric.nodes import NodeTable
 
-def extract(pkt, nodes, now_ms: int):
+
+def extract(pkt: Any, nodes: "NodeTable", now_ms: int) -> Iterator[TelemetryFragment]:
     md = getattr(pkt, "mission_data", None) or {}
     cmd = md.get("cmd") or {}
     if cmd.get("cmd_id") != "eps_hk":

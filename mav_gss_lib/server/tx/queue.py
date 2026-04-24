@@ -18,19 +18,20 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, Union
 
 from mav_gss_lib.platform import EncodedCommand
 
 if TYPE_CHECKING:
     from ..state import WebRuntime
+    from mav_gss_lib.platform.tx.commands import PreparedCommand
 
 
 class MissionCmdItem(TypedDict):
     type: Literal["mission_cmd"]
     raw_cmd: NotRequired[bytes]
-    display: dict
-    payload: dict
+    display: dict[str, Any]
+    payload: dict[str, Any]
     guard: bool
     num: NotRequired[int]
 
@@ -53,12 +54,12 @@ def make_delay(delay_ms: int) -> DelayItem:
     return {"type": "delay", "delay_ms": delay_ms}
 
 
-def make_note(text) -> NoteItem:
+def make_note(text: Any) -> NoteItem:
     """Build one note queue item (from ``//`` comment lines in JSONL files)."""
     return {"type": "note", "text": " ".join(str(text).split())}
 
 
-def _display_from_prepared(prepared) -> dict:
+def _display_from_prepared(prepared: "PreparedCommand") -> dict[str, Any]:
     rendering = prepared.rendering
     return {
         "title": rendering.title,
@@ -69,7 +70,7 @@ def _display_from_prepared(prepared) -> dict:
     }
 
 
-def make_mission_cmd(payload, runtime: "WebRuntime | None" = None) -> MissionCmdItem:
+def make_mission_cmd(payload: dict[str, Any], runtime: "WebRuntime | None" = None) -> MissionCmdItem:
     """Build one mission-command queue item from a mission-specific payload.
 
     Calls the active mission command ops to validate, encode, and produce
@@ -92,7 +93,10 @@ def make_mission_cmd(payload, runtime: "WebRuntime | None" = None) -> MissionCmd
     }
 
 
-def validate_mission_cmd(payload, runtime: "WebRuntime | None" = None):
+def validate_mission_cmd(
+    payload: dict[str, Any],
+    runtime: "WebRuntime | None" = None,
+) -> MissionCmdItem:
     """Validate and build a mission-command queue item.
 
     Checks: mission-owned build succeeds, mission-owned framing admits the
@@ -123,16 +127,19 @@ def validate_mission_cmd(payload, runtime: "WebRuntime | None" = None):
     return item
 
 
-def sanitize_queue_items(items, runtime: "WebRuntime | None" = None):
+def sanitize_queue_items(
+    items: list[dict[str, Any]],
+    runtime: "WebRuntime | None" = None,
+) -> tuple[list[QueueItem], int]:
     """Filter a queue restore/import set down to valid command/delay items."""
     from ..state import ensure_runtime
 
     runtime = ensure_runtime(runtime)
-    accepted = []
+    accepted: list[QueueItem] = []
     skipped = 0
     for item in items:
         if item["type"] in ("delay", "note"):
-            accepted.append(item)
+            accepted.append(item)  # type: ignore[arg-type]
             continue
         if item["type"] == "mission_cmd":
             try:
@@ -151,12 +158,15 @@ def sanitize_queue_items(items, runtime: "WebRuntime | None" = None):
     return accepted, skipped
 
 
-def item_to_json(item):
+def item_to_json(item: dict[str, Any]) -> dict[str, Any]:
     """Serialize a queue item for persistence (strips raw_cmd bytes)."""
     return {key: value for key, value in item.items() if key != "raw_cmd"}
 
 
-def json_to_item(payload, runtime: "WebRuntime | None" = None):
+def json_to_item(
+    payload: dict[str, Any],
+    runtime: "WebRuntime | None" = None,
+) -> QueueItem:
     """Convert one persisted JSON payload back into a runtime queue item."""
     if payload["type"] == "delay":
         return make_delay(payload.get("delay_ms", 0))
@@ -173,7 +183,7 @@ def json_to_item(payload, runtime: "WebRuntime | None" = None):
     raise ValueError(f"unsupported queue item type: {payload['type']}")
 
 
-def save_queue(queue: list, queue_file: Path) -> None:
+def save_queue(queue: list[QueueItem], queue_file: Path) -> None:
     """Persist the current queue to disk as JSONL."""
     if not queue:
         try:
@@ -190,7 +200,7 @@ def save_queue(queue: list, queue_file: Path) -> None:
     try:
         with os.fdopen(fd, "w") as handle:
             for item in queue:
-                handle.write(json.dumps(item_to_json(item)) + "\n")
+                handle.write(json.dumps(item_to_json(item)) + "\n")  # type: ignore[arg-type]
         os.chmod(tmp, prev_mode)
         os.replace(tmp, str(queue_file))
     except BaseException:
@@ -201,11 +211,11 @@ def save_queue(queue: list, queue_file: Path) -> None:
         raise
 
 
-def load_queue(queue_file: Path, runtime: "WebRuntime | None" = None) -> list:
+def load_queue(queue_file: Path, runtime: "WebRuntime | None" = None) -> list[QueueItem]:
     """Load any persisted queue items from disk."""
     if not queue_file.is_file():
         return []
-    items = []
+    items: list[QueueItem] = []
     with open(queue_file) as handle:
         for line in handle:
             line = line.strip()
@@ -219,16 +229,16 @@ def load_queue(queue_file: Path, runtime: "WebRuntime | None" = None) -> list:
     return items
 
 
-def renumber_queue(queue: list) -> None:
+def renumber_queue(queue: list[QueueItem]) -> None:
     """Assign sequential display numbers to queued command items."""
     count = 0
     for item in queue:
         if item["type"] == "mission_cmd":
             count += 1
-            item["num"] = count
+            item["num"] = count  # type: ignore[typeddict-item]
 
 
-def queue_summary(queue: list, default_delay_ms: int = 500) -> dict:
+def queue_summary(queue: list[QueueItem], default_delay_ms: int = 500) -> dict[str, Any]:
     """Summarize queue size, guard count, and rough execution time."""
     cmds = sum(1 for item in queue if item["type"] == "mission_cmd")
     guards = sum(1 for item in queue if item.get("guard"))
@@ -238,9 +248,9 @@ def queue_summary(queue: list, default_delay_ms: int = 500) -> dict:
     return {"cmds": cmds, "guards": guards, "est_time_s": round(est_time_s, 1)}
 
 
-def queue_items_json(queue: list) -> list:
+def queue_items_json(queue: list[QueueItem]) -> list[dict[str, Any]]:
     """Project the current queue into the websocket/API JSON shape."""
-    result = []
+    result: list[dict[str, Any]] = []
     for item in queue:
         if item["type"] == "delay":
             result.append({"type": "delay", "delay_ms": item["delay_ms"]})
@@ -259,9 +269,12 @@ def queue_items_json(queue: list) -> list:
     return result
 
 
-def parse_import_file(filepath, runtime=None):
+def parse_import_file(
+    filepath: Path,
+    runtime: "WebRuntime | None" = None,
+) -> tuple[list[QueueItem], int]:
     """Parse a queue import JSONL file into runtime queue items."""
-    items = []
+    items: list[QueueItem] = []
     skipped = 0
     for raw_line in filepath.read_text().strip().split("\n"):
         line = raw_line.strip()

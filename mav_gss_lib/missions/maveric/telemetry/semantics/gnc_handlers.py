@@ -7,7 +7,7 @@ write wins for any shared register slot.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Iterator
 
 from mav_gss_lib.missions.maveric.telemetry.semantics.nvg_sensors import (
     _handle_nvg_get_1,
@@ -117,7 +117,7 @@ def _handle_gnc_get_cnts(cmd: dict) -> dict[str, dict] | None:
     }
 
 
-def _walk_fast_frame(tokens: list[str]):
+def _walk_fast_frame(tokens: list[str]) -> "Iterator[tuple[str, str, list[str]]]":
     """Yield `(module, register, values)` tuples from an mtq_get_fast stream.
 
     The stream alternates `<module>,<register>` marker tokens and raw

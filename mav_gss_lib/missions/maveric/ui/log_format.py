@@ -11,7 +11,7 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mav_gss_lib.missions.maveric.ui.formatters import (
     md as _md,
@@ -26,9 +26,10 @@ from mav_gss_lib.missions.maveric.ui.formatters import (
 
 if TYPE_CHECKING:
     from mav_gss_lib.missions.maveric.nodes import NodeTable
+    from mav_gss_lib.missions.maveric.rx.packet import MavericRxPacket
 
 
-def build_log_mission_data(pkt) -> dict:
+def build_log_mission_data(pkt: "MavericRxPacket") -> dict[str, Any]:
     """Return MAVERIC-specific fields for the JSONL log mission block.
 
     Populates the `mission` key in the platform rx_packet envelope.
@@ -75,7 +76,7 @@ def build_log_mission_data(pkt) -> dict:
     return data
 
 
-def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
+def format_log_lines(pkt: "MavericRxPacket", nodes: "NodeTable") -> list[str]:
     """Return MAVERIC-specific text log lines for one packet.
 
     Platform handles: separator, warnings, hex dump, ASCII.
@@ -154,7 +155,7 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
     # instead of falling through to Python's dict repr. Scalar values
     # take the scalar branch of compact_value — same output as the
     # old direct f-string path for ints, floats, strings.
-    def _fragment_line(frag) -> str:
+    def _fragment_line(frag: dict[str, Any]) -> str:
         # Canonical keys in logs (operator's source of truth). A
         # trailing "# raw" marker flags display-only fragments so
         # forensics can tell canonical telemetry from per-packet
@@ -191,7 +192,7 @@ def format_log_lines(pkt, nodes: NodeTable) -> list[str]:
     return lines
 
 
-def _format_gnc_register_lines(reg_name: str, value, unit: str = "") -> list[str]:
+def _format_gnc_register_lines(reg_name: str, value: Any, unit: str = "") -> list[str]:
     """Render one decoded GNC register (MTQ or NVG) as text-log lines.
 
     Handles three shapes:

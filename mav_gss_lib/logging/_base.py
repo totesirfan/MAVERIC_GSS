@@ -9,6 +9,8 @@ and command-specific formatting.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+from __future__ import annotations
+
 import json
 import logging as _logging
 import os
@@ -17,6 +19,7 @@ import re
 import sys
 import threading
 from datetime import datetime
+from typing import Any
 
 from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 
@@ -89,8 +92,20 @@ class _BaseLog:
 
     _SENTINEL = None  # poison pill to stop the writer thread
 
-    def __init__(self, log_dir, prefix, version, mode, zmq_addr, mission_name=DEFAULT_MISSION_NAME,
-                 *, mission_id: str = "", station: str = "", operator: str = "", host: str = ""):
+    def __init__(
+        self,
+        log_dir: str,
+        prefix: str,
+        version: str,
+        mode: str,
+        zmq_addr: str,
+        mission_name: str = DEFAULT_MISSION_NAME,
+        *,
+        mission_id: str = "",
+        station: str = "",
+        operator: str = "",
+        host: str = "",
+    ) -> None:
         self._log_dir = log_dir
         self._prefix = prefix
         self._version = version
@@ -120,7 +135,7 @@ class _BaseLog:
     _FLUSH_EVERY_N = 64
     _FLUSH_EVERY_S = 0.5
 
-    def _writer_loop(self):
+    def _writer_loop(self) -> None:
         """Drain the write queue until sentinel, flushing in batches.
 
         Cadence:
@@ -161,7 +176,7 @@ class _BaseLog:
                 self._flush_handles()
                 unflushed = 0
 
-    def _flush_handles(self):
+    def _flush_handles(self) -> None:
         """Flush both file handles, tolerating a handle that was just rotated out."""
         for handle in (self._jsonl_f, self._text_f):
             try:
@@ -169,7 +184,7 @@ class _BaseLog:
             except (ValueError, OSError):
                 pass
 
-    def _process_item(self, item):
+    def _process_item(self, item: tuple[str, Any]) -> None:
         """Process a single queue item (write only — flushing is batched)."""
         kind, data = item
         if kind == "jsonl":
@@ -187,7 +202,7 @@ class _BaseLog:
             self._text_f = open(new_text, "a")
             self._jsonl_f = open(new_jsonl, "a")
 
-    def _separator(self, label, extras="", *, ts_ms: int | None = None):
+    def _separator(self, label: str, extras: str = "", *, ts_ms: int | None = None) -> str:
         """Build thin separator: ──── #1  timestamp  extras ────────
 
         If *ts_ms* is supplied, the timestamp is stamped from that exact
@@ -205,12 +220,12 @@ class _BaseLog:
         return content + " " + SEP_CHAR * pad
 
     @staticmethod
-    def _field(label, value):
+    def _field(label: str, value: Any) -> str:
         """Format a labeled field: '  LABEL       value'"""
         return f"  {label:<12}{value}"
 
     @staticmethod
-    def _hex_lines(data, label="HEX"):
+    def _hex_lines(data: bytes, label: str = "HEX") -> list[str]:
         """Format hex dump at 16 bytes/line with label on first line."""
         if not data:
             return []
@@ -229,7 +244,7 @@ class _BaseLog:
             offset += chunk_w + 1
         return lines
 
-    def write_jsonl(self, record):
+    def write_jsonl(self, record: dict[str, Any]) -> None:
         """Queue one pre-built envelope dict for the writer thread to persist.
 
         Becomes a no-op after :meth:`close` — queuing would silently lose the
@@ -240,14 +255,14 @@ class _BaseLog:
                 return
             self._q.put(("jsonl", json.dumps(record) + "\n"))
 
-    def _write_entry(self, lines):
+    def _write_entry(self, lines: list[str]) -> None:
         """Write a complete log entry (list of lines + trailing blank)."""
         with self._q_lock:
             if self._closed:
                 return
             self._q.put(("text", "\n".join(lines) + "\n\n"))
 
-    def _open_files(self, tag=""):
+    def _open_files(self, tag: str = "") -> None:
         """Open new log files with fresh timestamp, write header, start writer thread."""
         tag      = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_') if tag else ""
         station  = re.sub(r'[^\w\-.]', '_', self._station.strip()).strip('_') if self._station else ""
@@ -266,7 +281,7 @@ class _BaseLog:
         self._writer = threading.Thread(target=self._writer_loop, name="log-writer", daemon=True)
         self._writer.start()
 
-    def prepare_new_session(self, tag=""):
+    def prepare_new_session(self, tag: str = "") -> dict[str, Any]:
         """Open new log files WITHOUT closing old ones (prepare phase)."""
         if self._closed:
             raise RuntimeError("cannot start new session on a closed log")
@@ -310,7 +325,7 @@ class _BaseLog:
             "jsonl_f": new_jsonl_f,
         }
 
-    def commit_new_session(self, prepared):
+    def commit_new_session(self, prepared: dict[str, Any]) -> None:
         """Swap to new file handles from *prepared* dict (commit phase)."""
         if self._closed:
             for key in ("text_f", "jsonl_f"):
@@ -357,17 +372,17 @@ class _BaseLog:
                                         name="log-writer", daemon=True)
         self._writer.start()
 
-    def compute_rename_paths(self, tag):
+    def compute_rename_paths(self, tag: str) -> tuple[str | None, str | None]:
         """Compute new file paths for a rename operation. Returns (new_text, new_jsonl)."""
         tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_')
         if not tag:
             return None, None
-        def _new_path(path):
+        def _new_path(path: str) -> str:
             base, ext = os.path.splitext(path)
             return f"{base}_{tag}{ext}"
         return _new_path(self.text_path), _new_path(self.jsonl_path)
 
-    def rename_preflight(self, tag):
+    def rename_preflight(self, tag: str) -> tuple[str, str]:
         """Check that rename targets do not already exist.
 
         Returns (new_text, new_jsonl) on success or raises FileExistsError.
@@ -381,12 +396,12 @@ class _BaseLog:
             raise FileExistsError(f"target already exists: {new_jsonl}")
         return new_text, new_jsonl
 
-    def rename(self, tag):
+    def rename(self, tag: str) -> None:
         """Rename log files by appending a sanitized tag before the extension."""
         tag = re.sub(r'[^\w\-.]', '_', tag.strip()).strip('_')
         if not tag:
             return
-        def _new_path(path):
+        def _new_path(path: str) -> str:
             base, ext = os.path.splitext(path)
             return f"{base}_{tag}{ext}"
         new_text, new_jsonl = _new_path(self.text_path), _new_path(self.jsonl_path)
@@ -398,7 +413,7 @@ class _BaseLog:
             self.text_path, self.jsonl_path = new_text, new_jsonl
             self.session_id = os.path.splitext(os.path.basename(new_jsonl))[0]
 
-    def close(self):
+    def close(self) -> None:
         """Stop the writer thread and close both file handles.
 
         Drains queued items, flushes, then unlinks an empty pair so sessions

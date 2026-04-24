@@ -21,7 +21,7 @@ class AtomicStatus:
     """
     __slots__ = ("_value", "_lock")
 
-    def __init__(self, initial: str = "OFFLINE"):
+    def __init__(self, initial: str = "OFFLINE") -> None:
         self._value = initial
         self._lock = threading.Lock()
 

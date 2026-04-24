@@ -19,8 +19,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict
+from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket
+
+if TYPE_CHECKING:
+    from ..state import WebRuntime
 
 from mav_gss_lib.updater import (
     DirtyTreeError,
@@ -36,7 +40,7 @@ from .preflight import _broadcast
 #  UPDATE CHECK SCHEDULING
 # =============================================================================
 
-def schedule_update_check(runtime) -> None:
+def schedule_update_check(runtime: "WebRuntime") -> None:
     """Schedule check_for_updates() on the default thread-pool executor.
 
     Stores the asyncio.Future on runtime.update_status_future, replacing
@@ -54,7 +58,7 @@ def schedule_update_check(runtime) -> None:
 #  UPDATES CHECK EVENT BUILDER
 # =============================================================================
 
-async def _build_updates_event(runtime) -> dict:
+async def _build_updates_event(runtime: "WebRuntime") -> dict[str, Any]:
     """Resolve the update-status future and build the WS event dict.
 
     Async because runtime.update_status_future is an asyncio.Future that
@@ -170,7 +174,7 @@ async def _build_updates_event(runtime) -> dict:
 #  APPLY UPDATE HANDLER
 # =============================================================================
 
-async def _handle_apply_update(runtime, websocket: WebSocket) -> None:
+async def _handle_apply_update(runtime: "WebRuntime", websocket: WebSocket) -> None:
     """Handle an {action: "apply_update"} message.
 
     Never holds runtime.update_lock across any await — we flip the in-progress

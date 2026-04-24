@@ -3,6 +3,10 @@
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from mav_gss_lib.constants import DEFAULT_MISSION_NAME
 from mav_gss_lib.textutil import clean_text
 
@@ -18,13 +22,30 @@ class TXLog(_BaseLog):
     human-readable text entry around the same inputs.
     """
 
-    def __init__(self, log_dir, zmq_addr, version="", mission_name=DEFAULT_MISSION_NAME,
-                 *, mission_id: str = "", station: str = "", operator: str = "", host: str = ""):
+    def __init__(
+        self,
+        log_dir: str,
+        zmq_addr: str,
+        version: str = "",
+        mission_name: str = DEFAULT_MISSION_NAME,
+        *,
+        mission_id: str = "",
+        station: str = "",
+        operator: str = "",
+        host: str = "",
+    ) -> None:
         super().__init__(log_dir, "uplink", version, "TX Dashboard", zmq_addr,
                          mission_name=mission_name, mission_id=mission_id,
                          station=station, operator=operator, host=host)
 
-    def write_mission_command(self, record, *, raw_cmd, wire, log_text=None):
+    def write_mission_command(
+        self,
+        record: dict[str, Any],
+        *,
+        raw_cmd: bytes,
+        wire: bytes,
+        log_text: list[str] | None = None,
+    ) -> None:
         """Write one mission-built TX command entry.
 
         *record* is the pre-built envelope from

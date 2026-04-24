@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mav_gss_lib.missions.maveric.nodes import NodeTable
+    from mav_gss_lib.missions.maveric.rx.packet import MavericRxPacket
 
 from mav_gss_lib.missions.maveric.ui.formatters import (
     md as _md,
@@ -43,7 +44,7 @@ class IntegrityBlock:
     computed: str | None = None
 
 
-def _frag_block(frags, label):
+def _frag_block(frags: list[dict[str, Any]], label: str) -> dict[str, Any]:
     """Build one {kind:'args', label, fields} block from a fragment list,
     applying friendly display labels."""
     return {
@@ -59,7 +60,10 @@ def _frag_block(frags, label):
     }
 
 
-def _split_canonical_and_raw(frags, domain):
+def _split_canonical_and_raw(
+    frags: list[dict[str, Any]],
+    domain: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Partition a fragment list by display_only flag."""
     canonical = [f for f in frags
                  if f["domain"] == domain and not f.get("display_only")]
@@ -88,7 +92,7 @@ def packet_list_columns() -> list[dict]:
     ]
 
 
-def packet_list_row(pkt, nodes: NodeTable) -> dict:
+def packet_list_row(pkt: "MavericRxPacket", nodes: "NodeTable") -> dict[str, Any]:
     """Return row values keyed by column ID for one packet."""
     md = _md(pkt)
     cmd = md.get("cmd")
@@ -136,7 +140,7 @@ def packet_list_row(pkt, nodes: NodeTable) -> dict:
 # =============================================================================
 
 
-def protocol_blocks(pkt) -> list:
+def protocol_blocks(pkt: "MavericRxPacket") -> list[ProtocolBlock]:
     """Return protocol/wrapper blocks for the detail view."""
     from mav_gss_lib.protocols.ax25 import ax25_decode_header
     md = _md(pkt)
@@ -168,7 +172,7 @@ def protocol_blocks(pkt) -> list:
     return blocks
 
 
-def integrity_blocks(pkt) -> list:
+def integrity_blocks(pkt: "MavericRxPacket") -> list[IntegrityBlock]:
     """Return integrity check blocks for the detail view."""
     md = _md(pkt)
     blocks = []
@@ -194,7 +198,7 @@ def integrity_blocks(pkt) -> list:
     return blocks
 
 
-def packet_detail_blocks(pkt, nodes: NodeTable) -> list[dict]:
+def packet_detail_blocks(pkt: "MavericRxPacket", nodes: "NodeTable") -> list[dict[str, Any]]:
     """Return mission-specific semantic blocks for the detail view."""
     md = _md(pkt)
     cmd = md.get("cmd")

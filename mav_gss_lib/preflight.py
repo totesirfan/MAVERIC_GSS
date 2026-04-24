@@ -11,7 +11,7 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from mav_gss_lib.config import get_rx_zmq_addr, get_tx_zmq_addr
 from mav_gss_lib.constants import DEFAULT_MISSION
@@ -52,7 +52,7 @@ def summarize(results: list[CheckResult]) -> PreflightSummary:
 
 def run_preflight(cfg: dict | None = None,
                   mission_cfg: dict | None = None,
-                  mission=None,
+                  mission: Any = None,
                   mission_id: str | None = None,
                   lib_dir: Path | None = None,
                   *,

@@ -28,7 +28,7 @@ class TelemetryRouter:
     point is supplied by the mission at registration time.
     """
 
-    def __init__(self, root_dir: Path):
+    def __init__(self, root_dir: Path) -> None:
         self.root = Path(root_dir)
         self._states: dict[str, DomainState] = {}
         self._catalogs: dict[str, CatalogProvider] = {}

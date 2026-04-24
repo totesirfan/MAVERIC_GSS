@@ -7,19 +7,26 @@ preview) and allow deletion.
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any, Callable
+
+from fastapi import APIRouter
 
 from mav_gss_lib.missions.maveric.imaging.assembler import ImageAssembler
 
 
-def get_imaging_router(assembler: "ImageAssembler", config_accessor=None):
+def get_imaging_router(
+    assembler: "ImageAssembler",
+    config_accessor: Callable[[], dict[str, Any] | None] | None = None,
+) -> APIRouter:
     """Build the imaging FastAPI router.
 
     ``config_accessor`` is a zero-arg callable that returns the current
     mission config dict. Passing a callable rather than a dict snapshot
     lets the router respect live config edits via /api/config.
     """
-    from fastapi import APIRouter
     from fastapi.responses import FileResponse, JSONResponse
 
     router = APIRouter(prefix="/api/plugins/imaging", tags=["imaging"])
@@ -39,16 +46,16 @@ def get_imaging_router(assembler: "ImageAssembler", config_accessor=None):
         return JSONResponse({"files": assembler.list_files()})
 
     @router.get("/chunks/{filename:path}")
-    async def imaging_chunks(filename: str):
+    async def imaging_chunks(filename: str) -> JSONResponse:
         return JSONResponse({"filename": filename, "chunks": assembler.get_chunks(filename)})
 
     @router.delete("/file/{filename:path}")
-    async def imaging_delete(filename: str):
+    async def imaging_delete(filename: str) -> JSONResponse:
         assembler.delete_file(filename)
         return JSONResponse({"ok": True, "filename": filename})
 
-    @router.get("/preview/{filename:path}")
-    async def imaging_preview(filename: str):
+    @router.get("/preview/{filename:path}", response_model=None)
+    async def imaging_preview(filename: str) -> JSONResponse | FileResponse:
         path = Path(assembler.output_dir) / filename
         if not path.is_file():
             return JSONResponse({"error": "not found"}, status_code=404)

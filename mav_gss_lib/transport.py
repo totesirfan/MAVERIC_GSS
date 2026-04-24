@@ -8,14 +8,18 @@ the AX.25 encoder flowgraph).
 Author:  Irfan Annuar - USC ISI SERC
 """
 
+from __future__ import annotations
+
 import sys
 import time
-import zmq
-import pmt
 from datetime import datetime
+from typing import Any, Callable
+
+import pmt
+import zmq
 
 
-def init_zmq_sub(addr, timeout_ms=200):
+def init_zmq_sub(addr: str, timeout_ms: int = 200) -> tuple[zmq.Context, zmq.Socket, zmq.Socket]:
     """Initialize ZMQ SUB socket for receiving PDUs (RX).
 
     Uses PUB/SUB instead of PUSH/PULL because PUSH/PULL round-robins
@@ -38,7 +42,7 @@ def init_zmq_sub(addr, timeout_ms=200):
     return context, sock, monitor
 
 
-def init_zmq_pub(addr, settle_ms=300):
+def init_zmq_pub(addr: str, settle_ms: int = 300) -> tuple[zmq.Context, zmq.Socket, zmq.Socket]:
     """Initialize ZMQ PUB socket for sending PDUs (TX).
 
     Binds and pauses briefly so subscribers have time to connect
@@ -63,7 +67,10 @@ def init_zmq_pub(addr, settle_ms=300):
     return context, sock, monitor
 
 
-def receive_pdu(sock, on_error=None):
+def receive_pdu(
+    sock: zmq.Socket,
+    on_error: Callable[[str], None] | None = None,
+) -> tuple[dict[str, Any], bytes] | None:
     """Receive and deserialize one PMT PDU from ZMQ.
 
     Returns (meta_dict, raw_bytes), or None on timeout.
@@ -93,7 +100,7 @@ def receive_pdu(sock, on_error=None):
     return meta, raw
 
 
-def send_pdu(sock, payload):
+def send_pdu(sock: zmq.Socket, payload: bytes) -> bool:
     """Send payload bytes as a PMT PDU over ZMQ.
 
     Returns True on success, False on ZMQ socket error.
@@ -123,7 +130,7 @@ PUB_STATUS = {
 }
 
 
-def poll_monitor(monitor, status_map, current):
+def poll_monitor(monitor: zmq.Socket, status_map: dict[int, str], current: str) -> str:
     """Drain pending monitor events and return updated status string.
 
     Non-blocking.  Returns *current* unchanged if no relevant events queued.
@@ -142,7 +149,13 @@ def poll_monitor(monitor, status_map, current):
     return current
 
 
-def zmq_cleanup(monitor, status_map, current_status, socket, context):
+def zmq_cleanup(
+    monitor: zmq.Socket,
+    status_map: dict[int, str],
+    current_status: str,
+    socket: zmq.Socket,
+    context: zmq.Context,
+) -> None:
     """Drain pending monitor events, then close monitor, socket, and context."""
     try:
         poll_monitor(monitor, status_map, current_status)

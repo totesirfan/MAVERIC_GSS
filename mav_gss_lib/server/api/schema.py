@@ -8,6 +8,8 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Request
 
 from ..state import get_runtime
@@ -16,13 +18,13 @@ router = APIRouter()
 
 
 @router.get("/api/schema")
-async def api_schema(request: Request):
+async def api_schema(request: Request) -> dict[str, Any]:
     runtime = get_runtime(request)
     return runtime.mission.commands.schema() if runtime.mission.commands is not None else {}
 
 
 @router.get("/api/columns")
-async def api_columns(request: Request):
+async def api_columns(request: Request) -> list[dict[str, Any]]:
     """Return mission-provided column definitions for packet list rendering.
 
     Minimal enabler: same data as sent over /ws/rx on connect, exposed via
@@ -33,14 +35,14 @@ async def api_columns(request: Request):
 
 
 @router.get("/api/tx/capabilities")
-async def api_tx_capabilities(request: Request):
+async def api_tx_capabilities(request: Request) -> dict[str, Any]:
     """Return TX capabilities for the loaded mission."""
     runtime = get_runtime(request)
     return {"mission_commands": runtime.mission.commands is not None}
 
 
 @router.get("/api/tx-columns")
-async def api_tx_columns(request: Request):
+async def api_tx_columns(request: Request) -> list[dict[str, Any]]:
     """Return mission-provided column definitions for TX queue/history rendering."""
     runtime = get_runtime(request)
     if runtime.mission.commands is None:

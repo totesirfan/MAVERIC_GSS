@@ -25,17 +25,21 @@ class MavericParseResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def detect(meta) -> str:
+def detect(meta: dict[str, Any]) -> str:
     """Classify outer framing from GNU Radio/gr-satellites metadata."""
     return detect_frame_type(meta)
 
 
-def normalize(frame_type: str, raw: bytes):
+def normalize(frame_type: str, raw: bytes) -> tuple[bytes, str, list[str]]:
     """Strip mission-specific outer framing and return inner payload."""
     return normalize_frame(frame_type, raw)
 
 
-def parse_packet(inner_payload: bytes, cmd_defs: dict, warnings: list[str] | None = None):
+def parse_packet(
+    inner_payload: bytes,
+    cmd_defs: dict[str, Any],
+    warnings: list[str] | None = None,
+) -> MavericParseResult:
     """Parse one normalized RX payload into a MAVERIC parse result."""
 
     warnings = [] if warnings is None else warnings
@@ -78,7 +82,7 @@ def parse_packet(inner_payload: bytes, cmd_defs: dict, warnings: list[str] | Non
     )
 
 
-def duplicate_fingerprint(mission_data: dict):
+def duplicate_fingerprint(mission_data: dict[str, Any]) -> tuple[int, int] | None:
     """Return a mission-specific duplicate fingerprint or None.
 
     Takes a mission_data dict.

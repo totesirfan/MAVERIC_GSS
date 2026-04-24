@@ -30,6 +30,7 @@ from mav_gss_lib.platform import (
     PacketFlags,
     PacketOps,
     PacketRendering,
+    ValidationIssue,
 )
 
 
@@ -57,7 +58,7 @@ class EchoCommandOps(CommandOps):
             raise ValueError("empty command input")
         return CommandDraft({"line": line})
 
-    def validate(self, draft: CommandDraft):
+    def validate(self, draft: CommandDraft) -> list[ValidationIssue]:
         return []
 
     def encode(self, draft: CommandDraft) -> EncodedCommand:

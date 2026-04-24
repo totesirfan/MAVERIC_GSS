@@ -15,6 +15,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -23,10 +24,13 @@ from ..state import Session, get_runtime
 from ..security import require_api_token
 from .._broadcast import broadcast_safe
 
+if TYPE_CHECKING:
+    from ..state import WebRuntime
+
 router = APIRouter()
 
 
-def _session_info(runtime) -> dict:
+def _session_info(runtime: "WebRuntime") -> dict[str, Any]:
     """Build session info dict from runtime state."""
     s = runtime.session
     return {
@@ -41,7 +45,7 @@ def _session_info(runtime) -> dict:
 
 
 @router.get("/api/session")
-async def api_session_get(request: Request):
+async def api_session_get(request: Request) -> dict[str, Any]:
     """Return current session info and traffic status."""
     runtime = get_runtime(request)
     info = _session_info(runtime)
@@ -53,8 +57,8 @@ async def api_session_get(request: Request):
     return info
 
 
-@router.post("/api/session/new")
-async def api_session_new(body: dict, request: Request):
+@router.post("/api/session/new", response_model=None)
+async def api_session_new(body: dict[str, Any], request: Request) -> dict[str, Any] | JSONResponse:
     """Create a new session with two-phase atomic log rotation."""
     runtime = get_runtime(request)
     denied = require_api_token(request)
@@ -154,8 +158,8 @@ async def api_session_new(body: dict, request: Request):
     return info
 
 
-@router.patch("/api/session")
-async def api_session_rename(body: dict, request: Request):
+@router.patch("/api/session", response_model=None)
+async def api_session_rename(body: dict[str, Any], request: Request) -> dict[str, Any] | JSONResponse:
     """Rename the current session tag and log files.
 
     Rollback is supported on POSIX (synchronous rename). On Windows,
