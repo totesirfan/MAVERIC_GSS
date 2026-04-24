@@ -70,7 +70,7 @@ function HeroCardBusInner({ V_BUS, I_BUS, prev_V_BUS, alarm }: Props) {
         <div className="hero-reading">
           <span className={bigTone(alarm)} data-hk="V_BUS">{fmt(V_BUS, 3)}</span>
           <span className="unit">V</span>
-          <span className="hero-sub" style={{ marginLeft: 'auto' }}>
+          <span className="hero-sub">
             <span data-hk="I_BUS">{formatCurrent(I_BUS)}</span>
             {' · '}
             <span className="derived" title="P_BUS = V_BUS × I_BUS (derived)" data-derived="P_BUS">{pBusText}</span>

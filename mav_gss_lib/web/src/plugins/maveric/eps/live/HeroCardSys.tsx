@@ -68,6 +68,7 @@ function HeroCardSysInner({ V_SYS, prev_V_SYS, alarm }: Props) {
         <div className="hero-reading">
           <span className={bigTone(alarm)} data-hk="V_SYS">{fmt(V_SYS, 3)}</span>
           <span className="unit">V</span>
+          <span className="hero-sub">V_SYS</span>
         </div>
         <div title="V_SYS · lo 5.5 brown-out · nom 7.0 · hi 8.5">
           <div className="soc-gauge" data-gauge="V_SYS" role="img"

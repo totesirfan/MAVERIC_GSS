@@ -11,7 +11,8 @@ const V_NOM = 8.0
 function bigTone(alarm: AlarmLevel): string {
   if (alarm === 'danger')  return 'big danger'
   if (alarm === 'caution') return 'big warning'
-  return 'big'
+  if (alarm === 'ok')      return 'big success'
+  return 'big muted'
 }
 
 function dotClass(dir: ChargeDir, alarm: AlarmLevel): string {
@@ -74,7 +75,7 @@ function HeroCardBatInner({ V_BAT, I_BAT, prev_V_BAT, chargeDir, soc, alarm }: P
         <div className="hero-reading">
           <span className={bigTone(alarm)} data-hk="V_BAT">{fmt(V_BAT, 3)}</span>
           <span className="unit">V</span>
-          <span className="hero-sub" style={{ marginLeft: 'auto' }}>
+          <span className="hero-sub">
             <span data-hk="I_BAT">{formatCurrent(I_BAT)}</span>
             <span className={chipClass(chargeDir)}>{dotLabel(chargeDir)}</span>
           </span>

@@ -31,13 +31,13 @@ function VoutStripInner({ fields }: Props) {
   const offCount = 6 - onCount
 
   return (
-    <div className="card vout-card" data-component="VoutStrip">
+    <div className="card" data-component="VoutStrip">
       <div className="card-head">
         <div className="card-head-left">
           <span className="card-title">Switched Outputs</span>
           <span className="card-sub">VOUT1-3 (3V3) · VOUT4-6 (5V)</span>
         </div>
-        <span className="card-sub" style={{ color: 'var(--text-disabled)' }}>
+        <span className="card-sub">
           <span style={{ color: 'var(--state-success)' }}>{onCount} ON</span>
           {' · '}{offCount} OFF · <span className="derived" title="Σ POUT1..6 (derived)">{totalLoadW.toFixed(2)} W</span>
         </span>

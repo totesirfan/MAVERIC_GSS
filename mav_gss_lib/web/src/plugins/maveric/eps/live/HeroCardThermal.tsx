@@ -72,7 +72,7 @@ function HeroCardThermalInner({ T_DIE, TS_ADC, prev_T_DIE, etaSeconds, alarm }: 
         <div className="hero-reading">
           <span className={bigTone(alarm)} data-hk="T_DIE">{fmt(T_DIE, 1)}</span>
           <span className="unit">°C</span>
-          <span className="hero-sub" style={{ marginLeft: 'auto' }}>
+          <span className="hero-sub">
             TS_ADC <span data-hk="TS_ADC">{Number.isFinite(TS_ADC) ? TS_ADC.toFixed(1) : '—'}%</span>
           </span>
         </div>

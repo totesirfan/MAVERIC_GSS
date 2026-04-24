@@ -165,13 +165,14 @@ function PowerBalanceCardInner({ fields }: Props) {
           <span className="total">{outTotal.toFixed(2)} W</span>
         </div>
 
-      </div>
-      <div className="pb-status">
-        <span className="kv"><span className="k">source</span><span className="v">{source}</span></span>
-        <span className="kv"><span className="k">loads</span>
-          <span className="v derived" title="Σ P3V3 + P5V0 + POUT1..6 + PBRN1..2 (derived)">{knownLoads.toFixed(2)} W</span></span>
-        <span className="kv"><span className="k">EPS board</span>
-          <span className="v muted derived" title="P_BUS − Σ measured loads (derived residual)">{epsBoard.toFixed(2)} W</span></span>
+        <div className="pb-status">
+          <span className="kv"><span className="k">source</span><span className="v">{source}</span></span>
+          <span className="kv"><span className="k">loads</span>
+            <span className="v derived" title="Σ P3V3 + P5V0 + POUT1..6 + PBRN1..2 (derived)">{knownLoads.toFixed(2)} W</span></span>
+          <span className="kv"><span className="k">EPS board</span>
+            <span className="v muted derived" title="P_BUS − Σ measured loads (derived residual)">{epsBoard.toFixed(2)} W</span></span>
+        </div>
+
       </div>
     </div>
   )

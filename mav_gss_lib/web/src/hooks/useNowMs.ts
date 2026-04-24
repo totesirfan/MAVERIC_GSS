@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 
 /**
- * Shared 1 Hz "now" tick. Every consumer on the page returns the same
- * value and all update together, replacing per-component setInterval
- * patterns that cause drift and extra re-renders.
+ * Per-mount 1 Hz "now" tick. Each call creates its own setInterval, so
+ * two consumers in the same tree will drift by up to a second. The
+ * pattern works today because EpsPage is the single consumer and hands
+ * `nowMs` down as a prop to every Cadence instance so they tick together.
+ * If a second component ever calls this directly, promote the hook to a
+ * shared module-level subscription first.
  *
  * Usage:
  *   const nowMs = useNowMs()

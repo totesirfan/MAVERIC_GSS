@@ -36,8 +36,8 @@ function tickPos(v: number, nom: number): number {
   return Math.max(2, Math.min(98, pos))
 }
 
-function RailCell({ name, V, I, P, nom }: {
-  name: string; V: number; I: number; P: number; nom: number;
+function RailCell({ name, hkKey, V, I, P, nom }: {
+  name: string; hkKey: 'V3V3' | 'V5V0'; V: number; I: number; P: number; nom: number;
 }) {
   const state = railState(V, nom)
   const cls = state === 'on' ? 'rail-cell reg' : state === 'caution' ? 'rail-cell caution' : 'rail-cell alarm'
@@ -50,7 +50,7 @@ function RailCell({ name, V, I, P, nom }: {
       </div>
       <div className="dev">{fmtDevPct(V, nom)}</div>
       <div className="big-v">
-        <span data-hk={name === '3V3' ? 'V3V3' : 'V5V0'}>{fmt(V, 3)}</span>
+        <span data-hk={hkKey}>{fmt(V, 3)}</span>
         <span className="u">V</span>
       </div>
       <div className="ip">
@@ -86,8 +86,8 @@ function RailsCardInner({ V3V3, I3V3, P3V3, V5V0, I5V0, P5V0 }: Props) {
         </div>
       </div>
       <div className="rails-body">
-        <RailCell name="3V3" V={V3V3} I={I3V3} P={P3V3} nom={NOM_3V3} />
-        <RailCell name="5V0" V={V5V0} I={I5V0} P={P5V0} nom={NOM_5V0} />
+        <RailCell name="3V3" hkKey="V3V3" V={V3V3} I={I3V3} P={P3V3} nom={NOM_3V3} />
+        <RailCell name="5V"  hkKey="V5V0" V={V5V0} I={I5V0} P={P5V0} nom={NOM_5V0} />
       </div>
     </div>
   )

@@ -30,6 +30,9 @@
      No outer padding, no max-width cap — blank side margins come from
      layering padding here *and* on .body, so we keep it flat. Content
      area inside each section handles its own breathing room. */
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -115,17 +118,16 @@
 }
 .eps-page #pane-live.active { overflow: hidden; }
 .eps-page #pane-fields.active { overflow: hidden; }
-/* Intrinsic sections — subtabs, cadence captions, hero row sit at natural
-   height. output-row and PowerBalance both absorb vertical slack (with
-   PowerBalance slightly favored) so the Overview fills the viewport on
-   any display and grows proportionally on taller screens. */
+/* Cadence captions stay intrinsic (they're thin divider labels). Hero
+   row, output row, and Power Balance all flex-grow so the page scales
+   proportionally on taller viewports instead of dumping all slack on
+   the last row. Ratios match the preview's 180 / 200 / 170 budget. */
 .eps-page #pane-live > .status-strip,
-.eps-page #pane-live > .cadence,
-.eps-page #pane-live > .hero-row { flex: 0 0 auto; }
-.eps-page #pane-live > .hero-row { min-height: 0; }
-.eps-page #pane-live > .output-row { flex: 1 1 0; min-height: 200px; }
-.eps-page #pane-live > [data-component="PowerBalance"] { flex: 1.2 1 0; min-height: 200px; }
-.eps-page #pane-live .card { display: flex; flex-direction: column; }
+.eps-page #pane-live > .cadence { flex: 0 0 auto; }
+.eps-page #pane-live > .hero-row   { flex: 1.05 1 0; min-height: 180px; }
+.eps-page #pane-live > .output-row { flex: 1.20 1 0; min-height: 200px; }
+.eps-page #pane-live > [data-component="PowerBalance"] { flex: 1.00 1 0; min-height: 170px; }
+.eps-page #pane-live .card { display: flex; flex-direction: column; min-height: 0; }
 .eps-page #pane-fields.active > .card {
   flex: 1; min-height: 0; overflow: hidden;
   display: flex; flex-direction: column;
@@ -154,7 +156,7 @@
 .eps-page .card-head.live-bg  { background-color: rgba(60, 201, 142, 0.03); }
 .eps-page .card-head.stale-bg { background-color: rgba(232, 184, 58, 0.04); }
 .eps-page .card-head.alarm-bg { background-color: rgba(255, 56, 56, 0.04); }
-.eps-page .card-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+.eps-page .card-head-left { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow: hidden; }
 .eps-page .card-title {
   font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
   color: var(--text-primary); text-transform: uppercase;
@@ -253,6 +255,7 @@
   color: var(--text-muted); font-weight: 400;
 }
 .eps-page .hero-sub {
+  margin-left: auto;
   font-family: 'JetBrains Mono', monospace; font-size: 11px;
   color: var(--text-muted); letter-spacing: 0.04em;
 }
@@ -347,7 +350,7 @@
   font-family: 'JetBrains Mono', monospace; font-size: 11px;
   color: var(--text-disabled); letter-spacing: 0.04em;
 }
-.eps-page .delta-row .d-k { text-transform: uppercase; }
+.eps-page .delta-row .d-k { text-transform: uppercase; letter-spacing: 0.06em; }
 .eps-page .delta-row .d-v { font-size: 11px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .eps-page .delta-row .d-v.up         { color: var(--state-success); }
 .eps-page .delta-row .d-v.up::before { content: '▲ '; font-size: 10px; margin-right: 1px; }
@@ -437,7 +440,7 @@
 }
 @media (max-width: 620px) {
   .eps-page .hero-reading .big { font-size: 26px; }
-  .eps-page .body { padding: 6px; }
+  .eps-page .pane.active { padding: 6px; }
 }
 @media (max-width: 420px) {
   .eps-page .hero-row  { grid-template-columns: 1fr; }
@@ -574,11 +577,7 @@
 }
 .eps-page .pb-row {
   display: grid; grid-template-columns: 96px 1fr 96px;
-  align-items: stretch; gap: 12px;
-  flex: 1 1 0; min-height: 48px;
-}
-.eps-page .pb-row > div:first-child {
-  display: flex; flex-direction: column; justify-content: center;
+  align-items: center; gap: 12px;
 }
 .eps-page .pb-row .label {
   font: 700 11px/1 'Inter', sans-serif;
@@ -591,19 +590,18 @@
   letter-spacing: 0.04em; color: var(--text-disabled);
 }
 .eps-page .pb-row .total {
-  font: 500 clamp(14px, 1vw, 17px)/1 'JetBrains Mono', monospace;
+  font: 500 15px/1 'JetBrains Mono', monospace;
   color: var(--text-primary); font-variant-numeric: tabular-nums;
-  text-align: right; align-self: center;
+  text-align: right;
 }
 .eps-page .pb-track {
-  min-height: 32px; display: flex; overflow: hidden;
+  height: 32px; display: flex; overflow: hidden;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-subtle); border-radius: 2px;
-  align-self: stretch;
 }
 .eps-page .pb-seg {
   display: flex; align-items: center; padding: 0 8px;
-  font: 500 clamp(10px, 0.75vw, 12px)/1 'JetBrains Mono', monospace;
+  font: 500 10px/1 'JetBrains Mono', monospace;
   letter-spacing: 0.02em;
   color: #000; font-variant-numeric: tabular-nums;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -641,7 +639,8 @@
 }
 .eps-page .pb-status {
   display: flex; gap: 14px; flex-wrap: wrap;
-  padding: 8px 14px 12px;
+  margin-top: 2px; padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
   font: 500 11px/1 'JetBrains Mono', monospace;
   color: var(--text-muted); letter-spacing: 0.04em;
 }
