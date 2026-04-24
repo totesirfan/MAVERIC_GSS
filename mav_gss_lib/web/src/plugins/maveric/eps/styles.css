@@ -233,19 +233,22 @@
   display: flex; flex-direction: column; padding: 14px 16px;
   gap: 12px; flex: 1 1 auto; min-height: 0;
 }
-/* Gauge wrapper (unclassed <div> holding .soc-gauge + .soc-axis) absorbs
-   vertical slack so hero cards don't pool empty space below the gauge. */
+/* Gauge wrapper (unclassed <div> holding .soc-gauge + .soc-axis).
+   flex-grow absorbs any remaining vertical slack; justify-content:flex-end
+   pins the gauge+axis toward the delta-row so the empty space (when any
+   remains) sits between the big number and the gauge, letting the
+   headline reading visually dominate. */
 .eps-page .hero-card-body > div:not(.hero-reading):not(.delta-row) {
-  flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center;
+  flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end;
   min-height: 0;
 }
 .eps-page .hero-reading { display: flex; align-items: baseline; gap: 6px; line-height: 1; }
 .eps-page .hero-reading .big {
-  /* Fluid: 40 px on MBP (1512), 56 px on 1920 viewports. Bumped from
-     the preview's 28-34 to fill the vertical budget the grown hero
-     cards now have — empty space above/below the gauge was the
-     main complaint. */
-  font: 500 clamp(40px, 2.9vw, 56px)/1 'JetBrains Mono', monospace;
+  /* Fluid: ~54 px on MBP (1512), ~72 px on 1920+ viewports. Hero cards
+     flex-grow to fill vertical slack; the number is the focal point so
+     it absorbs most of that slack directly instead of leaving halos
+     around a tiny gauge. */
+  font: 500 clamp(52px, 3.8vw, 72px)/1 'JetBrains Mono', monospace;
   color: var(--text-primary); font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
@@ -254,12 +257,12 @@
 .eps-page .hero-reading .big.danger  { color: var(--state-danger); }
 .eps-page .hero-reading .big.muted   { color: var(--text-disabled); }
 .eps-page .hero-reading .unit {
-  font-family: 'JetBrains Mono', monospace; font-size: 16px;
+  font-family: 'JetBrains Mono', monospace; font-size: 22px;
   color: var(--text-muted); font-weight: 400;
 }
 .eps-page .hero-sub {
   margin-left: auto;
-  font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  font-family: 'JetBrains Mono', monospace; font-size: 15px;
   color: var(--text-muted); letter-spacing: 0.04em;
 }
 .eps-page .hero-sub .chip {
@@ -294,9 +297,9 @@
 
 /* ── SoC + thermal gauges ────────────────────────────────── */
 .eps-page .soc-gauge {
-  position: relative; height: 14px;
+  position: relative; height: 22px;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-subtle); border-radius: 1px;
+  border: 1px solid var(--border-subtle); border-radius: 2px;
 }
 .eps-page .soc-gauge .fill {
   position: absolute; top: 0; bottom: 0; left: 0;
@@ -304,12 +307,12 @@
   max-width: 100%;
 }
 .eps-page .soc-gauge .lim {
-  position: absolute; top: -2px; bottom: -2px; width: 1px;
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
   background: var(--state-warning); opacity: 0.85; transform: translateX(-50%);
 }
 .eps-page .soc-axis {
-  position: relative; height: 16px; margin-top: 6px;
-  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  position: relative; height: 18px; margin-top: 8px;
+  font-family: 'JetBrains Mono', monospace; font-size: 13px;
   color: var(--text-disabled); letter-spacing: 0.04em;
 }
 .eps-page .soc-axis .mk {
@@ -347,14 +350,14 @@
 
 /* ── Δ-since-previous + ETA rows ─────────────────────────── */
 .eps-page .delta-row {
-  display: flex; align-items: baseline; gap: 8px;
-  margin-top: auto; padding-top: 6px;
+  display: flex; align-items: baseline; gap: 10px;
+  margin-top: 4px; padding-top: 8px;
   border-top: 1px dashed rgba(255, 255, 255, 0.05);
-  font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  font-family: 'JetBrains Mono', monospace; font-size: 14px;
   color: var(--text-disabled); letter-spacing: 0.04em;
 }
 .eps-page .delta-row .d-k { text-transform: uppercase; letter-spacing: 0.06em; }
-.eps-page .delta-row .d-v { font-size: 13px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.eps-page .delta-row .d-v { font-size: 14px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .eps-page .delta-row .d-v.up         { color: var(--state-success); }
 .eps-page .delta-row .d-v.up::before { content: '▲ '; font-size: 12px; margin-right: 1px; }
 .eps-page .delta-row .d-v.down         { color: var(--state-warning); }
