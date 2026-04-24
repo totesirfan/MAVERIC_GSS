@@ -10,6 +10,13 @@ import type {
  * ordering can be overridden by `reorderOverride` to keep drag-and-drop
  * optimistic while the backend round-trips.
  *
+ * In-flight dedup: the backend appends to history (and broadcasts "sent")
+ * at ZMQ transmission time, but doesn't pop the queue until after the
+ * post-send dwell. During that dwell window, queue[0] (status='sending')
+ * and history[-1] represent the same logical command. The unified
+ * timeline hides the phantom history entry and renders the live queue[0]
+ * row as the single source of truth.
+ *
  * Pure function of inputs — caller owns memoization.
  */
 export function deriveTxItems(
@@ -19,8 +26,18 @@ export function deriveTxItems(
   pendingUid: (queueIndex: number) => string,
   reorderOverride: PendingReorderOverride | null,
 ): TxDisplayItem[] {
+  // Suppress the last history entry when it mirrors the sending queue[0].
+  const front = queue[0]
+  const tail = history[history.length - 1]
+  const hideTailHistory =
+    sendProgress !== null &&
+    !!tail && !!front &&
+    tail.type === 'mission_cmd' && front.type === 'mission_cmd' &&
+    (tail.display?.title ?? null) === (front.display?.title ?? null)
+  const visibleHistory = hideTailHistory ? history.slice(0, -1) : history
+
   const out: TxDisplayItem[] = []
-  for (const h of history) {
+  for (const h of visibleHistory) {
     out.push({
       uid: `h-${h.n}`,
       status: 'complete',
