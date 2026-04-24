@@ -164,7 +164,7 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, r
         left={
           <TxPanel
             config={config}
-            queue={tx.queue} summary={tx.summary} history={tx.history}
+            queue={tx.queue} summary={tx.summary}
             sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
             uplinkMode={uplinkMode} connected={tx.connected}
             queueCommand={tx.queueCommand}

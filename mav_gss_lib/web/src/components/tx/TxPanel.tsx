@@ -10,13 +10,12 @@ import { Kbd } from '@/components/ui/kbd'
 import { StatusDot } from '@/components/shared/StatusDot'
 import { colors } from '@/lib/colors'
 import { TxQueue } from './TxQueue'
-import { SentHistory } from './SentHistory'
 import { CommandInput } from './CommandInput'
 import { ImportDialog } from './ImportDialog'
 import { getMissionBuilder } from '@/plugins/registry'
 import { useColumnDefs } from '@/state/session'
 import type {
-  TxQueueItem, TxQueueSummary, TxHistoryItem,
+  TxQueueItem, TxQueueSummary,
   SendProgress, GuardConfirm, GssConfig, TxColumnDef,
 } from '@/lib/types'
 
@@ -24,7 +23,6 @@ interface TxPanelProps {
   config: GssConfig | null
   queue: TxQueueItem[]
   summary: TxQueueSummary
-  history: TxHistoryItem[]
   sendProgress: SendProgress | null
   guardConfirm: GuardConfirm | null
   uplinkMode: string
@@ -47,7 +45,7 @@ interface TxPanelProps {
 }
 
 export function TxPanel({
-  config, queue, summary, history, sendProgress, guardConfirm, uplinkMode, connected,
+  config, queue, summary, sendProgress, guardConfirm, uplinkMode, connected,
   queueCommand, deleteItem, clearQueue,
   toggleGuard, reorder, editDelay, addDelay,
   sendAll, abortSend, approveGuard, rejectGuard,
@@ -109,27 +107,23 @@ export function TxPanel({
 
         {/* Queue */}
         <TxQueue
-          queue={queue} summary={summary} sendProgress={sendProgress} isGuarding={!!guardConfirm}
+          summary={summary} sendProgress={sendProgress} isGuarding={!!guardConfirm}
           txColumns={txColumns}
           onToggleGuard={toggleGuard} onDelete={deleteItem}
-          onEditDelay={editDelay} onReorder={reorder} onAddDelay={addDelay}
+          onEditDelay={editDelay} onAddDelay={addDelay}
           onClear={clearQueue} onSend={sendAll}
           onDuplicate={(idx) => {
             const item = queue[idx]
             if (!item || item.type !== 'mission_cmd') return
             queueTemplate(item.payload)
           }}
-          onMoveToTop={(idx) => reorder(idx, queue.length - 1)}
-          onMoveToBottom={(idx) => reorder(idx, 0)}
+          onMoveToTop={(idx) => reorder(idx, 0)}
+          onMoveToBottom={(idx) => reorder(idx, queue.length - 1)}
+          onRequeue={(item) => queueTemplate(item.payload)}
           triggerConfirmSend={triggerConfirmSend}
           triggerConfirmClear={triggerConfirmClear}
         />
       </div>
-
-      {/* Sent history — separate collapsible block */}
-      <SentHistory history={history} txColumns={txColumns} onRequeue={(item) => {
-        queueTemplate(item.payload)
-      }} />
 
       {/* Bottom block: guard confirm / send progress / input+builder */}
       {guardConfirm ? (

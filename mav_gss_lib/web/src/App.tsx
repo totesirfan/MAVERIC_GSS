@@ -9,7 +9,6 @@ import { TelemetryProvider } from '@/state/TelemetryProvider'
 import { useRxStatus, useRxDisplayToggles } from '@/state/rx'
 import { colors } from '@/lib/colors'
 import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
-import { useTxSocket } from '@/hooks/useTxSocket'
 import { useRxSocket } from '@/hooks/useRxSocket'
 import { usePopOutBootstrap } from '@/hooks/usePopOutBootstrap'
 import { RxPanel } from '@/components/rx/RxPanel'
@@ -314,10 +313,18 @@ function PreflightOverlay() {
   )
 }
 
-/** Pop-out TX panel — standalone window */
+/** Pop-out TX panel — wraps inner in TxProvider so TxQueue can call useTx() */
 function PopOutTx() {
+  return (
+    <TxProvider>
+      <PopOutTxInner />
+    </TxProvider>
+  )
+}
+
+function PopOutTxInner() {
   const { config } = usePopOutBootstrap()
-  const tx = useTxSocket()
+  const tx = useTx()
   const uplinkMode = config?.platform.tx.uplink_mode ?? ''
 
   return (
@@ -325,7 +332,7 @@ function PopOutTx() {
       <div className="flex-1 p-2">
       <TxPanel
         config={config}
-        queue={tx.queue} summary={tx.summary} history={tx.history}
+        queue={tx.queue} summary={tx.summary}
         sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
         uplinkMode={uplinkMode} connected={tx.connected}
         queueCommand={tx.queueCommand}
