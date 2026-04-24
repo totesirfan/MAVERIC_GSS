@@ -616,6 +616,16 @@
 .eps-page .pb-seg.ac         { background: var(--state-info); }
 .eps-page .pb-seg.vout-on    { background: var(--state-success); }
 .eps-page .pb-seg.rail       { background: var(--state-info); }
+/* Rail placeholder — HK has not arrived yet but the rail slot is
+   reserved (3V3 / 5V are always-on keep-alive). Min-width makes the
+   segment visible even when width:0% from scale; dashed top edge marks
+   it as "awaiting data" distinct from a real-zero measurement. */
+.eps-page .pb-seg.rail-idle {
+  min-width: 76px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-disabled);
+  border-top: 1px dashed var(--border-strong);
+}
 .eps-page .pb-seg.deficit {
   background: repeating-linear-gradient(45deg,
     rgba(232, 184, 58, 0.35) 0 4px, rgba(232, 184, 58, 0.15) 4px 8px);

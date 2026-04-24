@@ -12,7 +12,7 @@ function finite(v: number | undefined): number {
 
 interface Segment {
   key: string
-  kind: 'solar' | 'solar-aux' | 'solar-idle' | 'ac' | 'vout-on' | 'rail' | 'deficit' | 'surplus'
+  kind: 'solar' | 'solar-aux' | 'solar-idle' | 'ac' | 'vout-on' | 'rail' | 'rail-idle' | 'deficit' | 'surplus'
   watts: number
   label?: string
   sub?: string
@@ -82,15 +82,29 @@ function PowerBalanceCardInner({ fields }: Props) {
       })
     }
   }
-  if (finite(fields.P3V3) > 0.01) outSegs.push({
-    key: 'p3v3', kind: 'rail', watts: finite(fields.P3V3),
-    label: `3V3 ${finite(fields.P3V3).toFixed(2)} W`,
-    sub: `${(finite(fields.I3V3) * 1000).toFixed(0)} mA`,
-  })
-  if (finite(fields.P5V0) > 0.01) outSegs.push({
-    key: 'p5v0', kind: 'rail', watts: finite(fields.P5V0),
-    label: `5V ${finite(fields.P5V0).toFixed(2)} W`,
-  })
+  // Hot Rails always render — they are always-on keep-alive per spec.
+  // When HK hasn't arrived yet (no fields.P3V3 / P5V0), show idle
+  // placeholders so operators see the slot reserved instead of wondering
+  // if rails are off.
+  const hasP3V3 = typeof fields.P3V3 === 'number' && Number.isFinite(fields.P3V3) && fields.P3V3 > 0.01
+  const hasP5V0 = typeof fields.P5V0 === 'number' && Number.isFinite(fields.P5V0) && fields.P5V0 > 0.01
+  if (hasP3V3) {
+    outSegs.push({
+      key: 'p3v3', kind: 'rail', watts: finite(fields.P3V3),
+      label: `3V3 ${finite(fields.P3V3).toFixed(2)} W`,
+      sub: `${(finite(fields.I3V3) * 1000).toFixed(0)} mA`,
+    })
+  } else {
+    outSegs.push({ key: 'p3v3', kind: 'rail-idle', watts: 0, label: '3V3', sub: '— W' })
+  }
+  if (hasP5V0) {
+    outSegs.push({
+      key: 'p5v0', kind: 'rail', watts: finite(fields.P5V0),
+      label: `5V ${finite(fields.P5V0).toFixed(2)} W`,
+    })
+  } else {
+    outSegs.push({ key: 'p5v0', kind: 'rail-idle', watts: 0, label: '5V', sub: '— W' })
+  }
   if (epsBoard > 0.01) outSegs.push({
     key: 'eps-board', kind: 'solar-idle', watts: epsBoard,
     label: `EPS board ${epsBoard.toFixed(2)} W`, sub: 'MCU + quiescent',
