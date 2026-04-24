@@ -112,15 +112,16 @@
 .eps-page .pane { display: none; }
 .eps-page .pane.active { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }
 .eps-page #pane-live.active { overflow: hidden; }
-/* Intrinsic sections — subtabs, cadence captions, hero row, power balance
-   sit at natural height. output-row absorbs vertical slack so the page
-   fills the viewport on any display size. */
+/* Intrinsic sections — subtabs, cadence captions, hero row sit at natural
+   height. output-row and PowerBalance both absorb vertical slack (with
+   PowerBalance slightly favored) so the Overview fills the viewport on
+   any display and grows proportionally on taller screens. */
 .eps-page #pane-live > .status-strip,
 .eps-page #pane-live > .cadence,
-.eps-page #pane-live > .hero-row,
-.eps-page #pane-live > [data-component="PowerBalance"] { flex: 0 0 auto; }
+.eps-page #pane-live > .hero-row { flex: 0 0 auto; }
 .eps-page #pane-live > .hero-row { min-height: 0; }
-.eps-page #pane-live > .output-row { flex: 1 1 auto; min-height: 0; }
+.eps-page #pane-live > .output-row { flex: 1 1 0; min-height: 200px; }
+.eps-page #pane-live > [data-component="PowerBalance"] { flex: 1.2 1 0; min-height: 200px; }
 .eps-page #pane-live .card { display: flex; flex-direction: column; }
 .eps-page #pane-fields.active > .card {
   flex: 1; min-height: 0; overflow: hidden;
@@ -564,10 +565,17 @@
 /* ═══════════════════════════════════════════════════════════════════
    Power Balance proportional bars
    ═══════════════════════════════════════════════════════════════════ */
-.eps-page .pb-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; }
+.eps-page .pb-body {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
+  flex: 1 1 auto; min-height: 0;
+}
 .eps-page .pb-row {
   display: grid; grid-template-columns: 96px 1fr 96px;
-  align-items: center; gap: 12px;
+  align-items: stretch; gap: 12px;
+  flex: 1 1 0; min-height: 48px;
+}
+.eps-page .pb-row > div:first-child {
+  display: flex; flex-direction: column; justify-content: center;
 }
 .eps-page .pb-row .label {
   font: 700 11px/1 'Inter', sans-serif;
@@ -582,12 +590,13 @@
 .eps-page .pb-row .total {
   font: 500 clamp(14px, 1vw, 17px)/1 'JetBrains Mono', monospace;
   color: var(--text-primary); font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: right; align-self: center;
 }
 .eps-page .pb-track {
-  height: 32px; display: flex; overflow: hidden;
+  min-height: 32px; display: flex; overflow: hidden;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-subtle); border-radius: 2px;
+  align-self: stretch;
 }
 .eps-page .pb-seg {
   display: flex; align-items: center; padding: 0 8px;
