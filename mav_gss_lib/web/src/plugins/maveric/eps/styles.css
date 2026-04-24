@@ -26,19 +26,15 @@
 }
 
 .eps-page {
-  /* Target viewports: 14" MBP (1512×880), 13" XPS (1920×980), 55" TV @ 1080p.
-     Fluid clamp() keeps everything legible at 1512 baseline and lets 1920
-     get extra breathing room without snapping at hard breakpoints. */
-  padding: clamp(6px, 0.6vw, 12px);
-  max-width: 1920px;
-  margin: 0 auto;
+  /* Fills the plugin mount point edge-to-edge (matches GNCPage layout).
+     No outer padding, no max-width cap — blank side margins come from
+     layering padding here *and* on .body, so we keep it flat. Content
+     area inside each section handles its own breathing room. */
   display: flex;
   flex-direction: column;
-  gap: clamp(6px, 0.6vw, 10px);
-  /* Retained from the original rule — load-bearing for flex scroll
-     containment of the pane system (#pane-live/.body flex: 1; min-height: 0). */
   height: 100%;
   min-height: 0;
+  width: 100%;
   overflow: hidden;
   /* GNC-borrowed — tabular digits for column alignment across all scalars. */
   font-variant-numeric: tabular-nums;
@@ -103,15 +99,22 @@
 }
 
 /* ── Body + tab panes ───────────────────────────────────── */
+/* Body fills the remaining space below the subtabs and spans full
+   width. Padding here would compound with per-pane padding — keep it
+   flat, let the panes decide. */
 .eps-page .body {
-  flex: 1; min-height: 0; padding: 8px;
+  flex: 1; min-height: 0; width: 100%;
   display: flex; flex-direction: column;
-  max-width: 1920px; margin: 0 auto; width: 100%;
   overflow: hidden;
 }
 .eps-page .pane { display: none; }
-.eps-page .pane.active { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; }
+.eps-page .pane.active {
+  display: flex; flex: 1; min-height: 0; flex-direction: column;
+  gap: clamp(6px, 0.6vw, 10px);
+  padding: clamp(6px, 0.6vw, 12px);
+}
 .eps-page #pane-live.active { overflow: hidden; }
+.eps-page #pane-fields.active { overflow: hidden; }
 /* Intrinsic sections — subtabs, cadence captions, hero row sit at natural
    height. output-row and PowerBalance both absorb vertical slack (with
    PowerBalance slightly favored) so the Overview fills the viewport on
