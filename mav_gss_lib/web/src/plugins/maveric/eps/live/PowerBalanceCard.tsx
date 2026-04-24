@@ -57,12 +57,12 @@ function PowerBalanceCardInner({ fields }: Props) {
   })
   if (pAc > 0.01) {
     const ac2 = finite(fields.V_AC2); const ac1 = finite(fields.V_AC1)
-    const vAc = ac2 > 1 ? ac2 : ac1
+    const vAc = ac2 > 1 ? ac2 : ac1 > 1 ? ac1 : null
     const acLabel = ac2 > 1 ? 'AC2' : ac1 > 1 ? 'AC1' : 'AC'
     inSegs.push({
       key: 'ac', kind: 'ac', watts: pAc,
       label: `${acLabel} · ${pAc.toFixed(2)} W`,
-      sub: `${vAc.toFixed(2)} V`,
+      sub: vAc !== null ? `${vAc.toFixed(2)} V` : '— V',
     })
   }
   if (batDischarge > 0.01) inSegs.push({

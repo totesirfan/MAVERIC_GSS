@@ -141,7 +141,7 @@ export default function EpsPage() {
             <HeroCardSys
               V_SYS={pick(fields, 'V_SYS')}
               prev_V_SYS={pick(prev_fields, 'V_SYS')}
-              alarm={'unknown' as AlarmLevel}
+              alarm={alarms.V_SYS as AlarmLevel ?? 'unknown'}
             />
             <HeroCardThermal
               T_DIE={pick(fields, 'T_DIE')} TS_ADC={pick(fields, 'TS_ADC')}

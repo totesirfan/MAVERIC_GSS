@@ -28,8 +28,11 @@ function CadenceInner({ kind, latestT, nowMs, chips }: Props) {
 
   const tag = kind === 'beacon' ? 'Beacon' : 'Housekeeping'
   const classes = ['cadence', kind]
+  // 'empty' — no packet has arrived yet — is distinct from 'expired'.
+  // Keep the default kind accent (info for beacon, muted for hk) so a
+  // fresh session doesn't render its section headers in alarm-red.
   if (state === 'stale') classes.push('stale')
-  else if (state === 'expired' || state === 'empty') classes.push('expired')
+  else if (state === 'expired') classes.push('expired')
 
   const pillText = state === 'stale' ? 'STALE' : state === 'expired' ? 'EXPIRED' : null
 

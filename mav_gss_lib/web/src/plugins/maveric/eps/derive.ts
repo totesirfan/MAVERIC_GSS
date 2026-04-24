@@ -103,6 +103,10 @@ const V_BAT_DANGER = 6.0
 const V_BUS_LOW_DANGER = 6.5
 const V_BUS_HIGH_DANGER = 9.5
 
+const V_SYS_BROWNOUT_DANGER = 5.5
+const V_SYS_LOW_CAUTION = 6.5
+const V_SYS_HIGH_CAUTION = 8.5
+
 const T_DIE_JUNCTION_DANGER = 85
 const T_DIE_OVERHEAT_DANGER = 60
 const T_DIE_COLD_CAUTION = 0
@@ -142,6 +146,14 @@ export function alarmState(
     else if (v < V_BAT_DANGER) out.V_BAT = 'danger'
     else if (v < V_BAT_CAUTION) out.V_BAT = 'caution'
     else out.V_BAT = 'ok'
+  }
+
+  if ('V_SYS' in f) {
+    const v = f.V_SYS
+    if (!isFiniteNumber(v) || v <= 0) out.V_SYS = 'unknown'
+    else if (v < V_SYS_BROWNOUT_DANGER) out.V_SYS = 'danger'
+    else if (v < V_SYS_LOW_CAUTION || v > V_SYS_HIGH_CAUTION) out.V_SYS = 'caution'
+    else out.V_SYS = 'ok'
   }
 
   if ('T_DIE' in f) {

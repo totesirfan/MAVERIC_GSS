@@ -15,15 +15,17 @@ function deviationPct(v: number, nom: number): number {
   return ((v - nom) / nom) * 100
 }
 
-function railState(v: number, nom: number): 'on' | 'caution' | 'alarm' {
-  if (!Number.isFinite(v) || v <= 0) return 'alarm'
+function railState(v: number, nom: number): 'on' | 'caution' | 'alarm' | 'unknown' {
+  if (!Number.isFinite(v)) return 'unknown'
+  if (v <= 0.5) return 'unknown'
   const dev = Math.abs(v - nom) / nom
+  if (dev > DEV_CAUTION * 2) return 'alarm'
   if (dev > DEV_CAUTION) return 'caution'
   return 'on'
 }
 
 function fmtDevPct(v: number, nom: number): string {
-  if (!Number.isFinite(v)) return '—'
+  if (!Number.isFinite(v) || v <= 0.5) return '—'
   const p = deviationPct(v, nom)
   const sign = p >= 0 ? '+' : ''
   return `${sign}${p.toFixed(2)}%`
@@ -40,8 +42,14 @@ function RailCell({ name, hkKey, V, I, P, nom }: {
   name: string; hkKey: 'V3V3' | 'V5V0'; V: number; I: number; P: number; nom: number;
 }) {
   const state = railState(V, nom)
-  const cls = state === 'on' ? 'rail-cell reg' : state === 'caution' ? 'rail-cell caution' : 'rail-cell alarm'
-  const badge = state === 'alarm' ? 'ALM' : state === 'caution' ? 'DEV' : 'REG'
+  const cls = state === 'on' ? 'rail-cell reg'
+    : state === 'caution' ? 'rail-cell caution'
+    : state === 'alarm' ? 'rail-cell alarm'
+    : 'rail-cell'
+  const badge = state === 'alarm' ? 'ALM'
+    : state === 'caution' ? 'DEV'
+    : state === 'unknown' ? '—'
+    : 'REG'
   return (
     <div className={cls}>
       <div className="top">
@@ -69,10 +77,19 @@ function RailCell({ name, hkKey, V, I, P, nom }: {
 function RailsCardInner({ V3V3, I3V3, P3V3, V5V0, I5V0, P5V0 }: Props) {
   const s3 = railState(V3V3, NOM_3V3)
   const s5 = railState(V5V0, NOM_5V0)
-  const allOk  = s3 === 'on' && s5 === 'on'
-  const anyAlm = s3 === 'alarm' || s5 === 'alarm'
-  const dotCls = allOk ? 'dot success' : anyAlm ? 'dot danger' : 'dot warn'
-  const dotLbl = allOk ? 'REG'     : anyAlm ? 'ALM'        : 'DEV'
+  const allOk   = s3 === 'on' && s5 === 'on'
+  const anyAlm  = s3 === 'alarm' || s5 === 'alarm'
+  const anyCau  = s3 === 'caution' || s5 === 'caution'
+  const allUnk  = s3 === 'unknown' && s5 === 'unknown'
+  const dotCls = allOk ? 'dot success'
+    : anyAlm ? 'dot danger'
+    : anyCau ? 'dot warn'
+    : allUnk ? 'dot neutral'
+    : 'dot neutral'
+  const dotLbl = allOk ? 'REG'
+    : anyAlm ? 'ALM'
+    : anyCau ? 'DEV'
+    : '—'
 
   return (
     <div className="card" data-component="RailsCard">
