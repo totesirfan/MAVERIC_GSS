@@ -1,3 +1,18 @@
+"""
+mav_gss_lib.server.telemetry.api -- Telemetry REST Router
+
+Mission-opaque endpoints that expose whatever domains the active mission
+registered with the platform telemetry router:
+
+  DELETE /api/telemetry/{domain}/snapshot  -- reset canonical state
+  GET    /api/telemetry/{domain}/catalog   -- return mission-owned catalog
+
+The platform defines neither the catalog shape nor the domain set; both
+are supplied by the mission at startup via ``TelemetryOps``.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
@@ -7,6 +22,7 @@ from mav_gss_lib.server.state import get_runtime
 
 
 def get_telemetry_router() -> APIRouter:
+    """Build the telemetry router. Called once by ``server/app.py`` at startup."""
     router = APIRouter(prefix="/api/telemetry", tags=["telemetry"])
 
     @router.delete("/{domain}/snapshot")

@@ -116,25 +116,32 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
     def test_log_fields_and_frame_label_land_in_jsonl(self):
         import tempfile
         from mav_gss_lib.logging import TXLog
+        from mav_gss_lib.platform.tx.logging import tx_log_record
 
         with tempfile.TemporaryDirectory() as tmp:
             log = TXLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="1.2.3")
             try:
-                log.write_mission_command(
-                    n=7,
-                    display={"title": "PING", "subtitle": ""},
-                    mission_payload={"cmd": "ping"},
-                    raw_cmd=b"\x01\x02",
-                    payload=b"\x01\x02\x03\x04",
+                raw_cmd = b"\x01\x02"
+                wire = b"\x01\x02\x03\x04"
+                record = tx_log_record(
+                    7,
+                    {"title": "PING", "subtitle": ""},
+                    {"cmd": "ping"},
+                    raw_cmd, wire,
+                    session_id=log.session_id,
+                    ts_ms=1_700_000_000_000,
+                    version="1.2.3",
+                    operator="irfan", station="GS-0",
                     frame_label="AX.25",
                     log_fields={
                         "uplink_mode": "AX.25",
                         "ax25": {"src_call": "TEST", "src_ssid": 1},
                         "csp": {"prio": 2, "dest": 8},
                     },
+                )
+                log.write_mission_command(
+                    record, raw_cmd=raw_cmd, wire=wire,
                     log_text=["  MODE       AX.25"],
-                    operator="irfan",
-                    station="GS-0",
                 )
             finally:
                 log.close()
@@ -144,10 +151,13 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
 
         self.assertEqual(rec["frame_label"], "AX.25")
         self.assertEqual(rec["uplink_mode"], "AX.25")
-        self.assertEqual(rec["ax25"]["src_call"], "TEST")
-        self.assertEqual(rec["csp"]["dest"], 8)
+        # AX.25 / CSP headers now live under the nested `mission` dict —
+        # the unified envelope keeps top-level keys stable across missions.
+        self.assertEqual(rec["mission"]["ax25"]["src_call"], "TEST")
+        self.assertEqual(rec["mission"]["csp"]["dest"], 8)
         self.assertEqual(rec["operator"], "irfan")
         self.assertEqual(rec["station"], "GS-0")
+        self.assertEqual(rec["event_kind"], "tx_command")
 
 
 if __name__ == "__main__":

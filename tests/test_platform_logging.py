@@ -1,5 +1,9 @@
 from mav_gss_lib.platform.loader import load_mission_spec
-from mav_gss_lib.platform.rx.logging import rx_log_record, rx_log_text
+from mav_gss_lib.platform.rx.logging import (
+    rx_log_record,
+    rx_log_text,
+    rx_telemetry_records,
+)
 from mav_gss_lib.platform.rx.pipeline import RxPipeline
 from mav_gss_lib.platform.telemetry.router import TelemetryRouter
 
@@ -22,20 +26,35 @@ def test_build_rx_log_record_wraps_echo_packet_in_platform_envelope(tmp_path):
         b"\xde\xad",
     )
 
-    record = rx_log_record(spec, result.packet, "1.2.3", operator="op", station="gs")
+    record = rx_log_record(
+        spec, result.packet, "1.2.3",
+        session_id="downlink_test",
+        operator="op", station="gs",
+    )
 
+    # Unified envelope fields
+    assert record["event_kind"] == "rx_packet"
+    assert record["session_id"] == "downlink_test"
+    assert isinstance(record["event_id"], str) and len(record["event_id"]) == 32
+    assert isinstance(record["ts_ms"], int)
     assert record["v"] == "1.2.3"
-    assert record["mission"] == "echo_v2"
+    assert record["mission_id"] == "echo_v2"
     assert record["operator"] == "op"
     assert record["station"] == "gs"
-    assert record["raw_hex"] == "dead"
-    assert record["payload_hex"] == "dead"
-    assert record["telemetry"] == []
-    assert record["_rendering"]["row"]["hex"]["value"] == "dead"
-    assert record["mission_log"] == {"hex": "dead"}
+
+    # Wire/inner byte split (renamed from raw_hex/payload_hex)
+    assert record["wire_hex"] == "dead"
+    assert record["inner_hex"] == "dead"
+    assert record["wire_len"] == 2
+    assert record["inner_len"] == 2
+
+    # Mission block always present; `_rendering` and nested `telemetry` gone
+    assert record["mission"] == {"hex": "dead"}
+    assert "_rendering" not in record
+    assert "telemetry" not in record
 
 
-def test_build_rx_log_record_contains_balloon_telemetry_under_generic_key(tmp_path):
+def test_build_rx_log_record_emits_balloon_telemetry_as_separate_events(tmp_path):
     spec = load_mission_spec(
         {"mission": {"id": "balloon_v2", "config": {}}, "platform": {}},
         data_dir=tmp_path,
@@ -45,15 +64,34 @@ def test_build_rx_log_record_contains_balloon_telemetry_under_generic_key(tmp_pa
         b'{"type":"beacon","alt_m":1200,"lat":34.0,"lon":-118.2,"temp_c":18.4}',
     )
 
-    record = rx_log_record(spec, result.packet, "1.2.3")
+    record = rx_log_record(
+        spec, result.packet, "1.2.3",
+        session_id="downlink_test",
+        mission_id="balloon_v2",
+    )
+    tel = list(rx_telemetry_records(
+        result.packet,
+        session_id="downlink_test",
+        rx_event_id=record["event_id"],
+        version="1.2.3",
+        mission_id="balloon_v2",
+    ))
 
-    telemetry_keys = {(f["domain"], f["key"]) for f in record["telemetry"]}
-    assert ("environment", "altitude_m") in telemetry_keys
-    assert ("position", "gps") in telemetry_keys
-    assert record["mission_log"]["type"] == "beacon"
+    assert record["mission"]["type"] == "beacon"
     assert "nodes" not in record
     assert "ptypes" not in record
-    assert "gs_node" not in record
+
+    keys = {(f["domain"], f["key"]) for f in tel}
+    assert ("environment", "altitude_m") in keys
+    assert ("position", "gps") in keys
+
+    # Every telemetry event carries the envelope + back-pointer
+    for t in tel:
+        assert t["event_kind"] == "telemetry"
+        assert t["session_id"] == "downlink_test"
+        assert t["rx_event_id"] == record["event_id"]
+        assert t["mission_id"] == "balloon_v2"
+        assert isinstance(t["ts_ms"], int)
 
 
 def test_format_rx_text_lines_uses_mission_ui_safely(tmp_path):

@@ -2,6 +2,8 @@
 mav_gss_lib.server._broadcast -- Shared WebSocket broadcast helper
 
 Used by RxService, TxService, and api/session.py.
+
+Author:  Irfan Annuar - USC ISI SERC
 """
 
 from __future__ import annotations

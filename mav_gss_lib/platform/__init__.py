@@ -1,13 +1,16 @@
 """Platform — the mission/platform boundary and the runners that drive it.
 
 Layout:
-    contract/    — what missions implement (Protocols + types)
-    rx/          — inbound packet flow (PacketPipeline, RxPipeline, …)
-    tx/          — outbound command flow (prepare_command, frame_command)
-    config/      — platform-config update spec + appliers
-    telemetry/   — runtime fragment/policy/state/router types
-    runtime.py   — PlatformRuntime container
-    loader.py    — MissionSpec loading
+    contract/         — what missions implement (Protocols + types)
+    rx/               — inbound packet flow: PacketPipeline, RxPipeline,
+                        rx_log_record + rx_telemetry_records (JSONL envelopes)
+    tx/               — outbound command flow: prepare_command, frame_command,
+                        tx_log_record (JSONL envelope)
+    config/           — platform-config update spec + appliers
+    telemetry/        — runtime fragment/policy/state/router types
+    runtime.py        — PlatformRuntime container
+    loader.py         — MissionSpec loading
+    _log_envelope.py  — shared new_event_id + ts_iso helpers (RX/TX)
 
 Most callers import from this facade:
     from mav_gss_lib.platform import MissionSpec, PacketOps, CommandOps
@@ -65,7 +68,7 @@ from .loader import (
 )
 from .runtime import PlatformRuntime
 from .rx.events import collect_connect_events, collect_packet_events
-from .rx.logging import rx_log_record, rx_log_text
+from .rx.logging import rx_log_record, rx_log_text, rx_telemetry_records
 from .rx.packets import PacketPipeline
 from .rx.pipeline import RxPipeline, RxResult
 from .rx.rendering import fallback_packet_rendering, render_packet
@@ -79,6 +82,7 @@ from .telemetry import (
     lww_by_ts,
 )
 from .tx.commands import CommandRejected, PreparedCommand, frame_command, prepare_command
+from .tx.logging import tx_log_record
 
 __all__ = [
     "CatalogProvider",
@@ -138,5 +142,7 @@ __all__ = [
     "render_packet",
     "rx_log_record",
     "rx_log_text",
+    "rx_telemetry_records",
+    "tx_log_record",
     "validate_mission_spec",
 ]

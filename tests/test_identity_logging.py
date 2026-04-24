@@ -29,33 +29,38 @@ def test_rx_record_carries_identity():
     spec = MissionSpec(id="test", name="Test", packets=None, ui=_Ui(), config=None)
     record = rx_log_record(
         spec, pkt, version="1.2.3",
+        session_id="downlink_test",
         operator="irfan", station="GS-0",
     )
     assert record["operator"] == "irfan"
     assert record["station"] == "GS-0"
+    assert record["event_kind"] == "rx_packet"
+    assert record["session_id"] == "downlink_test"
 
 
 import json
 import os
 
 from mav_gss_lib.logging import TXLog
+from mav_gss_lib.platform.tx.logging import tx_log_record
 
 
 def test_tx_record_carries_identity(tmp_path):
     log = TXLog(str(tmp_path), zmq_addr="tcp://127.0.0.1:52002", version="1.2.3")
     try:
-        log.write_mission_command(
-            n=1,
-            display={"title": "PING", "subtitle": ""},
-            mission_payload={"cmd": "ping"},
-            raw_cmd=b"\x01\x02",
-            payload=b"\x01\x02",
+        record = tx_log_record(
+            1,
+            {"title": "PING", "subtitle": ""},
+            {"cmd": "ping"},
+            b"\x01\x02", b"\x01\x02",
+            session_id=log.session_id,
+            ts_ms=1_700_000_000_000,
+            version="1.2.3",
+            operator="irfan", station="GS-0",
             frame_label="RAW",
             log_fields={"uplink_mode": "RAW"},
-            log_text=[],
-            operator="irfan",
-            station="GS-0",
         )
+        log.write_mission_command(record, raw_cmd=b"\x01\x02", wire=b"\x01\x02", log_text=[])
     finally:
         log.close()
 

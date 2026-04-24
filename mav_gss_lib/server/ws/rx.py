@@ -1,4 +1,12 @@
-"""RX runtime and websocket handling."""
+"""RX WebSocket endpoint — /ws/rx packet fan-out.
+
+On connect, sends mission packet-column definitions, replays the in-memory
+packet backlog, and emits any mission-plugin replay events. Thereafter the
+client receives live packet/status/telemetry frames published by
+``RxService.broadcast_loop``.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
 
 from __future__ import annotations
 

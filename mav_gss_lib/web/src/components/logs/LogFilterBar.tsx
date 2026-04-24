@@ -27,14 +27,14 @@ export function LogFilterBar({
         onChange={(e) => onCmdFilterChange(e.target.value)}
       />
       <GssInput
-        placeholder="From HH:MM"
-        className="w-24"
+        placeholder="From HH:MM[:SS]"
+        className="w-28"
         value={fromTime}
         onChange={(e) => onFromTimeChange(e.target.value)}
       />
       <GssInput
-        placeholder="To HH:MM"
-        className="w-24"
+        placeholder="To HH:MM[:SS]"
+        className="w-28"
         value={toTime}
         onChange={(e) => onToTimeChange(e.target.value)}
       />

@@ -6,6 +6,8 @@ asyncio task in the web runtime to surface silent failures to the standard
 `logging` module. A task that dies without this callback is invisible: the
 exception lives on the Task object and is only reported when the Task is
 garbage-collected, long after the damage is done.
+
+Author:  Irfan Annuar - USC ISI SERC
 """
 
 from __future__ import annotations

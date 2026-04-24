@@ -267,7 +267,7 @@ class TestLogWriterBatchesFlushes(unittest.TestCase):
 
                 for i in range(200):
                     log.write_jsonl({"i": i})
-                    log._write_text(f"line-{i}\n")
+                    log._write_entry([f"line-{i}"])
             finally:
                 log.close()
 

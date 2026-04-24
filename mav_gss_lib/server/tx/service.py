@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Awaitable, Callable, NamedTuple
 
-from mav_gss_lib.platform import EncodedCommand, FramedCommand
+from mav_gss_lib.platform import EncodedCommand, FramedCommand, tx_log_record
 from mav_gss_lib.transport import PUB_STATUS, init_zmq_pub, send_pdu, zmq_cleanup
 
 from .._broadcast import broadcast_safe
@@ -236,16 +236,26 @@ class TxService:
         """Write the TX log entry and append a history item; return the history entry."""
         if self.log:
             try:
-                self.log.write_mission_command(
+                record = tx_log_record(
                     self.count,
                     item.get("display", {}),
                     item.get("payload", {}),
-                    raw_cmd, framed.wire,
-                    frame_label=framed.frame_label,
-                    log_fields=framed.log_fields,
-                    log_text=framed.log_text,
+                    raw_cmd,
+                    framed.wire,
+                    session_id=self.log.session_id,
+                    ts_ms=int(time.time() * 1000),
+                    version=self.runtime.version,
+                    mission_id=self.runtime.mission_id,
                     operator=self.runtime.operator,
                     station=self.runtime.station,
+                    frame_label=framed.frame_label,
+                    log_fields=framed.log_fields,
+                )
+                self.log.write_mission_command(
+                    record,
+                    raw_cmd=raw_cmd,
+                    wire=framed.wire,
+                    log_text=framed.log_text,
                 )
             except Exception as exc:
                 logging.warning("TX log write failed: %s", exc)

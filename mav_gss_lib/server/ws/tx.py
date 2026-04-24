@@ -1,4 +1,13 @@
-"""TX WebSocket endpoint with dispatch-table action routing."""
+"""TX WebSocket endpoint — /ws/tx with dispatch-table action routing.
+
+On connect, replays the current queue + send-state snapshot and recent
+send history. Thereafter each inbound message is dispatched via
+``tx.actions.ACTIONS`` — guards run first, then the handler; unknown
+actions return a structured error. See ``tx/actions.py`` for the full
+action/event contract.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
 
 from __future__ import annotations
 

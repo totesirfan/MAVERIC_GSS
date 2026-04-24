@@ -20,12 +20,25 @@ from ..contract.mission import MissionSpec
 
 @dataclass(frozen=True, slots=True)
 class PreparedCommand:
+    """Output of ``prepare_command`` — mission-validated command ready to queue.
+
+    ``draft`` is the parsed mission input, ``encoded`` holds the inner
+    bytes plus guard flag plus mission-opaque payload, and ``rendering``
+    carries the UI row + detail blocks for queue display.
+    """
     draft: CommandDraft
     encoded: EncodedCommand
     rendering: CommandRendering
 
 
 class CommandRejected(ValueError):
+    """Raised when mission validation rejects a command.
+
+    Carries the list of ``ValidationIssue`` entries with ``severity="error"``;
+    the message is their concatenated ``message`` fields so a plain
+    ``str(exc)`` still surfaces the reason to the operator.
+    """
+
     def __init__(self, issues: list[ValidationIssue]):
         self.issues = issues
         super().__init__("; ".join(issue.message for issue in issues) or "command rejected")

@@ -12,7 +12,7 @@ from fastapi import WebSocket
 async def send_phase_fail(ws: WebSocket, phase: str, detail: str) -> None:
     """Emit an update_phase failure event. Swallow send errors.
 
-    Matches the prevailing style in preflight_ws._broadcast and the four
+    Matches the prevailing style in preflight._broadcast and the four
     other WS-send sites that tolerate disconnected clients mid-send.
     """
     try:

@@ -1,3 +1,13 @@
+"""TelemetryRouter — platform-owned telemetry dispatch + per-domain registry.
+
+Missions register domains at startup (name + merge policy + optional
+entry loader + optional catalog provider). The router owns canonical
+state I/O and websocket-message shaping; it has no compile-time
+knowledge of mission vocabulary.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
+
 from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional

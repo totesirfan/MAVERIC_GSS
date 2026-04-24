@@ -173,21 +173,21 @@ Web runtime (`mav_gss_lib/server/`):
 | `app.py`              | FastAPI factory, lifespan, static mount, `MissionSpec.http` router mount. |
 | `state.py`            | `WebRuntime` container (split config + `PlatformRuntime` + `MissionSpec`), `HOST`, `PORT`, `MAX_PACKETS`, `MAX_HISTORY`, `MAX_QUEUE`, `Session`. |
 | `shutdown.py`         | `SHUTDOWN_DELAY`, delayed-shutdown task scheduling.                   |
-| `rx_service.py`       | ZMQ SUB receiver thread and async broadcast loop; drives `platform.process_rx` and fans mission `EventOps` messages out on `/ws/rx`. |
-| `tx_service.py`       | TX queue, send loop, history, persistence, guard confirmation; calls mission `CommandOps.frame(encoded)` for wire bytes. |
-| `tx_queue.py`         | Pure queue helpers (build, validate, sanitize, save/load JSONL).      |
-| `tx_actions.py`       | Queue mutation actions invoked by the `/ws/tx` handler.               |
-| `rx.py` / `tx.py`     | `/ws/rx` and `/ws/tx` WebSocket handlers.                             |
-| `session_ws.py`       | `/ws/session` WebSocket.                                              |
-| `preflight_ws.py`     | `/ws/preflight` WebSocket and preflight broadcast loop.               |
-| `update_ws.py`        | Update-check scheduling and WebSocket.                                |
+| `rx/service.py`       | ZMQ SUB receiver thread and async broadcast loop; drives `platform.process_rx` and fans mission `EventOps` messages out on `/ws/rx`. |
+| `tx/service.py`       | TX queue, send loop, history, persistence, guard confirmation; calls mission `CommandOps.frame(encoded)` for wire bytes. |
+| `tx/queue.py`         | Pure queue helpers (build, validate, sanitize, save/load JSONL).      |
+| `tx/actions.py`       | Queue mutation actions invoked by the `/ws/tx` handler.               |
+| `ws/rx.py` / `ws/tx.py` | `/ws/rx` and `/ws/tx` WebSocket handlers.                           |
+| `ws/session.py`       | `/ws/session` WebSocket.                                              |
+| `ws/preflight.py`     | `/ws/preflight` WebSocket and preflight broadcast loop.               |
+| `ws/update.py`        | Update-check scheduling and WebSocket.                                |
+| `ws/_utils.py`        | Shared WebSocket helpers.                                             |
 | `telemetry/`          | Platform telemetry router/state for mission-declared domains.         |
 | `security.py`         | CORS / CSP headers / API-token check.                                 |
 | `api/`                | REST routers: `config.py`, `schema.py`, `logs.py`, `queue_io.py`, `session.py`. |
 | `_atomics.py`         | `AtomicStatus` primitive.                                             |
 | `_broadcast.py`       | `broadcast_safe` WebSocket helper.                                    |
 | `_task_utils.py`      | Task exception logging.                                               |
-| `_ws_utils.py`        | Shared WebSocket utilities.                                           |
 
 ## Protocol stack
 
@@ -266,6 +266,7 @@ mav_gss_lib/
             pipeline.py             RxPipeline + RxResult
         tx/                         Outbound runners
             commands.py             prepare_command + frame_command
+            logging.py              tx_log_record
         config/                     Platform config-update boundary
             spec.py                 PlatformConfigSpec
             updates.py              apply_*_config_update + persist_mission_config

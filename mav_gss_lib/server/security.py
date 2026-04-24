@@ -1,4 +1,13 @@
-"""Auth and origin checks for the web runtime."""
+"""
+mav_gss_lib.server.security -- Auth and origin checks
+
+Shared session-token gate used by state-mutating REST endpoints
+(``require_api_token``) and WebSocket handlers (``authorize_websocket``).
+``origin_allowed`` whitelists the loopback dashboard origins plus the
+request ``Host`` header so the dev Vite server can attach.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
 
 from __future__ import annotations
 

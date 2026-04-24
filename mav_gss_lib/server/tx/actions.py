@@ -1,7 +1,10 @@
 """TX WebSocket action handlers and dispatch table.
 
 Each handler is a standalone async function: (runtime, msg, websocket) -> None.
-Guards are checked by the dispatch loop before calling the handler.
+Guards are checked by the dispatch loop before calling the handler. The full
+action/event contract for /ws/tx is documented in the header comment below.
+
+Author:  Irfan Annuar - USC ISI SERC
 """
 
 # ── TX WebSocket Contract ──────────────────────────────────────────────

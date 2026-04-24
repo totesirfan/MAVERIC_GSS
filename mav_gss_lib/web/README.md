@@ -189,7 +189,7 @@ HTTP endpoints (see `mav_gss_lib/server/api/`):
 Boundaries:
 
 - Packet parsing and protocol truth belong in `mav_gss_lib/missions/<mission>/adapter.py`
-- Backend packet shaping belongs in `mav_gss_lib/server/rx/service.py` and `tx_service.py`
+- Backend packet shaping belongs in `mav_gss_lib/server/rx/service.py` and `mav_gss_lib/server/tx/service.py`
 - React components render the normalized packet, queue, and config models they receive — they do not decode wire formats
 - Mission-scoped UI (TX builders, plugin pages) lives under `src/plugins/<mission>/` and is discovered by `src/plugins/registry.ts` via `import.meta.glob`
 - Mission-scoped providers live in `src/plugins/<mission>/providers.ts` and are composed by `MissionProviders`

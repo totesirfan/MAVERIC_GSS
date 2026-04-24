@@ -5,8 +5,8 @@ the full backlog of already-completed checks. Supports rerun with
 single-run guard to prevent concurrent executions.
 
 Updater-coupled WS plumbing (schedule_update_check, _build_updates_event,
-_handle_apply_update) lives in update_ws.py. This module calls into it
-lazily inside async handlers to avoid a top-level back-edge — update_ws
+_handle_apply_update) lives in update.py. This module calls into it
+lazily inside async handlers to avoid a top-level back-edge — update
 imports _broadcast from here at module top.
 
 Author:  Irfan Annuar - USC ISI SERC
@@ -161,9 +161,9 @@ async def _resolve_updates(runtime) -> CheckResult:
     lifespan and the rerun handler in ws_preflight. Re-firing here would
     clobber a running future on cold start.
     """
-    # Lazy import to avoid a top-level back-edge — update_ws imports
+    # Lazy import to avoid a top-level back-edge — update imports
     # _broadcast from this module at its top.
-    from .update_ws import _build_updates_event
+    from .update import _build_updates_event
     try:
         event = await _build_updates_event(runtime)
         await _broadcast(runtime, event)
@@ -244,7 +244,7 @@ async def ws_preflight(websocket: WebSocket):
             if action == "rerun" and not runtime.preflight_running:
                 # Refresh the update future so the rerun picks up a fresh fetch
                 # rather than replaying the stale cached result.
-                from .update_ws import schedule_update_check
+                from .update import schedule_update_check
                 schedule_update_check(runtime)
                 # run_preflight_and_broadcast atomically clears backlog
                 # and broadcasts the reset event to all current clients.
@@ -257,7 +257,7 @@ async def ws_preflight(websocket: WebSocket):
                 continue
 
             if action == "apply_update":
-                from .update_ws import _handle_apply_update
+                from .update import _handle_apply_update
                 await _handle_apply_update(runtime, websocket)
                 continue
     except WebSocketDisconnect:

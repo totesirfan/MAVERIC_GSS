@@ -32,6 +32,13 @@ def _resolve_log_dir(platform_cfg: dict[str, Any]) -> str:
 
 @dataclass(slots=True)
 class PlatformRuntime:
+    """Mission + telemetry router + RX pipeline, bound to split operator state.
+
+    Created once per ``WebRuntime`` via ``PlatformRuntime.from_split(...)``.
+    ``process_rx`` / ``prepare_tx`` / ``frame_tx`` are the three entry
+    points the server calls on every RX packet and TX command.
+    """
+
     mission: MissionSpec
     telemetry: TelemetryRouter
     rx: RxPipeline
@@ -43,7 +50,13 @@ class PlatformRuntime:
         mission_id: str,
         mission_cfg: dict[str, Any],
     ) -> "PlatformRuntime":
-        """Build the platform runtime from split operator state."""
+        """Build the platform runtime from split operator state.
+
+        Loads the active MissionSpec, registers mission telemetry domains
+        on a fresh ``TelemetryRouter`` rooted under ``<log_dir>/.telemetry``,
+        and wires the ``RxPipeline`` that stitches packet/telemetry/render
+        into one call.
+        """
         log_dir = _resolve_log_dir(platform_cfg)
         mission = load_mission_spec_from_split(
             platform_cfg, mission_id, mission_cfg, data_dir=Path(log_dir),
@@ -59,10 +72,13 @@ class PlatformRuntime:
         )
 
     def process_rx(self, meta: dict[str, Any], raw: bytes) -> RxResult:
+        """Run one inbound frame through the full RX pipeline."""
         return self.rx.process(meta, raw)
 
     def prepare_tx(self, value: str | dict[str, Any]) -> PreparedCommand:
+        """Run the mission command pipeline: parse → validate → encode → render."""
         return prepare_command(self.mission, value)
 
     def frame_tx(self, encoded: EncodedCommand) -> FramedCommand:
+        """Ask the mission to wrap encoded bytes in its wire framing."""
         return frame_command(self.mission, encoded)

@@ -11,6 +11,7 @@ def test_platform_package_public_api_imports():
     assert platform.RxPipeline
     assert platform.prepare_command
     assert platform.rx_log_record
+    assert platform.tx_log_record
 
 
 def test_platform_package_does_not_import_maveric():

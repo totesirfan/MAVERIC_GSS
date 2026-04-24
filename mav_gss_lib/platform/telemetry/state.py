@@ -1,3 +1,13 @@
+"""DomainState — persistent per-domain canonical telemetry state.
+
+Owns the merge loop (apply one fragment → mutate per-key entry →
+atomic JSON write) and the load-tolerant boot path. Merge policy and
+entry loader are supplied by the mission at registration; the platform
+reads only the ``t`` field from each entry for ordering.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
+
 from __future__ import annotations
 import json
 import logging

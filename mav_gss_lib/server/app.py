@@ -57,12 +57,12 @@ async def lifespan(app: FastAPI):
     rx_addr = get_rx_zmq_addr(runtime.platform_cfg)
     runtime.rx.log = SessionLog(
         runtime.log_dir, rx_addr, runtime.version,
-        mission_name=runtime.mission_name,
+        mission_name=runtime.mission_name, mission_id=runtime.mission_id,
         station=runtime.station, operator=runtime.operator, host=runtime.host,
     )
     runtime.tx.log = TXLog(
         runtime.log_dir, tx_addr, version=runtime.version,
-        mission_name=runtime.mission_name,
+        mission_name=runtime.mission_name, mission_id=runtime.mission_id,
         station=runtime.station, operator=runtime.operator, host=runtime.host,
     )
     print(f"RX logging → {runtime.rx.log.jsonl_path}")

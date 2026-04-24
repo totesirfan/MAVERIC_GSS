@@ -1,3 +1,12 @@
+"""TelemetryFragment — one telemetry key/value carrying its target domain.
+
+Emitted by mission extractors (``TelemetryExtractor.extract``), consumed
+by the platform's ``TelemetryRouter`` for canonical state merge and by
+the RX log writer for per-packet telemetry events.
+
+Author:  Irfan Annuar - USC ISI SERC
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any

@@ -31,12 +31,14 @@ if TYPE_CHECKING:
 def build_log_mission_data(pkt) -> dict:
     """Return MAVERIC-specific fields for the JSONL log mission block.
 
-    This produces the same fields that were previously inlined in
-    rx_log_record(), but scoped under a 'mission' key in the
-    platform envelope.
+    Populates the `mission` key in the platform rx_packet envelope.
+    Telemetry fragments are NOT included here — the platform emits each
+    one as its own `event_kind="telemetry"` record, back-pointing to the
+    parent packet via `rx_event_id`. CRC fields are emitted as integers
+    so SQL does not have to strip `0x` prefixes on ingest.
     """
     md = _md(pkt)
-    data = {}
+    data: dict = {}
     csp = md.get("csp")
     if csp:
         data["csp_candidate"] = csp
@@ -48,7 +50,7 @@ def build_log_mission_data(pkt) -> dict:
     if crc_status.get("csp_crc32_valid") is not None:
         data["csp_crc32"] = {
             "valid": crc_status["csp_crc32_valid"],
-            "received": f"0x{crc_status['csp_crc32_rx']:08x}",
+            "received": int(crc_status["csp_crc32_rx"]),
         }
     cmd = md.get("cmd")
     if cmd:
@@ -66,18 +68,10 @@ def build_log_mission_data(pkt) -> dict:
             cmd_log["args"] = cmd["args"]
             if cmd.get("schema_warning"):
                 cmd_log["schema_warning"] = cmd["schema_warning"]
-        data["cmd"] = cmd_log
         cmd_tail = md.get("cmd_tail")
         if cmd_tail:
-            data["tail_hex"] = cmd_tail.hex()
-
-    # Decoded mission telemetry — the single per-packet payload produced
-    # by mission extractors. The text-log path in format_log_lines
-    # iterates this same list; JSONL and text logs stay in sync by
-    # construction, no symmetry patch required.
-    frags = list(pkt.fragments)
-    if frags:
-        data["fragments"] = frags
+            cmd_log["tail_hex"] = cmd_tail.hex()
+        data["cmd"] = cmd_log
     return data
 
 

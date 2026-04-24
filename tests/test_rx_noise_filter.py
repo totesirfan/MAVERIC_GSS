@@ -126,14 +126,21 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         # assertion and tell us nothing about the guard's behaviour.
         class _SpyLog:
             def __init__(self) -> None:
+                self.session_id = "spy_session"
                 self.jsonl_calls: list = []
                 self.packet_calls: list = []
 
             def write_jsonl(self, record) -> None:
                 self.jsonl_calls.append(record)
 
-            def write_packet(self, pkt, text_lines=None) -> None:
-                self.packet_calls.append((pkt, text_lines))
+            def write_packet(self, record, packet, *,
+                             telemetry_records=None, text_lines=None) -> None:
+                self.packet_calls.append((record, packet, telemetry_records, text_lines))
+                # Mirror the real writer's fan-out so jsonl_calls stays
+                # a meaningful assertion target for downstream tests.
+                self.write_jsonl(record)
+                for tel in (telemetry_records or []):
+                    self.write_jsonl(tel)
 
         self.spy_log = _SpyLog()
         self.rx.log = self.spy_log

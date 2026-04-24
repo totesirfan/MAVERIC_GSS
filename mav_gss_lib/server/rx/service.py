@@ -20,7 +20,11 @@ from typing import TYPE_CHECKING
 from mav_gss_lib.config import get_rx_zmq_addr
 
 from .._atomics import AtomicStatus
-from mav_gss_lib.platform.rx.logging import rx_log_record, rx_log_text
+from mav_gss_lib.platform.rx.logging import (
+    rx_log_record,
+    rx_log_text,
+    rx_telemetry_records,
+)
 from mav_gss_lib.protocols.frame_detect import detect_frame_type, is_noise_frame
 from mav_gss_lib.transport import SUB_STATUS, init_zmq_sub, poll_monitor, receive_pdu, zmq_cleanup
 
@@ -134,21 +138,32 @@ class RxService:
                     continue  # gr-satellites noise — behave as if never received
                 result = self.runtime.platform.process_rx(meta, raw)
                 pkt = result.packet
-                record = rx_log_record(
-                    self.runtime.mission, pkt, version,
-                    operator=self.runtime.operator, station=self.runtime.station,
-                )
                 try:
                     if self.log:
-                        self.log.write_jsonl(record)
-                        self.log.write_packet(
+                        record = rx_log_record(
+                            self.runtime.mission, pkt, version,
+                            session_id=self.log.session_id,
+                            mission_id=self.runtime.mission_id,
+                            operator=self.runtime.operator,
+                            station=self.runtime.station,
+                        )
+                        tel_records = list(rx_telemetry_records(
                             pkt,
+                            session_id=self.log.session_id,
+                            rx_event_id=record["event_id"],
+                            version=version,
+                            mission_id=self.runtime.mission_id,
+                            operator=self.runtime.operator,
+                            station=self.runtime.station,
+                        ))
+                        self.log.write_packet(
+                            record, pkt,
+                            telemetry_records=tel_records,
                             text_lines=rx_log_text(self.runtime.mission, pkt),
                         )
                 except Exception as exc:
                     logging.warning("RX log write failed: %s", exc)
                 pkt_json = result.packet_message["data"]
-                pkt_json["_rendering"] = record["_rendering"]
                 self.packets.append(pkt_json)
                 await broadcast_safe(self.clients, self.lock, json.dumps(result.packet_message))
 

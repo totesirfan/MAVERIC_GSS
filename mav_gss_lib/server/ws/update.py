@@ -1,4 +1,4 @@
-"""Updater WebSocket plumbing — extracted from preflight_ws.py.
+"""Updater WebSocket plumbing — extracted from preflight.py.
 
 Hosts the three updater-coupled WS functions that share state on the
 runtime.update_lock / update_status_future / update_in_progress fields:
@@ -7,9 +7,9 @@ runtime.update_lock / update_status_future / update_in_progress fields:
 - _build_updates_event:  awaits the future and renders the WS event dict.
 - _handle_apply_update:  drives apply_update with phase-progress broadcast.
 
-The broadcast primitive (_broadcast) stays in preflight_ws.py so the
+The broadcast primitive (_broadcast) stays in preflight.py so the
 preflight backlog/lock semantics remain owned by one module. This module
-imports _broadcast at top-level; preflight_ws.py imports nothing from
+imports _broadcast at top-level; preflight.py imports nothing from
 here at module top — only lazily inside the ws_preflight handler and
 inside _resolve_updates.
 

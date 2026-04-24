@@ -1,16 +1,20 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Clock, ChevronDown, ChevronRight, AlertTriangle, Binary, ArrowDownToLine, ArrowUpFromLine, Play, ClipboardCopy, Braces } from 'lucide-react'
+import {
+  X, ChevronDown, ChevronRight, AlertTriangle, Binary,
+  ArrowDownToLine, ArrowUpFromLine, Play, ClipboardCopy, Braces,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Separator } from '@/components/ui/separator'
 import { colors } from '@/lib/colors'
-import { useLogQuery } from '@/hooks/useLogQuery'
-import { ContextMenuRoot, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@/components/shared/ContextMenu'
+import { useLogQuery, type LogEntry } from '@/hooks/useLogQuery'
+import {
+  ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
+  ContextMenuItem, ContextMenuSeparator,
+} from '@/components/shared/ContextMenu'
 import { LogFilterBar } from './LogFilterBar'
-import { CellValue, SemanticBlocks, ProtocolBlocks, IntegritySection, extractFromRendering } from '@/components/shared/RenderingBlocks'
-import type { RenderingData } from '@/lib/types'
 
 interface LogViewerProps {
   open: boolean
@@ -18,7 +22,6 @@ interface LogViewerProps {
   onStartReplay?: (sessionId: string) => void
 }
 
-/** Parse session ID like "downlink_20260404_142638" into a readable date/time */
 function parseSessionLabel(sid: string): { date: string; time: string; label: string } {
   const m = sid.match(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/)
   if (m) {
@@ -29,6 +32,74 @@ function parseSessionLabel(sid: string): { date: string; time: string; label: st
   }
   return { date: '', time: '', label: sid }
 }
+
+function hhmmss(ts_iso: string | undefined, ts_ms: number | undefined): string {
+  if (ts_iso) {
+    const m = ts_iso.match(/T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?/)
+    if (m) return m[2] ? `${m[1]}.${m[2].padEnd(3, '0')}` : m[1]
+  }
+  if (typeof ts_ms === 'number' && ts_ms > 0) {
+    const d = new Date(ts_ms)
+    const hh = String(d.getUTCHours()).padStart(2, '0')
+    const mm = String(d.getUTCMinutes()).padStart(2, '0')
+    const ss = String(d.getUTCSeconds()).padStart(2, '0')
+    const ms = String(d.getUTCMilliseconds()).padStart(3, '0')
+    return `${hh}:${mm}:${ss}.${ms}`
+  }
+  return '--:--:--'
+}
+
+function entryCmdId(e: LogEntry): string {
+  const top = e.cmd_id
+  if (typeof top === 'string' && top) return top
+  const mission = e.mission as Record<string, unknown> | undefined
+  const cmd = mission?.cmd as Record<string, unknown> | undefined
+  const inner = cmd?.cmd_id
+  return typeof inner === 'string' ? inner : ''
+}
+
+function formatHexBlock(hex: string): string {
+  return hex.match(/.{1,2}/g)?.join(' ') ?? ''
+}
+
+// Raw wire bytes sometimes get lossily stringified upstream (notably
+// tlm_beacon extra_args when the schema under-specifies the trailer) —
+// those strings carry C0 controls, DEL, or the U+FFFD replacement char.
+// Detect and replace with a hex label so the expanded-row JSON stays
+// readable and doesn't break the pretty-print with unprintable glyphs.
+// eslint-disable-next-line no-control-regex
+const BINARY_JUNK_RE = new RegExp(
+  '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f�]'
+)
+function isBinaryJunk(s: string): boolean {
+  return s.length > 0 && BINARY_JUNK_RE.test(s)
+}
+function toHexLabel(s: string): string {
+  let hex = ''
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i)
+    const byte = code === 0xfffd ? 0xff : code & 0xff
+    hex += byte.toString(16).padStart(2, '0')
+  }
+  return `<bytes:0x${hex}>`
+}
+function sanitizeForDisplay(value: unknown): unknown {
+  if (typeof value === 'string') return isBinaryJunk(value) ? toHexLabel(value) : value
+  if (Array.isArray(value)) return value.map(sanitizeForDisplay)
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = sanitizeForDisplay(v)
+    }
+    return out
+  }
+  return value
+}
+
+function prettyMissionJson(value: unknown): string {
+  return JSON.stringify(sanitizeForDisplay(value), null, 2)
+}
+
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 let hasLoadedLogViewer = false
@@ -45,9 +116,11 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     selected,
     setSelected,
     entries,
+    telemetryByParent,
     loading,
     hasMore,
     currentOffset,
+    error,
     cmdFilter,
     setCmdFilter,
     fromTime,
@@ -56,18 +129,13 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     setToTime,
     dateFilter,
     setDateFilter,
-    rxColumns,
-    txColumns,
     fetchSessions,
     fetchEntries,
     reset,
   } = useLogQuery()
 
-  useEffect(() => {
-    hasLoadedLogViewer = true
-  }, [])
+  useEffect(() => { hasLoadedLogViewer = true }, [])
 
-  // Save / restore focus
   useEffect(() => {
     if (open) {
       triggerRef.current = document.activeElement
@@ -77,7 +145,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     }
   }, [open])
 
-  // Focus trap
   const handleTab = useCallback((e: KeyboardEvent) => {
     if (e.key !== 'Tab' || !panelRef.current) return
     const focusable = panelRef.current.querySelectorAll<HTMLElement>(
@@ -103,7 +170,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     return () => window.removeEventListener('keydown', handleKey)
   }, [open, onClose, handleTab])
 
-  // Auto-focus panel on open
   useEffect(() => {
     if (open && panelRef.current) {
       const btn = panelRef.current.querySelector<HTMLElement>('button')
@@ -116,7 +182,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     fetchSessions()
   }, [open, fetchSessions])
 
-  /* eslint-disable react-hooks/set-state-in-effect -- fetchEntries is triggered by selection/filter changes; reset on close is intentional */
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (selected) { setExpandedSet(new Set()); fetchEntries(selected, false, 0) }
   }, [selected, fetchEntries])
@@ -126,27 +192,23 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
   }, [open, reset])
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Derive whether selected session is downlink
   const isDownlinkSession = selected?.startsWith('downlink') ?? false
 
-  // Compute session counts per date for calendar markers
+  // Prefer the date embedded in the session_id filename over file mtime —
+  // mtime reflects last-write time, which can lag far behind the session
+  // capture time (e.g. after a one-shot migration rewrote every file today).
   const sessionDateCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const s of sessions) {
-      const sid = (s.session_id ?? s.id ?? s.filename) as string
-      const mtime = s.mtime as number | undefined
-      let ds = ''
-      if (mtime) {
-        ds = new Date(mtime * 1000).toLocaleDateString('en-CA')
-      } else {
-        ds = parseSessionLabel(sid).date
-      }
+      const parsed = parseSessionLabel(s.session_id).date
+      const ds = parsed || (s.mtime
+        ? new Date(s.mtime * 1000).toLocaleDateString('en-CA')
+        : '')
       if (ds) counts[ds] = (counts[ds] || 0) + 1
     }
     return counts
   }, [sessions])
 
-  // Dates that have sessions — for calendar highlighting
   const sessionDates = useMemo(() => {
     return Object.keys(sessionDateCounts).map(d => new Date(d + 'T00:00:00'))
   }, [sessionDateCounts])
@@ -161,13 +223,11 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
         >
-          {/* Frosted backdrop */}
           <motion.div
             className="absolute inset-0 frosted-backdrop"
             style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
           />
 
-          {/* Panel */}
           <motion.div
             ref={panelRef}
             className="flex flex-1 m-4 rounded-lg border overflow-hidden shadow-overlay relative"
@@ -177,7 +237,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
             exit={{ opacity: 0, scale: 0.95 }}
             transition={springConfig}
           >
-
             {/* Left sidebar: calendar + session list */}
             <div className="w-72 shrink-0 border-r flex flex-col overflow-hidden" style={{ borderColor: colors.borderSubtle }}>
               <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: colors.borderSubtle }}>
@@ -193,7 +252,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                   </button>
                 </div>
               </div>
-              {/* Calendar */}
               <div className="shrink-0 border-b flex justify-center" style={{ borderColor: colors.borderSubtle }}>
                 <Calendar
                   mode="single"
@@ -204,35 +262,28 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                   className="!p-2 !bg-transparent w-full [--cell-size:--spacing(6)]"
                 />
               </div>
-              {/* Session list */}
               <div className="flex-1 overflow-y-auto">
                 {sessions.length === 0 ? (
                   <div className="px-3 py-4 text-xs text-center" style={{ color: colors.dim }}>No sessions found</div>
                 ) : (
                   sessions.filter((s) => {
                     if (!dateFilter) return true
-                    const sid = (s.session_id ?? s.id ?? s.filename) as string
-                    const mtime = s.mtime as number | undefined
-                    let ds = ''
-                    if (mtime) {
-                      ds = new Date(mtime * 1000).toLocaleDateString('en-CA')
-                    } else {
-                      ds = parseSessionLabel(sid).date
-                    }
+                    const parsed = parseSessionLabel(s.session_id).date
+                    const ds = parsed || (s.mtime
+                      ? new Date(s.mtime * 1000).toLocaleDateString('en-CA')
+                      : '')
                     return ds === dateFilter
                   }).map((s) => {
-                    const sid = (s.session_id ?? s.id ?? s.filename) as string
-                    const mtime = s.mtime as number | undefined
-                    const direction = String(s.direction ?? (sid.startsWith('uplink') ? 'uplink' : 'downlink'))
+                    const sid = s.session_id
+                    const direction = s.direction
                     const isDownlink = direction === 'downlink'
-                    let dateStr = '', timeStr2 = ''
-                    if (mtime) {
-                      const d = new Date(mtime * 1000)
-                      dateStr = d.toLocaleDateString('en-CA')
-                      timeStr2 = d.toLocaleTimeString('en-GB', { hour12: false })
-                    } else {
-                      const p = parseSessionLabel(sid)
-                      dateStr = p.date; timeStr2 = p.time
+                    const parsed = parseSessionLabel(sid)
+                    let dateStr = parsed.date
+                    let timeStr2 = parsed.time
+                    if ((!dateStr || !timeStr2) && s.mtime) {
+                      const d = new Date(s.mtime * 1000)
+                      if (!dateStr) dateStr = d.toLocaleDateString('en-CA')
+                      if (!timeStr2) timeStr2 = d.toLocaleTimeString('en-GB', { hour12: false })
                     }
                     const sizeKb = typeof s.size === 'number' ? (s.size / 1024).toFixed(1) + ' KB' : '?'
                     const isSel = selected === sid
@@ -240,7 +291,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                     const DirIcon = isDownlink ? ArrowDownToLine : ArrowUpFromLine
                     const tagMatch = sid.match(/\d{8}_\d{6}_(.+?)(?:\.jsonl)?$/)
                     const tag = tagMatch ? tagMatch[1] : ''
-                    const sessionName = sid.replace(/\.jsonl$/, '')
                     return (
                       <div
                         key={sid}
@@ -262,7 +312,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                             <span className="text-[11px]" style={{ color: colors.dim }}>{sizeKb}</span>
                           </div>
                           {tag && <div className="text-[11px] truncate pl-5" style={{ color: colors.sep }}>{tag}</div>}
-                          <div className="text-[11px] font-mono truncate pl-5" style={{ color: colors.sep }}>{sessionName}</div>
+                          <div className="text-[11px] font-mono truncate pl-5" style={{ color: colors.sep }}>{sid}</div>
                         </button>
                         {isDownlink && onStartReplay && (
                           <Button
@@ -283,7 +333,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
 
             {/* Right area */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Search bar */}
               <LogFilterBar
                 cmdFilter={cmdFilter}
                 fromTime={fromTime}
@@ -295,24 +344,26 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                 onToTimeChange={setToTime}
               />
 
-              {/* Column headers — use TX columns for TX sessions, RX columns for RX */}
-              {selected && entries.length > 0 && (() => {
-                const isTxSession = entries.some(e => e.is_tx)
-                const cols = isTxSession ? txColumns : rxColumns
-                return cols.length > 0 ? (
-                  <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
-                    <span className="w-5 px-1" />
-                    {cols.map(c => (
-                      <span
-                        key={c.id}
-                        className={`px-2 shrink-0 ${c.flex ? 'flex-1' : ''} ${c.align === 'right' ? 'text-right' : ''} ${c.width ?? ''}`}
-                      >
-                        {c.label}
-                      </span>
-                    ))}
-                  </div>
-                ) : null
-              })()}
+              {error && (
+                <div className="px-3 py-1.5 text-[11px] shrink-0" style={{ color: colors.danger, backgroundColor: `${colors.danger}0a` }}>
+                  {error}
+                </div>
+              )}
+
+              {/* Column headers */}
+              {selected && entries.length > 0 && (
+                <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
+                  <span className="w-5 px-1" />
+                  <span className="px-2 w-12 text-right">#</span>
+                  <span className="px-2 w-28">time</span>
+                  <span className="px-2 w-16">kind</span>
+                  <span className="px-2 flex-1">cmd</span>
+                  <span className="px-2 w-24">frame</span>
+                  <span className="px-2 w-16 text-right">wire</span>
+                  <span className="px-2 w-16 text-right">inner</span>
+                  <span className="px-2 w-16">flags</span>
+                </div>
+              )}
 
               {/* Entries */}
               <div className="flex-1 overflow-y-auto">
@@ -325,12 +376,25 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                 ) : (
                   <>
                   {entries.map((e, i) => {
-                    const timeStr = String(e.time ?? '')
-                    const rawHex = String(e.raw_hex ?? '')
+                    const kind = String(e.event_kind ?? '?')
+                    const seq = Number(e.seq ?? 0)
+                    const timeStr = hhmmss(e.ts_iso as string | undefined, e.ts_ms as number | undefined)
+                    const cmdId = entryCmdId(e)
+                    const frame = String(e.frame_type ?? e.frame_label ?? '')
+                    const wireLen = Number(e.wire_len ?? 0)
+                    const innerLen = Number(e.inner_len ?? 0)
+                    const wireHex = String(e.wire_hex ?? '')
+                    const innerHex = String(e.inner_hex ?? '')
                     const warnings = (Array.isArray(e.warnings) ? e.warnings : []) as string[]
+                    const eventId = String(e.event_id ?? '')
+                    const fragments = (eventId ? telemetryByParent.get(eventId) : undefined) ?? []
+                    const isDup = !!e.duplicate
+                    const isEcho = !!e.uplink_echo
+                    const isUnknown = !!e.unknown
                     const isExpanded = expandedSet.has(i)
-                    const rendering = e._rendering as RenderingData | undefined
-                    const row = rendering?.row
+                    const isTx = kind === 'tx_command'
+                    const dirColor = isTx ? colors.label : colors.success
+                    const mission = (e.mission && typeof e.mission === 'object') ? e.mission as Record<string, unknown> : undefined
 
                     return (
                       <ContextMenuRoot key={i}>
@@ -339,70 +403,106 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                             {/* Row */}
                             <div
                               className="flex items-center px-3 py-1 text-xs font-mono cursor-pointer hover:bg-white/[0.03]"
-                              style={{
-                                backgroundColor: isExpanded ? `${colors.label}08` : undefined,
-                                opacity: rendering?.meta?.opacity ?? 1,
-                              }}
+                              style={{ backgroundColor: isExpanded ? `${colors.label}08` : undefined }}
                               onClick={() => setExpandedSet(prev => { const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next })}
                             >
                               {isExpanded ? <ChevronDown className="size-3 shrink-0" style={{ color: colors.label }} /> : <ChevronRight className="size-3 shrink-0" style={{ color: colors.dim }} />}
-                              {row && (() => {
-                                const isTx = !!(e.is_tx)
-                                const cols = isTx ? txColumns : rxColumns
-                                return cols.map(c => (
-                                  <CellValue key={c.id} col={c} row={row} showFrame={true} showEcho={true} />
-                                ))
-                              })()}
+                              <span className="px-2 w-12 text-right tabular-nums" style={{ color: colors.value }}>{seq}</span>
+                              <span className="px-2 w-28 tabular-nums" style={{ color: colors.value }}>{timeStr}</span>
+                              <span className="px-2 w-16 uppercase font-bold text-[10px]" style={{ color: dirColor }}>
+                                {isTx ? 'TX' : 'RX'}
+                              </span>
+                              <span className="px-2 flex-1 truncate" style={{ color: colors.label }}>{cmdId || (isUnknown ? '(unknown)' : '')}</span>
+                              <span className="px-2 w-24 truncate" style={{ color: colors.dim }}>{frame}</span>
+                              <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{wireLen}</span>
+                              <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{innerLen}</span>
+                              <span className="px-2 w-16 flex items-center gap-1">
+                                {isDup && <Badge className="text-[9px] h-4 px-1" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>DUP</Badge>}
+                                {isEcho && <Badge className="text-[9px] h-4 px-1" style={{ backgroundColor: `${colors.info}22`, color: colors.info }}>UL</Badge>}
+                                {warnings.length > 0 && <AlertTriangle className="size-3" style={{ color: colors.warning }} />}
+                              </span>
                             </div>
 
                             {/* Expanded detail */}
                             {isExpanded && (
                               <div className="px-6 py-2 space-y-1.5" style={{ backgroundColor: colors.bgApp }}>
-                                {rendering ? (
-                                  <>
-                                    <SemanticBlocks blocks={rendering.detail_blocks} />
-
-                                    {warnings.length > 0 && (
-                                      <div className="flex items-center gap-1">
-                                        <AlertTriangle className="size-3" style={{ color: colors.warning }} />
-                                        {warnings.map((w, wi) => (
-                                          <Badge key={wi} className="text-[11px] h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>{w}</Badge>
-                                        ))}
-                                      </div>
-                                    )}
-
-                                    {rendering.integrity_blocks.length > 0 && (
-                                      <>
-                                        <Separator style={{ backgroundColor: colors.borderSubtle }} />
-                                        <IntegritySection blocks={rendering.integrity_blocks} />
-                                      </>
-                                    )}
-
-                                    {rendering.protocol_blocks.length > 0 && (
-                                      <>
-                                        <Separator style={{ backgroundColor: colors.borderSubtle }} />
-                                        <ProtocolBlocks blocks={rendering.protocol_blocks} />
-                                      </>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="flex items-center gap-1 text-xs">
-                                    <Clock className="size-3" style={{ color: colors.sep }} />
-                                    <span style={{ color: colors.sep }}>Time:</span>
-                                    <span style={{ color: colors.value }}>{timeStr}</span>
+                                {warnings.length > 0 && (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <AlertTriangle className="size-3" style={{ color: colors.warning }} />
+                                    {warnings.map((w, wi) => (
+                                      <Badge key={wi} className="text-[11px] h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>{w}</Badge>
+                                    ))}
                                   </div>
                                 )}
 
-                                {rawHex && (
+                                {fragments.length > 0 && (
+                                  <details open>
+                                    <summary className="text-[11px] cursor-pointer select-none" style={{ color: colors.sep }}>
+                                      telemetry ({fragments.length})
+                                    </summary>
+                                    <div className="mt-1 grid grid-cols-[auto_auto_1fr_auto] gap-x-3 gap-y-0.5 text-[11px] font-mono">
+                                      <span className="font-bold uppercase" style={{ color: colors.sep }}>domain</span>
+                                      <span className="font-bold uppercase" style={{ color: colors.sep }}>key</span>
+                                      <span className="font-bold uppercase" style={{ color: colors.sep }}>value</span>
+                                      <span className="font-bold uppercase" style={{ color: colors.sep }}>unit</span>
+                                      {fragments.map((frag, fi) => {
+                                        const dom = String(frag.domain ?? '')
+                                        const k = String(frag.key ?? '')
+                                        const v = frag.value
+                                        const unit = String(frag.unit ?? '')
+                                        const display = typeof v === 'object' && v !== null
+                                          ? JSON.stringify(sanitizeForDisplay(v))
+                                          : String(v)
+                                        return (
+                                          <div key={fi} className="contents">
+                                            <span style={{ color: colors.dim }}>{dom}</span>
+                                            <span style={{ color: colors.label }}>{k}</span>
+                                            <span className="truncate" style={{ color: colors.value }} title={display}>{display}</span>
+                                            <span style={{ color: colors.dim }}>{unit}</span>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </details>
+                                )}
+
+                                {mission && Object.keys(mission).length > 0 && (
+                                  <details open>
+                                    <summary className="text-[11px] cursor-pointer select-none" style={{ color: colors.sep }}>
+                                      mission
+                                    </summary>
+                                    <pre className="text-[11px] p-2 rounded font-mono whitespace-pre-wrap break-all mt-1"
+                                         style={{ color: colors.value, backgroundColor: 'rgba(0,0,0,0.3)' }}>
+                                      {prettyMissionJson(mission)}
+                                    </pre>
+                                  </details>
+                                )}
+
+                                {innerHex && (
                                   <>
                                     <Separator style={{ backgroundColor: colors.borderSubtle }} />
                                     <div className="flex items-start gap-1">
                                       <Binary className="size-3 mt-0.5 shrink-0" style={{ color: colors.sep }} />
-                                      <pre className="text-[11px] p-2 rounded font-mono flex-1 whitespace-pre-wrap break-all" style={{ color: colors.dim, backgroundColor: 'rgba(0,0,0,0.3)' }}>
-                                        {rawHex.match(/.{1,2}/g)?.join(' ')}
-                                      </pre>
+                                      <div className="flex-1">
+                                        <div className="text-[10px] uppercase tracking-wider pb-1" style={{ color: colors.sep }}>inner ({innerLen}B)</div>
+                                        <pre className="text-[11px] p-2 rounded font-mono whitespace-pre-wrap break-all" style={{ color: colors.dim, backgroundColor: 'rgba(0,0,0,0.3)' }}>
+                                          {formatHexBlock(innerHex)}
+                                        </pre>
+                                      </div>
                                     </div>
                                   </>
+                                )}
+
+                                {wireHex && wireHex !== innerHex && (
+                                  <div className="flex items-start gap-1">
+                                    <Binary className="size-3 mt-0.5 shrink-0" style={{ color: colors.sep }} />
+                                    <div className="flex-1">
+                                      <div className="text-[10px] uppercase tracking-wider pb-1" style={{ color: colors.sep }}>wire ({wireLen}B)</div>
+                                      <pre className="text-[11px] p-2 rounded font-mono whitespace-pre-wrap break-all" style={{ color: colors.dim, backgroundColor: 'rgba(0,0,0,0.3)' }}>
+                                        {formatHexBlock(wireHex)}
+                                      </pre>
+                                    </div>
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -411,22 +511,30 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                         <ContextMenuContent>
                           <ContextMenuItem
                             icon={ClipboardCopy}
-                            onSelect={() => navigator.clipboard.writeText(extractFromRendering(rendering).cmd)}
+                            onSelect={() => navigator.clipboard.writeText(cmdId)}
                           >
                             Copy Command
                           </ContextMenuItem>
                           <ContextMenuItem
                             icon={Braces}
-                            onSelect={() => navigator.clipboard.writeText(extractFromRendering(rendering).args)}
+                            onSelect={() => mission && navigator.clipboard.writeText(prettyMissionJson(mission))}
                           >
-                            Copy Args
+                            Copy Mission JSON
                           </ContextMenuItem>
-                          {rawHex && (
+                          {innerHex && (
                             <ContextMenuItem
                               icon={Binary}
-                              onSelect={() => navigator.clipboard.writeText(rawHex)}
+                              onSelect={() => navigator.clipboard.writeText(innerHex)}
                             >
-                              Copy Hex
+                              Copy Inner Hex
+                            </ContextMenuItem>
+                          )}
+                          {wireHex && (
+                            <ContextMenuItem
+                              icon={Binary}
+                              onSelect={() => navigator.clipboard.writeText(wireHex)}
+                            >
+                              Copy Wire Hex
                             </ContextMenuItem>
                           )}
                           {isDownlinkSession && onStartReplay && (

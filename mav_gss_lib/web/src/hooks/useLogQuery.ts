@@ -1,22 +1,26 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback } from 'react'
 import { useDebouncedValue } from './useDebouncedValue'
-import { useColumnDefs } from '@/state/session'
-import type { ColumnDef } from '@/lib/types'
 
-type LogEntry = Record<string, unknown>
+export type LogEntry = Record<string, unknown>
 const PAGE_SIZE = 200
 
-const NUM_COL: ColumnDef = { id: 'num', label: '#', align: 'right', width: 'w-9' }
-const TIME_COL: ColumnDef = { id: 'time', label: 'time', width: 'w-[68px]' }
-const SIZE_COL: ColumnDef = { id: 'size', label: 'size', align: 'right', width: 'w-10' }
+export interface LogSession {
+  session_id: string
+  filename: string
+  size: number
+  mtime: number
+  direction: 'downlink' | 'uplink' | 'unknown'
+}
 
 export function useLogQuery() {
-  const [sessions, setSessions] = useState<Record<string, unknown>[]>([])
+  const [sessions, setSessions] = useState<LogSession[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [entries, setEntries] = useState<LogEntry[]>([])
+  const [telemetryByParent, setTelemetryByParent] = useState<Map<string, LogEntry[]>>(new Map())
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [currentOffset, setCurrentOffset] = useState(0)
+  const [error, setError] = useState<string | null>(null)
 
   const [cmdFilter, setCmdFilter] = useState('')
   const [fromTime, setFromTime] = useState('')
@@ -27,22 +31,17 @@ export function useLogQuery() {
   const debouncedFrom = useDebouncedValue(fromTime, 300)
   const debouncedTo = useDebouncedValue(toTime, 300)
 
-  // Columns come from SessionProvider. LogViewer is only ever mounted in the
-  // main window (behind the Logs button), so context is always available here.
-  // Wrap mission TX columns with platform-owned num/time/size prefix+suffix for
-  // the log viewer's display convention.
-  const { defs: ctxDefs } = useColumnDefs()
-  const rxColumns = ctxDefs?.rx ?? []
-  const txColumns = useMemo<ColumnDef[]>(() => {
-    const mission = ctxDefs?.tx ?? []
-    return [NUM_COL, TIME_COL, ...mission, SIZE_COL]
-  }, [ctxDefs])
-
   const fetchSessions = useCallback(() => {
     fetch('/api/logs')
-      .then((r) => r.json())
-      .then((data: Record<string, unknown>[]) => setSessions(data))
-      .catch(() => {})
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then((data: LogSession[]) => {
+        setSessions(data)
+        setError(null)
+      })
+      .catch((e) => setError(`Failed to load sessions: ${String(e)}`))
   }, [])
 
   const fetchEntries = useCallback((sessionId: string, append = false, offsetOverride = 0) => {
@@ -54,30 +53,57 @@ export function useLogQuery() {
     params.set('offset', String(offsetOverride))
     params.set('limit', String(PAGE_SIZE))
     fetch(`/api/logs/${sessionId}?${params.toString()}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
       .then((data: { entries: LogEntry[]; has_more: boolean }) => {
         setEntries(prev => append ? [...prev, ...data.entries] : data.entries)
         setHasMore(data.has_more)
         setCurrentOffset(offsetOverride + data.entries.length)
         setLoading(false)
+        setError(null)
       })
-      .catch(() => {
-        setEntries([])
+      .catch((e) => {
+        if (!append) setEntries([])
         setHasMore(false)
         setCurrentOffset(0)
         setLoading(false)
+        setError(`Failed to load entries: ${String(e)}`)
       })
+    // Fetch telemetry events for this session once per selection, grouped
+    // by rx_event_id so the viewer can show fragments under each packet.
+    // Cheap — the `/telemetry` endpoint filters at the file level and
+    // caps at 10 000 rows (one session's worth).
+    if (!append) {
+      fetch(`/api/logs/${sessionId}/telemetry?limit=10000`)
+        .then((r) => r.ok ? r.json() : { entries: [] })
+        .then((data: { entries: LogEntry[] }) => {
+          const map = new Map<string, LogEntry[]>()
+          for (const t of data.entries) {
+            const parent = t.rx_event_id
+            if (typeof parent === 'string') {
+              if (!map.has(parent)) map.set(parent, [])
+              map.get(parent)!.push(t)
+            }
+          }
+          setTelemetryByParent(map)
+        })
+        .catch(() => setTelemetryByParent(new Map()))
+    }
   }, [debouncedCmd, debouncedFrom, debouncedTo])
 
   const reset = useCallback(() => {
     setSelected(null)
     setEntries([])
+    setTelemetryByParent(new Map())
     setCmdFilter('')
     setFromTime('')
     setToTime('')
     setDateFilter('')
     setHasMore(false)
     setCurrentOffset(0)
+    setError(null)
   }, [])
 
   return {
@@ -85,9 +111,11 @@ export function useLogQuery() {
     selected,
     setSelected,
     entries,
+    telemetryByParent,
     loading,
     hasMore,
     currentOffset,
+    error,
     cmdFilter,
     setCmdFilter,
     fromTime,
@@ -99,8 +127,6 @@ export function useLogQuery() {
     debouncedCmd,
     debouncedFrom,
     debouncedTo,
-    rxColumns,
-    txColumns,
     fetchSessions,
     fetchEntries,
     reset,
