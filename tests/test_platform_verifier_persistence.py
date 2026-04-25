@@ -60,16 +60,46 @@ class WriteThrough(unittest.TestCase):
 
 
 class RestoreElapsed(unittest.TestCase):
-    def test_restore_marks_expired_windows(self):
-        """now_ms - t0_ms > stop_ms → verifier becomes window_expired."""
+    def test_restore_drops_fully_expired_single_verifier_instance(self):
+        """An instance whose ONLY verifier window has closed by restore time
+        derives to stage=timed_out and is dropped — it must not linger in the
+        registry blocking admission for its (cmd_id, dest) key."""
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".pending_instances.jsonl"
             inst = _sample_instance()  # t0_ms=1_000_000, uppm_ack stop=10000
             write_instances(path, [inst])
             # Restart 12s later → the uppm_ack window has closed.
             restored = restore_instances(path, now_ms=1_012_000)
+            self.assertEqual(len(restored), 0)
+
+    def test_restore_keeps_instance_with_live_verifiers(self):
+        """Multi-verifier instance where only some windows have expired:
+        stage stays non-terminal (e.g. 'released'), instance is restored,
+        expired outcomes are marked window_expired."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".pending_instances.jsonl"
+            # Multi-verifier: uppm_ack (stop=10s) + res (stop=30s)
+            inst = CommandInstance(
+                instance_id="i1",
+                correlation_key=("mtq_set_1", "LPPM"),
+                t0_ms=1_000_000, cmd_event_id="c1",
+                verifier_set=VerifierSet(verifiers=(
+                    VerifierSpec("uppm_ack", "received", CheckWindow(0, 10000), "UPPM", "info"),
+                    VerifierSpec("res_from_lppm", "complete", CheckWindow(0, 30000), "RES", "success"),
+                )),
+                outcomes={
+                    "uppm_ack": VerifierOutcome.pending(),
+                    "res_from_lppm": VerifierOutcome.pending(),
+                },
+                stage="released",
+            )
+            write_instances(path, [inst])
+            # Restart 15s later → uppm_ack window closed, res still open.
+            restored = restore_instances(path, now_ms=1_015_000)
             self.assertEqual(len(restored), 1)
             self.assertEqual(restored[0].outcomes["uppm_ack"].state, "window_expired")
+            self.assertEqual(restored[0].outcomes["res_from_lppm"].state, "pending")
+            self.assertNotIn(restored[0].stage, ("complete", "failed", "timed_out"))
 
     def test_restore_preserves_pending_inside_window(self):
         with tempfile.TemporaryDirectory() as tmp:

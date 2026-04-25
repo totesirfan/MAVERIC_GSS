@@ -324,7 +324,10 @@ def write_instances(path, instances: list[CommandInstance]) -> None:
 
 def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
     """Load open instances. For each, mark window_expired for any verifier
-    whose check_window.stop_ms has passed since t0. Drop terminals."""
+    whose check_window.stop_ms has passed since t0, then re-derive stage.
+    Drop any instance that is terminal — either because the on-disk stage
+    already was (crash mid-write), or because enough wall-clock time passed
+    across the restart that every window has now closed (timed_out)."""
     from pathlib import Path as _Path
     p = _Path(path)
     if not p.exists():
@@ -346,5 +349,8 @@ def restore_instances(path, *, now_ms: int) -> list[CommandInstance]:
                 continue
             if now_ms - inst.t0_ms >= spec.check_window.stop_ms:
                 inst.outcomes[spec.verifier_id] = VerifierOutcome.window_expired()
+        inst.stage = _derive_stage(inst)
+        if inst.stage in _TERMINAL:
+            continue
         restored.append(inst)
     return restored
