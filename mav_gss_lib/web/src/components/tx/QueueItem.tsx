@@ -29,7 +29,7 @@ function railColor(status: TxRowStatus, guard: boolean, isGuarding: boolean): st
   if (status === 'accepted') return colors.success
   if (status === 'complete') return colors.success
   if (status === 'failed') return colors.danger
-  if (status === 'timed_out') return colors.dim
+  if (status === 'timed_out') return colors.danger
   return guard ? colors.warning : colors.borderStrong
 }
 
