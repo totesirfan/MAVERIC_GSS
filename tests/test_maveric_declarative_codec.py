@@ -174,5 +174,65 @@ class WrapTest(unittest.TestCase):
         self.assertEqual(len(wire), 6 + len("com_ping") + 1 + 0 + 1 + 2)
 
 
+from mav_gss_lib.platform.spec.errors import CrcMismatch
+
+
+class UnwrapTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.codec = MaverPacketCodec(
+            extensions={
+                "nodes": {"NONE": 0, "LPPM": 1, "GS": 6, "EPS": 2},
+                "ptypes": {"CMD": 1, "RES": 2, "ACK": 3, "TLM": 4, "FILE": 5},
+                "gs_node": "GS",
+            }
+        )
+
+    def test_unwrap_returns_named_header_and_args_raw(self) -> None:
+        # Build wire via legacy CommandFrame so the test is independent of wrap()
+        legacy = CommandFrame(
+            src=1, dest=6, echo=0, pkt_type=2, cmd_id="com_ping",
+            args_str="ok",
+        ).to_bytes()
+        pkt = self.codec.unwrap(bytes(legacy))
+        self.assertEqual(pkt.header["cmd_id"], "com_ping")
+        self.assertEqual(pkt.header["src"], "LPPM")
+        self.assertEqual(pkt.header["dest"], "GS")
+        self.assertEqual(pkt.header["echo"], "NONE")
+        self.assertEqual(pkt.header["ptype"], "RES")
+        self.assertEqual(pkt.args_raw, b"ok")
+
+    def test_unwrap_passes_through_unknown_byte_as_int(self) -> None:
+        # Synthesize a frame with src=99 (no name in extensions)
+        legacy = CommandFrame(
+            src=99, dest=6, echo=0, pkt_type=2, cmd_id="com_ping",
+        ).to_bytes()
+        pkt = self.codec.unwrap(bytes(legacy))
+        self.assertEqual(pkt.header["src"], 99)
+
+    def test_unwrap_raises_on_bad_crc(self) -> None:
+        legacy = bytearray(
+            CommandFrame(
+                src=1, dest=6, echo=0, pkt_type=2, cmd_id="com_ping",
+            ).to_bytes()
+        )
+        legacy[-1] ^= 0xFF
+        with self.assertRaises(CrcMismatch):
+            self.codec.unwrap(bytes(legacy))
+
+    def test_unwrap_strips_trailing_csp_crc32(self) -> None:
+        legacy = CommandFrame(
+            src=1, dest=6, echo=0, pkt_type=2, cmd_id="com_ping",
+            args_str="ok",
+        ).to_bytes()
+        wire = bytes(legacy) + b"\x12\x34\x56\x78"
+        pkt = self.codec.unwrap(wire)
+        self.assertEqual(pkt.args_raw, b"ok")
+        self.assertEqual(pkt.header.get("csp_crc32"), 0x12345678)
+
+    def test_unwrap_short_payload_raises(self) -> None:
+        with self.assertRaises(CrcMismatch):
+            self.codec.unwrap(b"\x00\x00\x00")
+
+
 if __name__ == "__main__":
     unittest.main()
