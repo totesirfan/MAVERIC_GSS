@@ -6,10 +6,13 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Hashable, Protocol
+from typing import TYPE_CHECKING, Any, Hashable, Protocol
 
 from ..telemetry import TelemetryFragment
 from .rendering import PacketRendering
+
+if TYPE_CHECKING:
+    from mav_gss_lib.platform.tx.verifiers import CommandInstance, VerifierOutcome
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,3 +68,26 @@ class PacketOps(Protocol):
     def parse(self, normalized: NormalizedPacket) -> MissionPacket: ...
 
     def classify(self, packet: MissionPacket) -> PacketFlags: ...
+
+    def match_verifiers(
+        self,
+        envelope: "PacketEnvelope",
+        open_instances: list["CommandInstance"],
+        *,
+        now_ms: int,
+        rx_event_id: str = "",
+    ) -> list[tuple[str, str, "VerifierOutcome"]]: ...
+    """Match this inbound packet envelope against open instances.
+
+    Takes the full PacketEnvelope because:
+      - `envelope.mission_payload` holds the mission-parsed dict (what the
+        MAVERIC rx/parser emits: {"cmd": {...}, "ptype": ..., ...}).
+      - `rx_event_id` (passed in by the server before log write) goes
+        onto `VerifierOutcome.match_event_id` so verifier outcomes can
+        back-point to the matched rx_packet log entry.
+
+    Returns a list of (instance_id, verifier_id, outcome) transitions to apply.
+    Empty list when the packet doesn't match any open verifier. Mission-private
+    logic handles newest-instance-wins, ptype/src → verifier_id mapping, and
+    pass/fail discrimination.
+    """

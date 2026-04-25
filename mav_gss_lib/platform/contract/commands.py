@@ -6,9 +6,12 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from .rendering import Cell, ColumnDef, DetailBlock
+
+if TYPE_CHECKING:
+    from mav_gss_lib.platform.tx.verifiers import VerifierSet
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +95,23 @@ class CommandOps(Protocol):
     def frame(self, encoded: EncodedCommand) -> FramedCommand: ...
 
     def render(self, encoded: EncodedCommand) -> CommandRendering: ...
+
+    def correlation_key(self, encoded: EncodedCommand) -> tuple: ...
+    """Return an opaque, hashable correlation key for this command.
+
+    Used by the admission gate and by match_verifiers to associate inbound
+    packets with open command instances. The key is mission-defined. For
+    MAVERIC: (cmd_id, dest) — both strings. `args` is intentionally excluded
+    because downlink responses carry only cmd_id+src+ptype; admission blocks
+    strictly at per-target granularity.
+    """
+
+    def verifier_set(self, encoded: EncodedCommand) -> "VerifierSet": ...
+    """Return the VerifierSet the platform should track for this command.
+
+    Empty VerifierSet ("verification disabled") is legal — fixture missions
+    and MAVERIC's FTDI destination both return empty.
+    """
 
     def schema(self) -> dict[str, Any]: ...
 
