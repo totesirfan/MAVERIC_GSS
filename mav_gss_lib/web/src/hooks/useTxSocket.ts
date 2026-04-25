@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createSocket } from '@/lib/ws'
+import { showToast } from '@/components/shared/StatusToast'
 import type {
   TxQueueItem, TxQueueSummary, TxHistoryItem,
   SendProgress, GuardConfirm, CmdDisplay,
@@ -80,6 +81,12 @@ export function useTxSocket() {
             })
             break
           case 'error': {
+            const code = (msg.code || '') as string
+            if (code === 'send_active' || code === 'window_open') {
+              const text = (msg.message || msg.error || 'admission blocked') as string
+              showToast(text, 'warning', 'tx')
+              break
+            }
             let errMsg = (msg.message || msg.error || 'Unknown error') as string
             const lower = errMsg.toLowerCase()
             if (lower.includes('extra args')) errMsg += ' — check command schema for expected arg count'
