@@ -234,5 +234,64 @@ class UnwrapTest(unittest.TestCase):
             self.codec.unwrap(b"\x00\x00\x00")
 
 
+class RoundTripParityTest(unittest.TestCase):
+    """Byte-identity vs the legacy wire_format.CommandFrame."""
+
+    def setUp(self) -> None:
+        self.codec = MaverPacketCodec(
+            extensions={
+                "nodes": {"NONE": 0, "LPPM": 1, "EPS": 2, "UPPM": 3,
+                          "HLNV": 4, "ASTR": 5, "GS": 6, "FTDI": 7},
+                "ptypes": {"CMD": 1, "RES": 2, "ACK": 3, "TLM": 4, "FILE": 5},
+                "gs_node": "GS",
+            }
+        )
+
+    CASES = [
+        ("com_ping", "GS", "LPPM", "NONE", "CMD", b""),
+        ("com_ping", "GS", "EPS",  "NONE", "CMD", b""),
+        ("ppm_delay", "GS", "LPPM", "NONE", "CMD", b"100"),
+        ("eps_sw", "GS", "EPS", "NONE", "CMD", b"3 1"),
+        ("cam_capture", "GS", "HLNV", "NONE", "CMD", b"img1.jpg 1 0 25 5000 1 80"),
+        ("flash_read", "GS", "LPPM", "NONE", "CMD", b"0x1000 256"),
+        ("nvg_get_1", "GS", "LPPM", "NONE", "CMD", b"4"),
+        ("mtq_get_1", "GS", "LPPM", "NONE", "CMD", b"0 128"),
+    ]
+
+    def test_wrap_byte_identical_to_legacy(self) -> None:
+        for cmd_id, src, dest, echo, ptype, args in self.CASES:
+            with self.subTest(cmd=cmd_id, args=args):
+                hdr = CommandHeader(
+                    id=cmd_id,
+                    fields={"src": src, "dest": dest, "echo": echo, "ptype": ptype},
+                )
+                wire = self.codec.wrap(hdr, args)
+                legacy = CommandFrame(
+                    src=self.codec.node_id_for(src),
+                    dest=self.codec.node_id_for(dest),
+                    echo=self.codec.node_id_for(echo),
+                    pkt_type=self.codec.ptype_id_for(ptype),
+                    cmd_id=cmd_id,
+                    args_str=args.decode("ascii"),
+                ).to_bytes()
+                self.assertEqual(bytes(wire), bytes(legacy))
+
+    def test_unwrap_inverts_wrap(self) -> None:
+        for cmd_id, src, dest, echo, ptype, args in self.CASES:
+            with self.subTest(cmd=cmd_id):
+                hdr = CommandHeader(
+                    id=cmd_id,
+                    fields={"src": src, "dest": dest, "echo": echo, "ptype": ptype},
+                )
+                wire = self.codec.wrap(hdr, args)
+                pkt = self.codec.unwrap(wire)
+                self.assertEqual(pkt.header["cmd_id"], cmd_id)
+                self.assertEqual(pkt.header["src"], src)
+                self.assertEqual(pkt.header["dest"], dest)
+                self.assertEqual(pkt.header["echo"], echo)
+                self.assertEqual(pkt.header["ptype"], ptype)
+                self.assertEqual(pkt.args_raw, args)
+
+
 if __name__ == "__main__":
     unittest.main()
