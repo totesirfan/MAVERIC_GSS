@@ -299,6 +299,12 @@ parameter_types:
     encoding: to_end
     description: "Trailing args to LCD display command"
 
+  ChunkData:
+    kind: binary
+    size:
+      dynamic_ref: chunk_len
+    description: "Image chunk payload (length resolved from chunk_len)"
+
 parameters: {}
 
 bitfield_types: {}
