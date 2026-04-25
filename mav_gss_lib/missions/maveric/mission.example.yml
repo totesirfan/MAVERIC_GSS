@@ -515,6 +515,24 @@ sequence_containers:
       - { name: eps_heartbeat,   type: u8 }
       - { name: hn_state,        type: u8 }
       - { name: ab_state,        type: u8 }
-      # Remaining beacon fields added in Task 31.
+      - { name: mtq_stat,        type: STAT_REG }
+      - { name: gyro_rate_src,   type: u8 }
+      - { name: mag_src,         type: u8 }
+      - { name: gyro_rate,       type: vec3_rate }
+      - { name: mag,             type: vec3_mag }
+      - { name: mtq_dipole,      type: vec3_mtq }
+      - { name: adcs_tmp_C,      type: f32_le }
+      - { name: eps_i_bus,       type: u16 }
+      - { name: eps_i_bat,       type: u16 }
+      - { name: eps_v_bus,       type: u16 }
+      - { name: eps_v_bat,       type: u16 }
+      - { name: eps_v_sys,       type: u16 }
+      - { name: eps_ts_adc,      type: u16 }
+      - { name: eps_t_die,       type: u16 }
+      - { name: eps_mode,        type: u16 }
+      - { name: gnc_mode,        type: GncPlannerModeDict }
+      - { name: unexpected_safe,     type: u16 }
+      - { name: unexpected_detumble, type: u16 }
+      - { name: sunspin,         type: u16 }
 
 meta_commands: {}
