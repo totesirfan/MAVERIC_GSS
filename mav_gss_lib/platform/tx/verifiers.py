@@ -164,10 +164,12 @@ class VerifierRegistry:
         import threading
         self._lock = threading.Lock()
         self._by_id: dict[str, CommandInstance] = {}
+        self._dirty: set[str] = set()
 
     def register(self, instance: CommandInstance) -> None:
         with self._lock:
             self._by_id[instance.instance_id] = instance
+            self._dirty.add(instance.instance_id)
 
     def apply(self, instance_id: str, verifier_id: str, outcome: VerifierOutcome) -> None:
         with self._lock:
@@ -176,6 +178,7 @@ class VerifierRegistry:
                 return
             inst.outcomes[verifier_id] = outcome
             inst.stage = _derive_stage(inst)
+            self._dirty.add(instance_id)
 
     def open_instances(self) -> list[CommandInstance]:
         with self._lock:
@@ -199,10 +202,13 @@ class VerifierRegistry:
 
         Called periodically (e.g., once per second) from a platform task.
         Called also at RX/TX critical points to keep the UI snappy.
-        Task 19b extends this to also track dirty instances.
+        Marks an instance dirty only when at least one verifier transitioned
+        — _derive_stage is pure given the outcome map, so re-running it
+        without changes is a no-op.
         """
         with self._lock:
             for inst in self._by_id.values():
+                changed = False
                 for spec in inst.verifier_set.verifiers:
                     current = inst.outcomes.get(spec.verifier_id, VerifierOutcome.pending())
                     if current.state != "pending":
@@ -210,7 +216,20 @@ class VerifierRegistry:
                     deadline = inst.t0_ms + spec.check_window.stop_ms
                     if now_ms >= deadline:
                         inst.outcomes[spec.verifier_id] = VerifierOutcome.window_expired()
-                inst.stage = _derive_stage(inst)
+                        changed = True
+                if changed:
+                    inst.stage = _derive_stage(inst)
+                    self._dirty.add(inst.instance_id)
+
+    def consume_dirty(self) -> list[CommandInstance]:
+        """Return and clear the set of instances touched since last call.
+
+        Used by the broadcast layer to avoid redundant /ws/tx messages.
+        """
+        with self._lock:
+            touched = [self._by_id[i] for i in self._dirty if i in self._by_id]
+            self._dirty.clear()
+            return touched
 
 
 # ─── Persistence ──────────────────────────────────────────────────────

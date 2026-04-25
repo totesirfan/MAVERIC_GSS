@@ -196,8 +196,8 @@ class RxService:
                             })
                         except Exception as exc:
                             logging.warning("cmd_verifier log failed: %s", exc)
-                    if inst is not None:
-                        asyncio.create_task(self.runtime.tx.broadcast_verifier_instance(inst))
+                    # No per-apply broadcast — the post-sweep consume_dirty()
+                    # below picks up this transition and broadcasts once.
 
                 # Telemetry → comparison-verifier bridge: any open instance with
                 # a tlm_<domain>_<key> complete-stage verifier passes when this
@@ -237,7 +237,8 @@ class RxService:
                                     })
                                 except Exception as exc:
                                     logging.warning("cmd_verifier tlm log failed: %s", exc)
-                            asyncio.create_task(self.runtime.tx.broadcast_verifier_instance(inst))
+                            # No per-apply broadcast — post-sweep consume_dirty()
+                            # below covers this transition.
 
                 # Sweep + persist after any apply (covers timed_out transitions).
                 self.runtime.platform.verifiers.sweep(now_ms=now_ms)
@@ -249,9 +250,11 @@ class RxService:
                 except Exception as exc:
                     logging.warning("pending_instances write failed: %s", exc)
 
-                # Broadcast all open instances after sweep — Task 19b will
-                # tighten this with consume_dirty(); the storm is intentional.
-                for _inst in self.runtime.platform.verifiers.open_instances():
+                # Broadcast only instances that actually changed since the last
+                # consume_dirty() call (covers register, apply, and sweep
+                # transitions in this RX tick). consume_dirty() also clears,
+                # so the next tick starts fresh.
+                for _inst in self.runtime.platform.verifiers.consume_dirty():
                     asyncio.create_task(self.runtime.tx.broadcast_verifier_instance(_inst))
 
                 try:

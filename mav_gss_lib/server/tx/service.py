@@ -476,8 +476,13 @@ class TxService:
             except Exception as exc:
                 logging.warning("pending_instances write failed: %s", exc)
 
-        if instance is not None:
-            asyncio.create_task(self.broadcast_verifier_instance(instance))
+        # Broadcast everything dirty — register() marked the new instance dirty,
+        # so consume_dirty() returns exactly the just-registered instance here.
+        # Using consume_dirty() (rather than an explicit broadcast) keeps
+        # `_dirty` as the single source of truth for "needs broadcasting" so
+        # the next RX tick's consume_dirty() doesn't re-broadcast it.
+        for _inst in self.runtime.platform.verifiers.consume_dirty():
+            asyncio.create_task(self.broadcast_verifier_instance(_inst))
 
         hist_entry = self._record_sent(item, raw_cmd, framed, event_id=tx_event_id)
 
