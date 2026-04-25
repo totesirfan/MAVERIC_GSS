@@ -93,3 +93,37 @@ class MavericCommandOps(CommandOps):
 
     def tx_columns(self) -> list[ColumnDef]:
         return [ColumnDef.from_dict(col) for col in rendering.tx_queue_columns()]
+
+    def correlation_key(self, encoded: EncodedCommand) -> tuple:
+        # encoded.mission_payload shape from `encode()`:
+        #   {"payload": dict(draft.payload), "display": {...}}
+        # Correlation is at (cmd_id, dest) granularity. `args` is intentionally
+        # NOT part of the key: downlink responses carry only cmd_id+src+ptype,
+        # so they cannot be disambiguated by args anyway. Admission blocks all
+        # repeat sends of the same cmd_id→dest until the prior CheckWindow
+        # closes (i.e., instance reaches a terminal stage).
+        payload = {}
+        if isinstance(encoded.mission_payload, dict):
+            payload = encoded.mission_payload.get("payload") or {}
+        cmd_id = payload.get("cmd_id", "")
+        dest = payload.get("dest", "")
+        return (cmd_id, dest)
+
+    def verifier_set(self, encoded: EncodedCommand):
+        from .verifiers import derive_verifier_set, apply_override
+        from mav_gss_lib.platform.tx.verifiers import VerifierSet
+        payload = {}
+        if isinstance(encoded.mission_payload, dict):
+            payload = encoded.mission_payload.get("payload") or {}
+        cmd_id = payload.get("cmd_id", "")
+        dest = payload.get("dest", "")
+        # Deprecated commands (ping, pang) skip verification entirely —
+        # an empty VerifierSet, which Task 16 detects and skips register()
+        # for. No parallel-instance confusion vs com_ping.
+        if (self.cmd_defs.get(cmd_id) or {}).get("deprecated"):
+            return VerifierSet(verifiers=())
+        base = derive_verifier_set(cmd_id=cmd_id, dest=dest)
+        override = (self.cmd_defs.get(cmd_id) or {}).get("verifiers")
+        if override:
+            return apply_override(base, override=override)
+        return base
