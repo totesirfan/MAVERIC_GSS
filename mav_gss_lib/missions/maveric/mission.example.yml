@@ -494,4 +494,27 @@ sequence_containers:
       - { name: ISIN3,  type: I_milli_i16 }
       - { name: PSIN3,  type: P_milli_i16 }
 
+  tlm_beacon:
+    domain: spacecraft
+    layout: binary
+    restriction_criteria:
+      packet:
+        cmd_id: tlm_beacon
+        ptype: TLM
+    entry_list:
+      - { name: callsign,        type: BeaconCallsign }
+      - { name: time,            type: BeaconTime }
+      - { name: ops_stage,       type: OpsStage }
+      - { name: lppm_rbt_cnt,    type: u16 }
+      - { name: lppm_rbt_cause,  type: u8 }
+      - { name: uppm_rbt_cnt,    type: u16 }
+      - { name: uppm_rbt_cause,  type: u8 }
+      - { name: ertc_heartbeat,  type: u8 }
+      - { name: mtq_heartbeat,   type: u8 }
+      - { name: nvg_heartbeat,   type: u8 }
+      - { name: eps_heartbeat,   type: u8 }
+      - { name: hn_state,        type: u8 }
+      - { name: ab_state,        type: u8 }
+      # Remaining beacon fields added in Task 31.
+
 meta_commands: {}
