@@ -27,13 +27,20 @@ export function deriveTxItems(
   reorderOverride: PendingReorderOverride | null,
 ): TxDisplayItem[] {
   // Suppress the last history entry when it mirrors the sending queue[0].
+  // Match on event_id (unique per send) — title-based match wrongly hid the
+  // previous history row when consecutive duplicate commands were queued
+  // (e.g. three `com_ping eps`), because queue[0] for the next iter and
+  // history[-1] from the previous iter share a title.
   const front = queue[0]
   const tail = history[history.length - 1]
+  const frontEventId =
+    front && front.type === 'mission_cmd' ? front.event_id ?? '' : ''
+  const tailEventId =
+    tail && tail.type === 'mission_cmd' ? tail.event_id ?? '' : ''
   const hideTailHistory =
     sendProgress !== null &&
-    !!tail && !!front &&
-    tail.type === 'mission_cmd' && front.type === 'mission_cmd' &&
-    (tail.display?.title ?? null) === (front.display?.title ?? null)
+    !!frontEventId &&
+    frontEventId === tailEventId
   const visibleHistory = hideTailHistory ? history.slice(0, -1) : history
 
   const out: TxDisplayItem[] = []

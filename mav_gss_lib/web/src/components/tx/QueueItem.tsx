@@ -25,12 +25,13 @@ const isTerminal = (s: TxRowStatus) => TERMINAL.includes(s)
 
 function railColor(status: TxRowStatus, guard: boolean, isGuarding: boolean): string {
   if (isGuarding) return colors.warning
-  if (status === 'sending') return colors.info
   if (status === 'released') return colors.warning
   if (status === 'accepted') return colors.success
   if (status === 'complete') return colors.success
   if (status === 'failed') return colors.danger
   if (status === 'timed_out') return colors.danger
+  // 'pending' and 'sending'-pre-publish (no live verifier) both fall here —
+  // the row hasn't transmitted yet, so the rail stays calm.
   return guard ? colors.warning : colors.borderStrong
 }
 
@@ -76,15 +77,18 @@ export function QueueItem({
   const cmdEventId = (item as { event_id?: string }).event_id ?? ''
   const instance = cmdEventId ? (verification.get(cmdEventId) ?? null) : null
 
-  // For sent rows, the incoming `status` is hardcoded to 'complete' upstream.
-  // Override from the live verifier instance stage so the left rail reflects
-  // the actual verification outcome (green=complete, red=failed, gray=timed_out,
-  // pulsing yellow=released-waiting). Pending/sending rows keep their prop status.
+  // The visible row's verification stage drives every visual attribute that
+  // signals "this row owns the open CheckWindow": rail color, rail thickness,
+  // and pulse. Whichever row holds the live instance (queue[0] during dwell
+  // or history[-1] post-pop) shows the stage-mapped state; rows without an
+  // instance keep their raw status (pending / sending pre-publish / complete
+  // for legacy history rows with no event_id).
   const effectiveStatus: TxRowStatus = (() => {
-    if (status === 'pending' || status === 'sending') return status
-    if (!instance) return status
-    if (instance.stage === 'received') return 'accepted'
-    return instance.stage as TxRowStatus
+    if (instance) {
+      if (instance.stage === 'received') return 'accepted'
+      return instance.stage as TxRowStatus
+    }
+    return status
   })()
   const effectiveTerminal = isTerminal(effectiveStatus)
 
@@ -115,18 +119,21 @@ export function QueueItem({
   }
 
   const borderColor = railColor(effectiveStatus, guard, isGuarding)
-  // Row pulse semantics match the verifier dots:
-  //   - terminal stage  → no pulse (settled)
-  //   - any pending dot past 80% elapsed → caution flash (yellow)
-  //   - sending OR live non-terminal verification → info flash (cyan/blue)
-  // Same 900ms cadence on both classes so the swap caution↔info doesn't
-  // skip a beat when a window crosses 80%.
-  const waitingForVerification = status === 'sending' || liveInstance
-  const pulseClass =
-    effectiveTerminal ? '' :
-    dotsCaution ? 'animate-pulse-warning' :
-    waitingForVerification ? 'animate-pulse-info' :
-    ''
+  // Row pulse follows the verifier instance, not the queue position. Pulses
+  // on whichever row owns the currently-open instance: queue[0] during the
+  // post-publish dwell (event_id stamped after register) or history[-1] after
+  // pop while the next send waits. Pre-publish rows have no event_id, so the
+  // "next to be sent" row stays calm — only the row that's actually awaiting
+  // a response pulses.
+  //   - no live instance → no pulse
+  //   - any pending dot past 80% elapsed → caution flash (yellow, 900ms)
+  //   - otherwise → info flash (cyan, 900ms — same cadence so caution↔info
+  //     swap on threshold crossing doesn't skip a beat)
+  const pulseClass = (() => {
+    if (!liveInstance) return ''
+    if (dotsCaution) return 'animate-pulse-warning'
+    return 'animate-pulse-info'
+  })()
 
   return (
     <ContextMenuRoot>
@@ -136,7 +143,7 @@ export function QueueItem({
           data-follow-id={sortId}
           style={{
             ...style,
-            ...(compact ? {} : { borderLeftColor: borderColor, borderLeftWidth: status === 'sending' ? '4px' : undefined }),
+            ...(compact ? {} : { borderLeftColor: borderColor, borderLeftWidth: liveInstance ? '4px' : undefined }),
           }}
           className={`color-transition rounded-md text-xs ${compact ? '' : 'border-l-2'} mb-0.5 hover:bg-white/[0.03] ${pulseClass} ${flash ? 'animate-slide-in' : ''}`}
         >
@@ -187,10 +194,7 @@ export function QueueItem({
             {!compact && isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
-            {!compact && status === 'sending' && !isGuarding && (
-              <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-text font-bold" style={{ backgroundColor: colors.info, color: colors.bgApp }}>SENDING</Badge>
-            )}
-            {!compact && status === 'pending' && index === 0 && !isGuarding && (
+            {!compact && index === 0 && !liveInstance && status !== 'complete' && !isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0" style={{ backgroundColor: `${colors.label}22`, color: colors.label }}>NEXT</Badge>
             )}
             {!compact && status === 'pending' && guard && index !== 0 && (

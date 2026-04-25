@@ -106,6 +106,9 @@ export interface TxQueueCmd {
   guard: boolean
   size: number
   payload: Record<string, unknown>
+  // Backend stamps this on the still-queued item right after register so the
+  // tick strip can render mid-send. Absent on pending (not-yet-sent) rows.
+  event_id?: string
 }
 
 export interface TxQueueDelay {
