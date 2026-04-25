@@ -80,3 +80,34 @@ class TXLog(_BaseLog):
             lines.append(self._field("ASCII", ascii_text))
 
         self._write_entry(lines)
+
+    def write_cmd_verifier(self, record: dict[str, Any]) -> None:
+        """Write one cmd_verifier event (envelope-compatible with tx_command).
+
+        Required keys in *record*:
+          cmd_event_id, instance_id, stage, verifier_id, outcome, elapsed_ms,
+          match_event_id (may be None), seq.
+        The envelope (event_id, session_id, ts_ms, ts_iso, v, mission_id,
+        operator, station, event_kind='cmd_verifier') is filled in here so the
+        SQL archive can ingest cmd_verifier and tx_command rows with one
+        schema.
+        """
+        from mav_gss_lib.platform._log_envelope import new_event_id, ts_iso
+        import time as _time
+
+        ts_ms = int(_time.time() * 1000)
+        envelope: dict[str, Any] = {
+            "event_id": new_event_id(),
+            "event_kind": "cmd_verifier",
+            "session_id": self.session_id,
+            "ts_ms": ts_ms,
+            "ts_iso": ts_iso(ts_ms),
+            "seq": record.get("seq", 0),
+            "v": self._version,
+            "mission_id": self.mission_id,
+            "operator": self._operator,
+            "station": self._station,
+        }
+        envelope.update(record)
+        envelope["event_kind"] = "cmd_verifier"  # guard — record must not override
+        self.write_jsonl(envelope)
