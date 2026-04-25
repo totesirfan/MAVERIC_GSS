@@ -101,10 +101,67 @@ class TypeCodec:
             "is not valid in ascii_tokens layout"
         )
 
-    # ---- Binary path (Task 16 will fill these in) ----
+    # ---- Binary path ----
 
     def decode_binary(self, type_ref: str, cursor: BitCursor) -> Any:
-        raise NotImplementedError("Binary decode lands in the next task")
+        t = self._types[type_ref]
+        if isinstance(t, IntegerParameterType):
+            buf = cursor.read_bytes(t.size_bits // 8)
+            return int.from_bytes(buf, t.byte_order, signed=t.signed)
+        if isinstance(t, FloatParameterType):
+            buf = cursor.read_bytes(t.size_bits // 8)
+            return struct.unpack(_FLOAT_STRUCT[(t.size_bits, t.byte_order)], buf)[0]
+        if isinstance(t, EnumeratedParameterType):
+            buf = cursor.read_bytes(t.size_bits // 8)
+            return int.from_bytes(buf, t.byte_order, signed=t.signed)
+        if isinstance(t, StringParameterType):
+            if t.encoding == "fixed":
+                assert t.fixed_size_bytes is not None
+                return cursor.read_bytes(t.fixed_size_bytes).decode(t.charset, errors="replace")
+            if t.encoding == "null_terminated":
+                acc = bytearray()
+                while True:
+                    one = cursor.read_bytes(1)
+                    if one == b"\x00":
+                        break
+                    acc += one
+                return acc.decode(t.charset, errors="replace")
+            raise TypeError(
+                f"string encoding {t.encoding!r} not valid in binary layout"
+            )
+        if isinstance(t, BinaryParameterType):
+            if t.size_kind == "fixed":
+                assert t.fixed_size_bytes is not None
+                return bytes(cursor.read_bytes(t.fixed_size_bytes))
+            raise TypeError(
+                "BinaryParameterType with dynamic_ref must be resolved by EntryDecoder, not TypeCodec"
+            )
+        if isinstance(t, AbsoluteTimeParameterType):
+            from .time_codec import decode_millis_u64
+            assert t.encoding == "millis_u64"
+            return decode_millis_u64(cursor.read_bytes(8))
+        raise TypeError(
+            f"TypeCodec.decode_binary: type {type_ref!r} of kind "
+            f"{type(t).__name__} unsupported"
+        )
 
     def encode_binary(self, type_ref: str, value: Any) -> bytes:
-        raise NotImplementedError("Binary encode lands in the next task")
+        t = self._types[type_ref]
+        if isinstance(t, IntegerParameterType):
+            return int(value).to_bytes(t.size_bits // 8, t.byte_order, signed=t.signed)
+        if isinstance(t, FloatParameterType):
+            return struct.pack(_FLOAT_STRUCT[(t.size_bits, t.byte_order)], float(value))
+        if isinstance(t, EnumeratedParameterType):
+            return int(value).to_bytes(t.size_bits // 8, t.byte_order, signed=t.signed)
+        if isinstance(t, AbsoluteTimeParameterType):
+            from .time_codec import encode_millis_u64
+            assert t.encoding == "millis_u64"
+            return encode_millis_u64(value)
+        if isinstance(t, BinaryParameterType):
+            return bytes(value)
+        if isinstance(t, StringParameterType):
+            return str(value).encode(t.charset)
+        raise TypeError(
+            f"TypeCodec.encode_binary: type {type_ref!r} of kind "
+            f"{type(t).__name__} unsupported"
+        )
