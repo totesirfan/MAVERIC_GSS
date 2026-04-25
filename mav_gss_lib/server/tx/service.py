@@ -549,6 +549,15 @@ class TxService:
         for _inst in self.runtime.platform.verifiers.consume_dirty():
             asyncio.create_task(self.broadcast_verifier_instance(_inst))
 
+        # Stamp the shared event_id onto the still-queued item so the
+        # frontend can render the verifier tick strip immediately, while the
+        # row is in 'sending' state. Without this the dots stay empty until
+        # the item transitions to history. Push a fresh queue_update so
+        # clients pick up the new id without waiting for the post-send dwell.
+        if instance is not None:
+            item["event_id"] = tx_event_id
+            await self.send_queue_update()
+
         hist_entry = self._record_sent(item, raw_cmd, framed, event_id=tx_event_id)
 
         if instance is not None and self.log:

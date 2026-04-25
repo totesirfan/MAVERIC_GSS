@@ -258,14 +258,21 @@ def queue_items_json(queue: list[QueueItem]) -> list[dict[str, Any]]:
         if item["type"] == "note":
             result.append({"type": "note", "text": item["text"]})
             continue
-        result.append({
+        projected: dict[str, Any] = {
             "type": "mission_cmd",
             "num": item.get("num", 0),
             "display": item.get("display", {}),
             "guard": item.get("guard", False),
             "size": len(item.get("raw_cmd", b"")),
             "payload": item.get("payload", {}),
-        })
+        }
+        # event_id is stamped onto the queue item by the send loop after the
+        # verifier instance registers, so the frontend can render the tick
+        # strip while the row is still in 'sending' state (before it moves
+        # to history). Absent on pending items.
+        if item.get("event_id"):
+            projected["event_id"] = item["event_id"]
+        result.append(projected)
     return result
 
 
