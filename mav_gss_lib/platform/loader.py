@@ -6,10 +6,24 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 import importlib
+import logging
 from pathlib import Path
 from typing import Any
 
 from .contract.mission import MissionContext, MissionSpec
+
+_SPEC_LOG = logging.getLogger("mav_gss_lib.platform.spec")
+
+
+def _forward_parse_warnings(mission: Any) -> None:
+    """Log every Mission.parse_warnings entry under the spec logger.
+
+    Called after the mission is built so operators see authoring warnings
+    at startup. The warnings are also attached to WebRuntime.parse_warnings
+    for inclusion in the /ws/preflight payload.
+    """
+    for w in getattr(mission, "parse_warnings", ()):
+        _SPEC_LOG.warning(str(w))
 
 
 def load_mission_spec_from_split(

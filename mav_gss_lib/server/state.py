@@ -131,6 +131,10 @@ class WebRuntime:
         self.preflight_task = None             # asyncio.Task reference
         self.preflight_clients: list = []
         self.preflight_lock = threading.Lock()
+        # Spec parse warnings forwarded from Mission.parse_warnings at startup.
+        # Populated when the mission is loaded via the declarative YAML path
+        # (Plan B/C); empty for hand-built missions (today's MAVERIC).
+        self.parse_warnings: tuple = ()
 
         # Updater state — populated at lifespan start via schedule_update_check
         self.update_status_future: Optional[asyncio.Future] = None

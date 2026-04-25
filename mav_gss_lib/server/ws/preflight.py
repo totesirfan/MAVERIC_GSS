@@ -30,6 +30,28 @@ router = APIRouter()
 
 
 # =============================================================================
+#  PREFLIGHT PAYLOAD BUILDER
+# =============================================================================
+
+def _build_preflight_payload(runtime: "WebRuntime") -> dict:
+    """Return a snapshot dict of the current preflight + spec-warning state.
+
+    Included in the /ws/preflight broadcast and available for the UI to
+    display non-fatal spec authoring warnings alongside check results.
+    The ``mission_parse_warnings`` list is populated when the mission was
+    loaded via the declarative YAML path; it is empty for hand-built missions.
+    """
+    return {
+        "phase": getattr(runtime, "preflight_status", None),
+        "results": list(getattr(runtime, "preflight_results", [])),
+        "update": getattr(runtime, "update_status", None),
+        "mission_parse_warnings": [
+            str(w) for w in getattr(runtime, "parse_warnings", ())
+        ],
+    }
+
+
+# =============================================================================
 #  BROADCAST HELPERS
 # =============================================================================
 
