@@ -8,7 +8,7 @@ import threading
 import unittest
 from collections import deque
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -47,6 +47,7 @@ def _build_stub_runtime():
     runtime.tx.history = []
     runtime.tx.queue_items_json.return_value = []
     runtime.tx.queue_summary.return_value = {"total": 0}
+    runtime.tx.send_verification_restore = AsyncMock()
 
     # Session stubs
     runtime.session.session_id = "sess-123"
