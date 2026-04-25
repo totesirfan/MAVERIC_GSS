@@ -165,3 +165,74 @@ class TypeCodec:
             f"TypeCodec.encode_binary: type {type_ref!r} of kind "
             f"{type(t).__name__} unsupported"
         )
+
+
+from .containers import Comparison, RestrictionCriteria, SequenceContainer
+from .walker_packet import WalkerPacket
+
+
+_OP_TABLE = {
+    "==": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+    "<":  lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    ">":  lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+}
+
+
+def _check(comparison: Comparison, source: Mapping[str, Any]) -> bool:
+    if comparison.parameter_ref not in source:
+        return False
+    return _OP_TABLE[comparison.operator](
+        source[comparison.parameter_ref], comparison.value,
+    )
+
+
+class ContainerMatcher:
+    """Resolve top-level containers via packet predicates and concrete
+    children via parent-decoded predicates.
+
+    Two iteration buckets pre-built at construction:
+      - top_level: containers whose `base_container_ref` is None.
+      - children_by_parent: dict[parent_name -> tuple of children].
+
+    Both preserve the YAML insertion order from the input dict, so
+    first-match-wins matches the spec's resolution rule.
+    """
+
+    __slots__ = ("_top_level", "_children_by_parent")
+
+    def __init__(self, *, containers: Mapping[str, SequenceContainer]) -> None:
+        top_level: list[SequenceContainer] = []
+        children: dict[str, list[SequenceContainer]] = {}
+        for name, c in containers.items():
+            if c.base_container_ref is None:
+                top_level.append(c)
+            else:
+                children.setdefault(c.base_container_ref, []).append(c)
+        self._top_level = tuple(top_level)
+        self._children_by_parent = {k: tuple(v) for k, v in children.items()}
+
+    def match_parent(self, pkt: WalkerPacket) -> SequenceContainer | None:
+        for c in self._top_level:
+            rc = c.restriction_criteria
+            if rc is None or not rc.packet:
+                continue
+            if all(_check(p, pkt.header) for p in rc.packet):
+                return c
+        return None
+
+    def resolve_concrete(
+        self, parent_name: str, parent_decoded: Mapping[str, Any],
+    ) -> SequenceContainer | None:
+        for child in self._children_by_parent.get(parent_name, ()):
+            rc = child.restriction_criteria
+            if rc is None:
+                continue
+            if all(_check(c, parent_decoded) for c in rc.parent_args):
+                return child
+        return None
+
+    def has_concrete_children(self, parent_name: str) -> bool:
+        return bool(self._children_by_parent.get(parent_name))
