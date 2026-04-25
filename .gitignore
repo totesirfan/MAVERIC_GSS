@@ -30,6 +30,7 @@ generated_commands/
 # === Mission-Sensitive (NEVER track) ===
 # Command schema contains mission command definitions — security sensitive
 mav_gss_lib/missions/maveric/commands.yml
+mav_gss_lib/missions/maveric/mission.yml
 
 # === Operator-Local Config ===
 # Main station config — operator ZMQ addresses, local paths
