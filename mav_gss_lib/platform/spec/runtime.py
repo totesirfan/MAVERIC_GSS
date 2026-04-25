@@ -236,3 +236,230 @@ class ContainerMatcher:
 
     def has_concrete_children(self, parent_name: str) -> bool:
         return bool(self._children_by_parent.get(parent_name))
+
+
+from typing import Iterator
+
+from mav_gss_lib.platform.telemetry import TelemetryFragment
+
+from .bitfield import BitfieldType
+from .calibrator_runtime import CalibratorRuntime
+from .containers import ParameterRefEntry, PagedFrameEntry, RepeatEntry
+
+
+class BitfieldDecoder:
+    """Decodes one BitfieldType from a BitCursor.
+
+    Reads `size_bits` bits as one unsigned int (LSB-first relative to the
+    underlying byte stream), then masks each slice. Emits a dict shaped
+    `{slice_name: decoded, slice_name + '_name': label}` (the `_name`
+    companion is added only for `kind: enum` slices).
+    """
+
+    __slots__ = ("_types",)
+
+    def __init__(self, *, types: Mapping[str, ParameterType]) -> None:
+        self._types = types
+
+    def decode(self, bf: BitfieldType, cursor: BitCursor) -> dict[str, Any]:
+        register = cursor.read_bits(bf.size_bits)
+        out: dict[str, Any] = {}
+        for entry in bf.entry_list:
+            lo, hi = entry.bits
+            width = hi - lo + 1
+            mask = (1 << width) - 1
+            raw = (register >> lo) & mask
+            if entry.kind == "bool":
+                out[entry.name] = bool(raw)
+            elif entry.kind == "uint":
+                out[entry.name] = raw
+            elif entry.kind == "int":
+                # Sign-extend
+                if raw & (1 << (width - 1)):
+                    raw -= 1 << width
+                out[entry.name] = raw
+            elif entry.kind == "enum":
+                assert entry.enum_ref is not None
+                out[entry.name] = raw
+                enum_t = self._types[entry.enum_ref]
+                assert isinstance(enum_t, EnumeratedParameterType)
+                label = next((v.label for v in enum_t.values if v.raw == raw), None)
+                out[f"{entry.name}_name"] = label or f"UNKNOWN_{raw}"
+            else:
+                raise TypeError(f"Unknown bitfield slice kind {entry.kind!r}")
+        return out
+
+
+class EntryDecoder:
+    """Walks a container's entry_list, emitting TelemetryFragment per
+    ParameterRefEntry (when emit=True), per RepeatEntry iteration, or per
+    PagedFrameEntry marker block. Populates `decoded_into` with raw
+    decoded values for downstream dispatch (`parent_args`, dynamic_ref).
+    """
+
+    __slots__ = ("_types", "_codec", "_calibrators", "_bitfields")
+
+    def __init__(
+        self,
+        *,
+        types: Mapping[str, ParameterType],
+        codec: TypeCodec,
+        calibrators: CalibratorRuntime,
+        bitfields: Mapping[str, BitfieldType],
+    ) -> None:
+        self._types = types
+        self._codec = codec
+        self._calibrators = calibrators
+        self._bitfields = bitfields
+
+    def walk(
+        self,
+        container: SequenceContainer,
+        cursor: BitCursor | TokenCursor,
+        *,
+        now_ms: int,
+        decoded_into: dict[str, Any],
+        matcher: ContainerMatcher | None = None,
+    ) -> Iterator[TelemetryFragment]:
+        for entry in container.entry_list:
+            if isinstance(entry, ParameterRefEntry):
+                yield from self._walk_ref(container, entry, cursor, now_ms, decoded_into)
+            elif isinstance(entry, RepeatEntry):
+                yield from self._walk_repeat(container, entry, cursor, now_ms, decoded_into)
+            elif isinstance(entry, PagedFrameEntry):
+                if matcher is None:
+                    raise RuntimeError(
+                        "EntryDecoder.walk: PagedFrameEntry requires a ContainerMatcher"
+                    )
+                yield from self._walk_paged(container, entry, cursor, now_ms, decoded_into, matcher)
+            else:
+                raise TypeError(f"Unknown entry kind: {type(entry).__name__}")
+
+    def _walk_ref(
+        self,
+        container: SequenceContainer,
+        entry: ParameterRefEntry,
+        cursor: BitCursor | TokenCursor,
+        now_ms: int,
+        decoded_into: dict[str, Any],
+    ) -> Iterator[TelemetryFragment]:
+        if entry.type_ref in self._bitfields:
+            assert isinstance(cursor, BitCursor), "bitfield decode requires binary layout"
+            bf = self._bitfields[entry.type_ref]
+            value: Any = BitfieldDecoder(types=self._types).decode(bf, cursor)
+            unit = ""
+        else:
+            t = self._types[entry.type_ref]
+            if container.layout == "binary":
+                assert isinstance(cursor, BitCursor)
+                if isinstance(t, BinaryParameterType) and t.size_kind == "dynamic_ref":
+                    assert t.size_ref is not None
+                    n = decoded_into[t.size_ref]
+                    raw = bytes(cursor.read_bytes(n))
+                    value, unit = raw, ""
+                else:
+                    raw = self._codec.decode_binary(entry.type_ref, cursor)
+                    value, unit = self._calibrators.apply(entry.type_ref, raw)
+            else:
+                assert isinstance(cursor, TokenCursor)
+                if isinstance(t, BinaryParameterType) and t.size_kind == "dynamic_ref":
+                    assert t.size_ref is not None
+                    blob = cursor.read_remaining_bytes()
+                    n = decoded_into[t.size_ref]
+                    value, unit = bytes(blob[:n]), ""
+                else:
+                    raw = self._codec.decode_ascii(entry.type_ref, cursor)
+                    value, unit = self._calibrators.apply(entry.type_ref, raw)
+            decoded_into[entry.name] = raw if entry.type_ref not in self._bitfields else value
+        if entry.emit:
+            yield TelemetryFragment(
+                domain=container.domain,
+                key=entry.name,
+                value=value,
+                ts_ms=now_ms,
+                unit=unit,
+            )
+
+    def _walk_repeat(
+        self,
+        container: SequenceContainer,
+        entry: RepeatEntry,
+        cursor: BitCursor | TokenCursor,
+        now_ms: int,
+        decoded_into: dict[str, Any],
+    ) -> Iterator[TelemetryFragment]:
+        if entry.count_kind == "fixed":
+            assert entry.count_fixed is not None
+            count = entry.count_fixed
+        elif entry.count_kind == "dynamic_ref":
+            assert entry.count_ref is not None
+            count = int(decoded_into[entry.count_ref])
+        else:  # to_end
+            count = -1
+        i = 0
+        while True:
+            if count >= 0 and i >= count:
+                break
+            remaining = (
+                cursor.remaining_tokens() if isinstance(cursor, TokenCursor)
+                else cursor.remaining_bytes()
+            )
+            if remaining <= 0:
+                break
+            if isinstance(cursor, TokenCursor):
+                raw = self._codec.decode_ascii(entry.entry.type_ref, cursor)
+            else:
+                raw = self._codec.decode_binary(entry.entry.type_ref, cursor)
+            value, unit = self._calibrators.apply(entry.entry.type_ref, raw)
+            if entry.entry.emit:
+                yield TelemetryFragment(
+                    domain=container.domain,
+                    key=entry.entry.name,
+                    value=value,
+                    ts_ms=now_ms,
+                    unit=unit,
+                )
+            i += 1
+
+    def _walk_paged(
+        self,
+        container: SequenceContainer,
+        entry: PagedFrameEntry,
+        cursor: BitCursor | TokenCursor,
+        now_ms: int,
+        decoded_into: dict[str, Any],
+        matcher: ContainerMatcher,
+    ) -> Iterator[TelemetryFragment]:
+        # Markers are tokens that contain `marker_separator`. Walk the
+        # remaining cursor block-by-block.
+        assert isinstance(cursor, TokenCursor), "paged_frame_entry requires ascii_tokens layout"
+        while cursor.remaining_tokens() > 0:
+            token = cursor.read_token()
+            if entry.marker_separator not in token:
+                continue
+            parts = token.split(entry.marker_separator)
+            synthesized: dict[str, Any] = {}
+            for k, raw in zip(entry.dispatch_keys, parts):
+                # dispatch_keys are usually ints — try parsing
+                try:
+                    synthesized[k] = int(raw)
+                except ValueError:
+                    synthesized[k] = raw
+            child = matcher.resolve_concrete(entry.base_container_ref, synthesized)
+            if child is None:
+                if entry.on_unknown_register == "raise":
+                    raise ValueError(
+                        f"paged_frame_entry on {container.name!r}: no concrete child "
+                        f"for {synthesized!r} (parent={entry.base_container_ref!r})"
+                    )
+                # 'skip' or 'emit_unknown' — both consume nothing further
+                if entry.on_unknown_register == "emit_unknown":
+                    yield TelemetryFragment(
+                        domain=container.domain,
+                        key=f"UNKNOWN_REG_{'_'.join(str(v) for v in synthesized.values())}",
+                        value=None,
+                        ts_ms=now_ms,
+                        unit="",
+                    )
+                continue
+            yield from self.walk(child, cursor, now_ms=now_ms, decoded_into={}, matcher=matcher)
