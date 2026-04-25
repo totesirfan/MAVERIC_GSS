@@ -34,7 +34,7 @@ export function VerifierTickStrip({ instance, now_ms }: VerifierTickStripProps) 
     v => v.stage === 'failed' && instance.outcomes[v.verifier_id]?.state === 'passed'
   )
   return (
-    <span className="inline-flex items-center gap-0.5" title={instance.stage.toUpperCase()}>
+    <span className="inline-flex items-center gap-1" title={instance.stage.toUpperCase()}>
       {active.map(v => {
         const o = instance.outcomes[v.verifier_id] ?? { state: 'pending', matched_at_ms: null, match_event_id: null }
         const filled = o.state === 'passed' || o.state === 'failed' || o.state === 'window_expired'
@@ -43,9 +43,10 @@ export function VerifierTickStrip({ instance, now_ms }: VerifierTickStripProps) 
           <span key={v.verifier_id}
             className={`inline-block rounded-full ${pulse ? 'animate-pulse-warning' : ''}`}
             style={{
-              width: 10, height: 10,
+              width: 12, height: 12,
               backgroundColor: filled ? dotColor(o.state, v.display_tone) : 'transparent',
-              border: filled ? 'none' : `1px solid ${colors.dim}`,
+              border: filled ? 'none' : `2px solid ${colors.active}`,
+              boxShadow: filled ? `0 0 0 1px ${colors.borderStrong}` : undefined,
             }}
             title={`${v.display_label} · ${o.state}`}
           />

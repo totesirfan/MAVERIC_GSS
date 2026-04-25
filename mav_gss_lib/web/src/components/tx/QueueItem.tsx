@@ -57,7 +57,6 @@ export function QueueItem({
   visibleColumns, onSelect, onToggleGuard, onDelete, onDuplicate,
   onMoveToTop, onMoveToBottom, onRequeue,
 }: QueueItemProps) {
-  const terminal = isTerminal(status)
   const pending = status === 'pending' || status === 'sending'
 
   const {
@@ -76,16 +75,28 @@ export function QueueItem({
   const cmdEventId = (item as { event_id?: string }).event_id ?? ''
   const instance = cmdEventId ? (verification.get(cmdEventId) ?? null) : null
 
+  // For sent rows, the incoming `status` is hardcoded to 'complete' upstream.
+  // Override from the live verifier instance stage so the left rail reflects
+  // the actual verification outcome (green=complete, red=failed, gray=timed_out,
+  // pulsing yellow=released-waiting). Pending/sending rows keep their prop status.
+  const effectiveStatus: TxRowStatus = (() => {
+    if (status === 'pending' || status === 'sending') return status
+    if (!instance) return status
+    if (instance.stage === 'received') return 'accepted'
+    return instance.stage as TxRowStatus
+  })()
+  const effectiveTerminal = isTerminal(effectiveStatus)
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : (terminal ? 0.6 : 1),
+    opacity: isDragging ? 0.5 : (effectiveTerminal ? 0.6 : 1),
   }
 
-  const borderColor = railColor(status, guard, isGuarding)
+  const borderColor = railColor(effectiveStatus, guard, isGuarding)
   const pulseClass =
-    status === 'sending' ? 'animate-slide-in' :
-    status === 'released' ? 'animate-pulse-warning' : ''
+    effectiveStatus === 'sending' ? 'animate-slide-in' :
+    effectiveStatus === 'released' ? 'animate-pulse-warning' : ''
 
   return (
     <ContextMenuRoot>

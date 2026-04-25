@@ -321,5 +321,5 @@ def tx_queue_columns() -> list[dict]:
         {"id": "echo",      "label": "echo",      "width": "w-[52px]", "hide_if_all": ["NONE"]},
         {"id": "ptype",     "label": "type",      "width": "w-[52px]", "badge": True},
         {"id": "cmd",       "label": "id / args", "flex": True},
-        {"id": "verifiers", "label": "verify",    "width": "w-[60px]", "align": "right"},
+        {"id": "verifiers", "label": "verify",    "width": "w-[78px]", "align": "right"},
     ]
