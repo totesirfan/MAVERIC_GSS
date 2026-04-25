@@ -67,6 +67,7 @@ _ALL_PIP_MODULES: list[str] = [
     "zmq",        # pyzmq
     "crcmod",     # crcmod
     "PIL",        # Pillow
+    "pydantic",   # pydantic
 ]
 
 
