@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Callable, NamedTuple
 
 from ..state import MAX_QUEUE
 from .queue import QueueItem, make_delay, validate_mission_cmd
+from .service import AdmitResult
 from .._task_utils import log_task_exception
 
 if TYPE_CHECKING:
@@ -85,15 +86,23 @@ def mutate_queue_if_idle(
     fn: QueueMutator,
     *,
     check_space: bool = False,
-) -> str | None:
+    admit_check: "Callable[[], tuple[str | None, dict]] | None" = None,
+) -> tuple[str | None, dict]:
     """Run fn(queue) under send_lock with atomic idle + capacity checks.
 
-    Returns an error string if the queue is being sent or full, else None.
+    Returns ``(error, info)`` — ``error=None`` means accepted. ``info`` is
+    a dict that callers can use to render a structured rejection (empty
+    on the idle/space failures, populated by ``admit_check`` on admission
+    rejections).
+
     fn receives the queue list and may mutate it. After fn returns,
     renumber and save are done under the same lock. Broadcasts happen
     after the lock is released by the caller.
 
-    If check_space=True, also enforces MAX_QUEUE before running fn.
+    If ``check_space=True``, enforces MAX_QUEUE before running fn.
+    If ``admit_check`` is provided, it runs inside the lock AFTER the
+    idle + space checks and BEFORE fn — it returns ``(error, info)`` and
+    aborts the mutation when ``error`` is not None.
 
     This is the ONLY correct way to mutate the queue from action handlers.
     The dispatch-loop guards (requires_idle, requires_space) are fast
@@ -101,13 +110,17 @@ def mutate_queue_if_idle(
     """
     with runtime.tx.send_lock:
         if runtime.tx.sending["active"]:
-            return "cannot modify queue during send"
+            return "cannot modify queue during send", {}
         if check_space and len(runtime.tx.queue) >= MAX_QUEUE:
-            return f"queue full ({MAX_QUEUE} items max)"
+            return f"queue full ({MAX_QUEUE} items max)", {}
+        if admit_check is not None:
+            err, info = admit_check()
+            if err is not None:
+                return err, info
         fn(runtime.tx.queue)
         runtime.tx.renumber_queue()
         runtime.tx.save_queue()
-    return None
+    return None, {}
 
 
 async def send_error(ws: "WebSocket", error: str) -> None:
@@ -115,9 +128,41 @@ async def send_error(ws: "WebSocket", error: str) -> None:
     await ws.send_text(json.dumps({"type": "error", "error": error}))
 
 
+async def send_admit_error(ws: "WebSocket", error: str, info: dict) -> None:
+    """Send a structured admission-rejection error to a single client.
+
+    Carries ``code`` (e.g. ``window_open`` / ``send_active``) plus any
+    extra fields from ``info`` (cmd_id, remaining_ms, …) so the UI can
+    render a specific toast.
+    """
+    code = info.get("code") or ("send_active" if "during send" in error else "error")
+    payload = {"type": "error", "code": code, "error": error}
+    for k, v in info.items():
+        if k != "code":
+            payload[k] = v
+    await ws.send_text(json.dumps(payload))
+
+
 # ---------------------------------------------------------------------------
 #  Handlers
 # ---------------------------------------------------------------------------
+
+def _admit_check_for(runtime: "WebRuntime", item: QueueItem) -> "Callable[[], tuple[str | None, dict]]":
+    """Build the admit_check closure used by queue/queue_mission_cmd."""
+    def _check() -> tuple[str | None, dict]:
+        result, info = runtime.tx.admit(item)
+        if result is AdmitResult.REJECTED_WINDOW_OPEN:
+            cmd_id = info.get("cmd_id", "")
+            remaining_ms = int(info.get("remaining_ms", 0))
+            return (
+                f"{cmd_id} still verifying — {remaining_ms // 1000}s remaining",
+                {"code": "window_open", **info},
+            )
+        if result is AdmitResult.REJECTED_SEND_ACTIVE:
+            return ("cannot modify queue during send", {"code": "send_active", **info})
+        return (None, {})
+    return _check
+
 
 async def handle_queue(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Parse CLI text and queue the resulting command."""
@@ -127,9 +172,12 @@ async def handle_queue(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
         return
     try:
         item = validate_mission_cmd(line, runtime=runtime)
-        err = mutate_queue_if_idle(runtime, lambda q: q.append(item), check_space=True)
+        err, info = mutate_queue_if_idle(
+            runtime, lambda q: q.append(item),
+            check_space=True, admit_check=_admit_check_for(runtime, item),
+        )
         if err:
-            await send_error(ws, err)
+            await send_admit_error(ws, err, info)
             return
         await runtime.tx.send_queue_update()
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
@@ -141,9 +189,12 @@ async def handle_queue_mission_cmd(runtime: "WebRuntime", msg: dict, ws: "WebSoc
     try:
         payload = msg.get("payload", {})
         item = validate_mission_cmd(payload, runtime=runtime)
-        err = mutate_queue_if_idle(runtime, lambda q: q.append(item), check_space=True)
+        err, info = mutate_queue_if_idle(
+            runtime, lambda q: q.append(item),
+            check_space=True, admit_check=_admit_check_for(runtime, item),
+        )
         if err:
-            await send_error(ws, err)
+            await send_admit_error(ws, err, info)
             return
         await runtime.tx.send_queue_update()
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
@@ -156,7 +207,7 @@ async def handle_delete(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> No
     def do_delete(q: list[QueueItem]) -> None:
         if isinstance(idx, int) and 0 <= idx < len(q):
             q.pop(idx)
-    err = mutate_queue_if_idle(runtime, do_delete)
+    err, _ = mutate_queue_if_idle(runtime, do_delete)
     if err:
         await send_error(ws, err)
         return
@@ -165,7 +216,7 @@ async def handle_delete(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> No
 
 async def handle_clear(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Clear the entire queue."""
-    err = mutate_queue_if_idle(runtime, lambda q: q.clear())
+    err, _ = mutate_queue_if_idle(runtime, lambda q: q.clear())
     if err:
         await send_error(ws, err)
         return
@@ -174,7 +225,7 @@ async def handle_clear(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
 
 async def handle_undo(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Remove the last item from the queue."""
-    err = mutate_queue_if_idle(runtime, lambda q: q.pop() if q else None)
+    err, _ = mutate_queue_if_idle(runtime, lambda q: q.pop() if q else None)
     if err:
         await send_error(ws, err)
         return
@@ -189,7 +240,7 @@ async def handle_guard(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
             item = q[idx]
             if item["type"] == "mission_cmd":
                 item["guard"] = not item.get("guard", False)
-    err = mutate_queue_if_idle(runtime, do_guard)
+    err, _ = mutate_queue_if_idle(runtime, do_guard)
     if err:
         await send_error(ws, err)
         return
@@ -205,7 +256,7 @@ async def handle_reorder(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> N
                 q[:] = [q[index] for index in order]
             except (IndexError, TypeError):
                 pass
-    err = mutate_queue_if_idle(runtime, do_reorder)
+    err, _ = mutate_queue_if_idle(runtime, do_reorder)
     if err:
         await send_error(ws, err)
         return
@@ -222,7 +273,7 @@ async def handle_add_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") ->
             q.insert(idx, item)
         else:
             q.append(item)
-    err = mutate_queue_if_idle(runtime, do_add, check_space=True)
+    err, _ = mutate_queue_if_idle(runtime, do_add, check_space=True)
     if err:
         await send_error(ws, err)
         return
@@ -241,7 +292,7 @@ async def handle_edit_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -
             and isinstance(delay_ms, (int, float))
         ):
             q[idx]["delay_ms"] = max(0, min(300_000, int(delay_ms)))
-    err = mutate_queue_if_idle(runtime, do_edit)
+    err, _ = mutate_queue_if_idle(runtime, do_edit)
     if err:
         await send_error(ws, err)
         return

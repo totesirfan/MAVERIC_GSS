@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from ..state import MAX_QUEUE, get_runtime
 from ..tx.queue import parse_import_file, sanitize_queue_items, item_to_json
+from ..tx.service import AdmitResult
 from ..security import require_api_token
 
 router = APIRouter()
@@ -86,11 +87,28 @@ async def import_file(filename: str, request: Request) -> dict[str, Any] | JSONR
             return JSONResponse(status_code=400, content={"error": f"queue full ({MAX_QUEUE} items max)"})
         if len(items) > space:
             return JSONResponse(status_code=400, content={"error": f"import has {len(items)} items but only {space} queue slots available"})
-        runtime.tx.queue.extend(items)
+        admitted: list = []
+        rejections: list[dict[str, Any]] = []
+        for item in items:
+            result, info = runtime.tx.admit(item)
+            if result is AdmitResult.ACCEPTED:
+                admitted.append(item)
+            else:
+                payload = item.get("payload") or {}
+                rejections.append({
+                    "cmd_id": payload.get("cmd_id"),
+                    "reason": result.value,
+                    **info,
+                })
+        runtime.tx.queue.extend(admitted)
         runtime.tx.renumber_queue()
         runtime.tx.save_queue()
     await runtime.tx.send_queue_update()
-    return {"loaded": len(items), "skipped": skipped}
+    return {
+        "loaded": len(admitted),
+        "skipped": skipped,
+        "rejected": rejections,
+    }
 
 
 @router.post("/api/export-queue", response_model=None)
