@@ -277,8 +277,20 @@ class TxService:
             )
         return self.runtime.mission.commands.frame(encoded)
 
-    def _record_sent(self, item: QueueItem, raw_cmd: bytes, framed: FramedCommand) -> dict[str, Any]:
-        """Write the TX log entry and append a history item; return the history entry."""
+    def _record_sent(
+        self,
+        item: QueueItem,
+        raw_cmd: bytes,
+        framed: FramedCommand,
+        *,
+        event_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Write the TX log entry and append a history item; return the history entry.
+
+        ``event_id`` (if provided) is threaded through to ``tx_log_record`` and
+        stamped onto ``hist_entry["event_id"]`` so callers can link history rows
+        to verifier instances (the frontend joins on ``cmd_event_id``).
+        """
         assert self.count > 0, "TX seq counter not incremented before _record_sent"
         assert len(raw_cmd) > 0, "TX record: raw_cmd is empty"
         assert len(framed.wire) > 0, "TX record: framed.wire is empty"
@@ -300,6 +312,7 @@ class TxService:
                     station=self.runtime.station,
                     frame_label=framed.frame_label,
                     log_fields=framed.log_fields,
+                    event_id=event_id,
                 )
                 self.log.write_mission_command(
                     record,
@@ -319,6 +332,7 @@ class TxService:
             "display": item.get("display", {}),
             "payload": item.get("payload", {}),
             "size": len(framed.wire),
+            "event_id": event_id or "",
         }
         self.history.append(hist_entry)
         if len(self.history) > self.runtime.max_history:
@@ -386,7 +400,70 @@ class TxService:
             self.sending["sent_at"] = time.time()
         self.count += 1
 
-        hist_entry = self._record_sent(item, raw_cmd, framed)
+        # Generate ONE shared event_id for the tx_command log record, the
+        # CommandInstance back-pointer, and the WS history broadcast so the
+        # frontend (Task 26) can join verifier rows to history rows.
+        from pathlib import Path as _Path
+        import uuid as _uuid
+        from mav_gss_lib.platform._log_envelope import new_event_id
+        from mav_gss_lib.platform.tx.verifiers import (
+            CommandInstance,
+            VerifierOutcome,
+            write_instances,
+        )
+
+        tx_event_id = new_event_id()
+
+        # Reconstruct an EncodedCommand surface for the mission's verifier
+        # lookup. Mission methods (verifier_set, correlation_key) read from
+        # ``mission_payload["payload"]`` — preserve that shape.
+        encoded_for_verifier = EncodedCommand(
+            raw=raw_cmd,
+            guard=bool(item.get("guard", False)),
+            mission_payload={
+                "payload": item.get("payload", {}),
+                "display": item.get("display", {}),
+            },
+        )
+        vset = self.runtime.mission.commands.verifier_set(encoded_for_verifier)
+
+        instance: CommandInstance | None = None
+        if vset.verifiers:  # skip register when mission declares "verification disabled"
+            key = self.runtime.mission.commands.correlation_key(encoded_for_verifier)
+            instance = CommandInstance(
+                instance_id=_uuid.uuid4().hex,
+                correlation_key=key,
+                t0_ms=int(time.time() * 1000),
+                cmd_event_id=tx_event_id,
+                verifier_set=vset,
+                outcomes={v.verifier_id: VerifierOutcome.pending() for v in vset.verifiers},
+                stage="released",
+            )
+            self.runtime.platform.verifiers.register(instance)
+            try:
+                write_instances(
+                    _Path(self.runtime.log_dir) / ".pending_instances.jsonl",
+                    self.runtime.platform.verifiers.open_instances(),
+                )
+            except Exception as exc:
+                logging.warning("pending_instances write failed: %s", exc)
+
+        hist_entry = self._record_sent(item, raw_cmd, framed, event_id=tx_event_id)
+
+        if instance is not None and self.log:
+            try:
+                self.log.write_cmd_verifier({
+                    "seq": self.count,
+                    "cmd_event_id": instance.cmd_event_id,
+                    "instance_id": instance.instance_id,
+                    "stage": "released",
+                    "verifier_id": "",
+                    "outcome": "pass",
+                    "elapsed_ms": 0,
+                    "match_event_id": None,
+                })
+            except Exception as exc:
+                logging.warning("cmd_verifier release log failed: %s", exc)
 
         new_sent = ctx.sent + 1
         await self.broadcast({"type": "sent", "data": hist_entry})
