@@ -61,5 +61,53 @@ class CodecConstructionTest(unittest.TestCase):
             )
 
 
+from mav_gss_lib.platform.spec import CommandHeader
+from mav_gss_lib.platform.spec.errors import MissingRequiredHeaderField
+
+
+class CompleteHeaderTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.codec = MaverPacketCodec(
+            extensions={
+                "nodes": {"NONE": 0, "LPPM": 1, "GS": 6},
+                "ptypes": {"CMD": 1, "RES": 2},
+                "gs_node": "GS",
+            }
+        )
+
+    def test_defaults_src_from_gs_node(self) -> None:
+        h = CommandHeader(
+            id="com_ping",
+            fields={"dest": "LPPM", "echo": "NONE", "ptype": "CMD"},
+        )
+        completed = self.codec.complete_header(h)
+        self.assertEqual(completed.fields["src"], "GS")
+        self.assertEqual(completed.fields["dest"], "LPPM")
+        self.assertEqual(completed.id, "com_ping")
+
+    def test_preserves_explicit_src(self) -> None:
+        h = CommandHeader(
+            id="com_ping",
+            fields={"src": "LPPM", "dest": "GS", "echo": "NONE", "ptype": "CMD"},
+        )
+        completed = self.codec.complete_header(h)
+        self.assertEqual(completed.fields["src"], "LPPM")
+
+    def test_raises_when_dest_missing(self) -> None:
+        h = CommandHeader(id="com_ping", fields={"echo": "NONE", "ptype": "CMD"})
+        with self.assertRaises(MissingRequiredHeaderField) as ctx:
+            self.codec.complete_header(h)
+        self.assertEqual(ctx.exception.field, "dest")
+
+    def test_returned_header_is_new_instance(self) -> None:
+        h = CommandHeader(
+            id="com_ping",
+            fields={"dest": "LPPM", "echo": "NONE", "ptype": "CMD"},
+        )
+        completed = self.codec.complete_header(h)
+        self.assertIsNot(completed, h)
+        self.assertNotIn("src", h.fields)
+
+
 if __name__ == "__main__":
     unittest.main()
