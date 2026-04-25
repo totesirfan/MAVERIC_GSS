@@ -213,6 +213,66 @@ parameter_types:
     unit: "quaternion"
     description: "Attitude quaternion (scalar-last by convention)"
 
+  GncPlannerMode:
+    kind: enum
+    size_bits: 8
+    values:
+      0: "Safe"
+      1: "Auto"
+      2: "Manual"
+
+  NvgStatus:
+    kind: enum
+    size_bits: 8
+    values:
+      0: "off"
+      1: "on"
+      2: "error"
+
+  NvgSensorId:
+    kind: enum
+    size_bits: 8
+    values:
+      1: "ACCELEROMETER"
+      2: "MAGNETOMETER"
+      3: "ORIENTATION"
+      4: "GYROSCOPE"
+      6: "PRESSURE"
+      7: "TEMPERATURE"
+      9: "GRAVITY"
+      10: "LINEAR_ACCEL"
+      11: "ROTATION_VECTOR"
+      14: "MAG_UNCAL"
+      15: "GAME_ROTATION"
+      16: "GYRO_UNCAL"
+      17: "SIGNIFICANT_MOTION"
+      20: "GEOMAG_ROTATION"
+      254: "META_EVENT"
+
+  OpsStage:
+    kind: enum
+    size_bits: 8
+    values:
+      0: "Pre-Launch"
+      1: "Detumble"
+      2: "Sun-Point"
+      3: "Nominal"
+      4: "Safe"
+
+  GncBootMode:
+    kind: enum
+    size_bits: 8
+    values:
+      0: "Safe"
+      1: "De-tumbling"
+      2: "Sun Spin"
+      3: "Sun-Pointing"
+      4: "Fine Pointing"
+      5: "LVLH"
+      6: "Target Tracking"
+      7: "Manual"
+    description: "Full table copied from gnc_schema.MODE_NAMES"
+
 parameters: {}
 
 bitfield_types: {}
