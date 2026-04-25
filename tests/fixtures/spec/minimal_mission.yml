@@ -1,0 +1,45 @@
+schema_version: 1
+id: testmission
+name: "Test Mission"
+header:
+  version: "1.0.0"
+  date: "2026-04-25"
+  description: "Smoke test"
+
+nodes:  {NONE: 0, GS: 1, NODE_A: 2}
+ptypes: {CMD: 1, RES: 2, TLM: 5}
+
+parameter_types:
+  V_volts:
+    kind: int
+    size_bits: 16
+    signed: true
+    calibrator: {polynomial: [0, 0.001]}
+    unit: V
+  GncMode:
+    kind: enum
+    size_bits: 8
+    values: {0: Safe, 1: Auto}
+
+parameters:
+  V_BUS: {type: V_volts, description: "Bus voltage"}
+  GNC_MODE: {type: GncMode, description: "Planner mode"}
+
+sequence_containers:
+  eps_hk:
+    domain: eps
+    layout: binary
+    restriction_criteria: {packet: {cmd_id: eps_hk, ptype: TLM}}
+    entry_list:
+      - {name: V_BUS, type: V_volts}
+  gnc_get_mode_res:
+    domain: gnc
+    restriction_criteria: {packet: {cmd_id: gnc_get_mode, ptype: RES}}
+    entry_list:
+      - {name: GNC_MODE, type: GncMode}
+
+meta_commands:
+  gnc_get_mode:
+    packet: {dest: NODE_A, echo: NONE, ptype: CMD}
+    rx_args:
+      - {name: mode, type: GncMode}
