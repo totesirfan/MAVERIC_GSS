@@ -53,3 +53,7 @@ class MissionSpec:
     events: EventOps | None = None
     http: HttpOps | None = None
     preflight: MissionPreflightFn | None = None
+    # Non-fatal warnings produced when constructing this MissionSpec —
+    # surfaced in /ws/preflight payload and the spec logger at startup.
+    # Empty for hand-built missions; populated by the declarative YAML path.
+    parse_warnings: tuple[Any, ...] = ()

@@ -50,6 +50,7 @@ def load_mission_spec_from_split(
     )
     spec = build(ctx)
     validate_mission_spec(spec)
+    _forward_parse_warnings(spec)
     return spec
 
 

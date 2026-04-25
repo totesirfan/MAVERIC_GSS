@@ -231,6 +231,9 @@ async def _emit_summary(runtime: "WebRuntime", results: list[CheckResult]) -> No
         "warnings": summary.warnings,
         "skipped": skipped,
         "ready": summary.ready,
+        "mission_parse_warnings": [
+            str(w) for w in getattr(runtime, "parse_warnings", ())
+        ],
     }
     await _broadcast(runtime, summary_event)
     with runtime.preflight_lock:
