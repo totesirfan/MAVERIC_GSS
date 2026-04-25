@@ -133,6 +133,10 @@ export interface TxHistoryItem {
   display: CmdDisplay
   payload: Record<string, unknown>
   size: number
+  // Join key to the verification Map. Stamped by backend `_record_sent`;
+  // the same id is used as `CommandInstance.cmd_event_id` when the instance
+  // is registered. Optional because legacy history rows won't have it.
+  event_id?: string
 }
 
 export interface SendProgress {

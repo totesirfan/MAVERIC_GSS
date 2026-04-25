@@ -14,6 +14,9 @@ import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
 } from '@/components/shared/ContextMenu'
+import { useTx } from '@/state/tx'
+import { VerifierTickStrip } from './VerifierTickStrip'
+import { VerifierDetailBlock } from './VerifierDetailBlock'
 import type { TxQueueCmd, TxHistoryItem, TxColumnDef, TxRowStatus } from '@/lib/types'
 
 const TERMINAL: TxRowStatus[] = ['complete', 'failed', 'timed_out']
@@ -66,6 +69,13 @@ export function QueueItem({
   const guard = 'guard' in item ? item.guard : false
   const size = item.size
 
+  // Join this row to a live verifier instance, if any. Backend stamps
+  // `event_id` on history rows via `_record_sent`; queue items have no
+  // event_id until sent, so `instance` is null for pending rows.
+  const { verification } = useTx()
+  const cmdEventId = (item as { event_id?: string }).event_id ?? ''
+  const instance = cmdEventId ? (verification.get(cmdEventId) ?? null) : null
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -106,6 +116,13 @@ export function QueueItem({
             <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
             {visibleColumns.length > 0 ? (
               visibleColumns.map(c => {
+                if (c.id === 'verifiers') {
+                  return (
+                    <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'} text-right`}>
+                      <VerifierTickStrip instance={instance} now_ms={Date.now()} />
+                    </span>
+                  )
+                }
                 const cell = display.row?.[c.id]
                 const val = cellText(cell)
                 return (
@@ -183,6 +200,7 @@ export function QueueItem({
                 <span style={{ color: colors.value }}>{size}B</span>
               </div>
               {pending && guard && <div style={{ color: colors.warning }} className="text-[11px]">Guarded — requires confirmation</div>}
+              {instance && <VerifierDetailBlock instance={instance} now_ms={Date.now()} />}
             </div>
           )}
         </div>
