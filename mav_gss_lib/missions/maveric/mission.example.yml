@@ -305,6 +305,13 @@ parameter_types:
       dynamic_ref: chunk_len
     description: "Image chunk payload (length resolved from chunk_len)"
 
+  BeaconTime:
+    kind: absolute_time
+    encoding: millis_u64
+    epoch: unix
+    byte_order: little
+    description: "Spacecraft Unix-epoch ms timestamp (LE u64)"
+
 parameters: {}
 
 bitfield_types: {}
