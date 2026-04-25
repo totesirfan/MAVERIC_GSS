@@ -1,0 +1,53 @@
+# MAVERIC mission database (PUBLIC-SAFE TEMPLATE).
+#
+# This file is the committed reference. The real, gitignored copy
+# lives at mav_gss_lib/missions/maveric/mission.yml and contains the
+# full command catalog and bitfield definitions.
+#
+# Author: Irfan Annuar - USC ISI SERC
+
+schema_version: 1
+
+id: maveric
+name: "MAVERIC CubeSat"
+
+header:
+  version: "0.1.0"
+  date: "2026-04-25"
+  description: "MAVERIC declarative mission database (template)"
+
+extensions:
+  nodes:
+    NONE: 0
+    LPPM: 1
+    EPS: 2
+    UPPM: 3
+    HLNV: 4
+    ASTR: 5
+    GS: 6
+    FTDI: 7
+  ptypes:
+    CMD: 1
+    RES: 2
+    ACK: 3
+    TLM: 4
+    FILE: 5
+  node_descriptions:
+    LPPM: "Low-power power manager"
+    EPS: "Electrical power system"
+    UPPM: "Upper-power power manager"
+    HLNV: "Helio-low NavCam node"
+    ASTR: "AstroCam node"
+    GS: "Ground station"
+    FTDI: "Bench FTDI test endpoint"
+  gs_node: GS
+
+parameter_types: {}
+
+parameters: {}
+
+bitfield_types: {}
+
+sequence_containers: {}
+
+meta_commands: {}
