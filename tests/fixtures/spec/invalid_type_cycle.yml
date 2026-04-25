@@ -1,0 +1,19 @@
+schema_version: 1
+id: x
+name: x
+header: {version: "1.0.0", date: "2026-04-25"}
+
+parameter_types:
+  # A -> B -> A  (cycle)
+  AggA:
+    kind: aggregate
+    member_list:
+      - {name: field_b, type: AggB}
+  AggB:
+    kind: aggregate
+    member_list:
+      - {name: field_a, type: AggA}
+
+parameters: {}
+sequence_containers: {}
+meta_commands: {}

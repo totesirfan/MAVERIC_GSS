@@ -106,8 +106,15 @@ def _parse(
 
     # Cross-reference checks
     _check_type_refs(parameter_types, bitfield_types, parameters, sequence_containers, meta_commands)
+    _check_type_graph_cycles(parameter_types)
     _check_base_container_refs(sequence_containers)
+    _check_parent_args_keys(sequence_containers)
+    _check_empty_predicates(sequence_containers)
     _check_paged_frame_targets(sequence_containers)
+    _check_recursive_paged_frames(sequence_containers)
+    _check_dynamic_ref_ordering(sequence_containers, parameter_types)
+    _check_container_domains(sequence_containers)
+    _check_argument_bound_types(meta_commands, parameter_types)
     if validate_plugins:
         _check_plugins(parameter_types, plugins)
 
@@ -401,6 +408,218 @@ def _check_container_conflicts(containers: Mapping[str, SequenceContainer]) -> N
                 signature={k: v for k, v in sig_items},
             )
         by_signature[sig] = c.name
+
+
+def _check_type_graph_cycles(parameter_types: Mapping[str, ParameterType]) -> None:
+    """Rule 1 — DFS through aggregate/array type_ref edges; raises on cycles."""
+    white: set[str] = set(parameter_types)
+    gray: set[str] = set()
+    black: set[str] = set()
+    parent: dict[str, str | None] = {}
+
+    def _children(t: ParameterType) -> list[str]:
+        if isinstance(t, AggregateParameterType):
+            return [m.type_ref for m in t.member_list]
+        if isinstance(t, ArrayParameterType):
+            return [t.array_type_ref]
+        return []
+
+    def _dfs(name: str, via: str | None) -> None:
+        if name not in parameter_types:
+            return  # dangling ref — caught by _check_type_refs
+        if name in black:
+            return
+        if name in gray:
+            # Build cycle path from parent map
+            path: list[str] = [name]
+            cur = via
+            while cur is not None and cur != name:
+                path.append(cur)
+                cur = parent.get(cur)
+            path.append(name)
+            path.reverse()
+            raise ParseError(f"type cycle detected: {' -> '.join(path)}")
+        gray.add(name)
+        white.discard(name)
+        parent[name] = via
+        for child in _children(parameter_types[name]):
+            _dfs(child, name)
+        gray.discard(name)
+        black.add(name)
+
+    for name in list(parameter_types):
+        if name in white:
+            _dfs(name, None)
+
+
+def _check_parent_args_keys(containers: Mapping[str, SequenceContainer]) -> None:
+    """Rule 2 — every key in parent_args must be decoded by the parent's entry_list."""
+    for c in containers.values():
+        if c.base_container_ref is None or c.restriction_criteria is None:
+            continue
+        if not c.restriction_criteria.parent_args:
+            continue
+        parent = containers.get(c.base_container_ref)
+        if parent is None:
+            continue  # missing parent ref caught by _check_type_refs
+
+        # Collect names decoded by the parent's entry_list
+        decoded: set[str] = set()
+        for e in parent.entry_list:
+            if isinstance(e, ParameterRefEntry):
+                decoded.add(e.name)
+            elif isinstance(e, RepeatEntry):
+                decoded.add(e.entry.name)
+            # PagedFrameEntry does not contribute to decoded_into
+
+        for cmp in c.restriction_criteria.parent_args:
+            if cmp.parameter_ref not in decoded:
+                available = sorted(decoded)
+                raise ParseError(
+                    f"container {c.name!r} parent_args key {cmp.parameter_ref!r} "
+                    f"not decoded by parent {parent.name!r}; available: {available}"
+                )
+
+
+def _check_empty_predicates(containers: Mapping[str, SequenceContainer]) -> None:
+    """Rule 3 — non-abstract, non-child containers must have at least one packet predicate."""
+    for c in containers.values():
+        if c.abstract:
+            continue
+        if c.base_container_ref is not None:
+            continue  # child container — parent's packet: already constrains matching
+        rc = c.restriction_criteria
+        no_packet = rc is None or not rc.packet
+        no_parent_args = rc is None or not rc.parent_args
+        if no_packet and no_parent_args:
+            raise ParseError(
+                f"container {c.name!r} has no restriction_criteria.packet predicates "
+                f"and is not a base_container_ref child; it would never match"
+            )
+
+
+def _check_recursive_paged_frames(containers: Mapping[str, SequenceContainer]) -> None:
+    """Rule 4 — a container reachable via paged_frame_entry may not itself contain one."""
+    # Collect all containers referenced as paged_frame_entry targets
+    paged_targets: set[str] = set()
+    for c in containers.values():
+        for e in c.entry_list:
+            if isinstance(e, PagedFrameEntry):
+                paged_targets.add(e.base_container_ref)
+
+    # Any container in paged_targets that itself has a paged_frame_entry is an error
+    for name in paged_targets:
+        c = containers.get(name)
+        if c is None:
+            continue
+        for e in c.entry_list:
+            if isinstance(e, PagedFrameEntry):
+                raise ParseError(
+                    f"container {c.name!r} is reached via paged_frame_entry but "
+                    f"contains its own paged_frame_entry; nesting not supported"
+                )
+
+
+def _check_dynamic_ref_ordering(
+    containers: Mapping[str, SequenceContainer],
+    parameter_types: Mapping[str, ParameterType],
+) -> None:
+    """Rule 5 — a dynamic_ref binary entry's size_ref must appear earlier in the same container as an integer entry."""
+    for c in containers.values():
+        decoded_so_far: dict[str, ParameterType] = {}
+        for e in c.entry_list:
+            if isinstance(e, PagedFrameEntry):
+                continue
+            if isinstance(e, RepeatEntry):
+                inner = e.entry
+                _validate_dynamic_ref_entry(inner, decoded_so_far, c.name, parameter_types)
+                t = parameter_types.get(inner.type_ref)
+                if t is not None:
+                    decoded_so_far[inner.name] = t
+            elif isinstance(e, ParameterRefEntry):
+                _validate_dynamic_ref_entry(e, decoded_so_far, c.name, parameter_types)
+                t = parameter_types.get(e.type_ref)
+                if t is not None:
+                    decoded_so_far[e.name] = t
+
+
+def _validate_dynamic_ref_entry(
+    e: ParameterRefEntry,
+    decoded_so_far: dict[str, ParameterType],
+    container_name: str,
+    parameter_types: Mapping[str, ParameterType],
+) -> None:
+    t = parameter_types.get(e.type_ref)
+    if not isinstance(t, BinaryParameterType) or t.size_kind != "dynamic_ref":
+        return
+    ref = t.size_ref
+    if ref not in decoded_so_far:
+        raise InvalidDynamicRef(
+            e.name, ref,
+            f"not decoded earlier in container {container_name!r}"
+        )
+    ref_type = decoded_so_far[ref]
+    if not isinstance(ref_type, IntegerParameterType):
+        raise InvalidDynamicRef(
+            e.name, ref,
+            f"references type {ref_type.__class__.__name__}, expected IntegerParameterType"
+        )
+
+
+def _check_container_domains(containers: Mapping[str, SequenceContainer]) -> None:
+    """Rule 6 — every non-abstract SequenceContainer must declare a non-empty domain."""
+    for c in containers.values():
+        if c.abstract:
+            continue
+        if not c.domain:
+            raise ParseError(
+                f"container {c.name!r} must declare a non-empty domain"
+            )
+
+
+def _check_argument_bound_types(
+    meta_commands: Mapping[str, MetaCommand],
+    parameter_types: Mapping[str, ParameterType],
+) -> None:
+    """Rule 7 — valid_range only on numeric types; valid_values/invalid_values type-compatible."""
+    numeric_types = (IntegerParameterType, FloatParameterType)
+    string_types = (StringParameterType,)
+
+    for m in meta_commands.values():
+        for arg in m.argument_list + m.rx_args:
+            t = parameter_types.get(arg.type_ref)
+            if t is None:
+                continue  # unknown ref caught by _check_type_refs
+            if arg.valid_range is not None:
+                if not isinstance(t, numeric_types):
+                    raise ParseError(
+                        f"meta_command {m.id!r} argument {arg.name!r} has valid_range "
+                        f"but type {arg.type_ref!r} is not numeric"
+                    )
+            if arg.valid_values is not None:
+                _check_value_list_compat(m.id, arg.name, arg.type_ref, t, arg.valid_values, "valid_values")
+            if arg.invalid_values is not None:
+                _check_value_list_compat(m.id, arg.name, arg.type_ref, t, arg.invalid_values, "invalid_values")
+
+
+def _check_value_list_compat(
+    cmd_id: str, arg_name: str, type_ref: str,
+    t: ParameterType, values: tuple, field_name: str,
+) -> None:
+    if isinstance(t, (IntegerParameterType, FloatParameterType)):
+        for v in values:
+            if not isinstance(v, (int, float)):
+                raise ParseError(
+                    f"meta_command {cmd_id!r} argument {arg_name!r} {field_name} "
+                    f"entry {v!r} is not numeric; type {type_ref!r} is numeric"
+                )
+    elif isinstance(t, StringParameterType):
+        for v in values:
+            if not isinstance(v, str):
+                raise ParseError(
+                    f"meta_command {cmd_id!r} argument {arg_name!r} {field_name} "
+                    f"entry {v!r} is not a string; type {type_ref!r} is a string type"
+                )
 
 
 def _check_plugins(parameter_types: Mapping[str, ParameterType], plugins: Mapping[str, Callable]) -> None:

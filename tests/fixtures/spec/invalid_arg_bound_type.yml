@@ -1,0 +1,17 @@
+schema_version: 1
+id: x
+name: x
+header: {version: "1.0.0", date: "2026-04-25"}
+
+parameter_types: {}
+parameters: {}
+sequence_containers: {}
+
+meta_commands:
+  set_mode:
+    packet: {dest: NODE_A, ptype: CMD}
+    argument_list:
+      # ascii_token is a string type; valid_range only makes sense on numeric types
+      - name: mode_str
+        type: ascii_token
+        valid_range: [0, 10]

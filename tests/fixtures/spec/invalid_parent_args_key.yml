@@ -1,0 +1,25 @@
+schema_version: 1
+id: x
+name: x
+header: {version: "1.0.0", date: "2026-04-25"}
+
+parameter_types:
+  my_u8: {kind: int, size_bits: 8}
+
+parameters: {}
+
+sequence_containers:
+  base:
+    domain: d
+    abstract: true
+    restriction_criteria: {packet: {cmd_id: foo}}
+    entry_list:
+      - {name: ptype, type: my_u8}
+  child:
+    domain: d
+    base_container_ref: base
+    # references 'nonexistent_field' which base never decodes
+    restriction_criteria: {parent_args: {nonexistent_field: 42}}
+    entry_list: []
+
+meta_commands: {}

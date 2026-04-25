@@ -1,0 +1,51 @@
+schema_version: 1
+id: x
+name: x
+header: {version: "1.0.0", date: "2026-04-25"}
+
+parameter_types: {}
+parameters: {}
+
+sequence_containers:
+  # outer: matches a distinct packet signature; contains a paged_frame_entry
+  outer_frame:
+    domain: d
+    restriction_criteria: {packet: {cmd_id: outer_tlm, ptype: TLM}}
+    entry_list:
+      - paged_frame_entry:
+          base_container_ref: reg_base
+          dispatch_keys: [module]
+
+  # reg_base: target of the paged_frame_entry above.
+  # It also contains its OWN paged_frame_entry — this is the rule violation.
+  reg_base:
+    domain: d
+    abstract: true
+    restriction_criteria: {packet: {cmd_id: reg_tlm}}
+    entry_list:
+      - paged_frame_entry:
+          base_container_ref: inner_base
+          dispatch_keys: [register]
+
+  # child of reg_base so abstract-without-children check passes
+  reg_child:
+    domain: d
+    base_container_ref: reg_base
+    restriction_criteria: {parent_args: {}}
+    entry_list: []
+
+  # inner_base: target of reg_base's paged_frame_entry
+  inner_base:
+    domain: d
+    abstract: true
+    restriction_criteria: {packet: {cmd_id: inner_tlm}}
+    entry_list: []
+
+  # child of inner_base so abstract-without-children check passes
+  inner_child:
+    domain: d
+    base_container_ref: inner_base
+    restriction_criteria: {parent_args: {}}
+    entry_list: []
+
+meta_commands: {}

@@ -1,0 +1,24 @@
+schema_version: 1
+id: x
+name: x
+header: {version: "1.0.0", date: "2026-04-25"}
+
+parameter_types:
+  my_u8: {kind: int, size_bits: 8}
+  # blob uses dynamic_ref pointing to 'blob_len' which must appear BEFORE it
+  raw_blob:
+    kind: binary
+    size: {dynamic_ref: blob_len}
+
+parameters: {}
+
+sequence_containers:
+  bad_order:
+    domain: d
+    restriction_criteria: {packet: {cmd_id: foo}}
+    entry_list:
+      # raw_blob appears BEFORE blob_len — forward reference violation
+      - {name: data, type: raw_blob}
+      - {name: blob_len, type: my_u8}
+
+meta_commands: {}
