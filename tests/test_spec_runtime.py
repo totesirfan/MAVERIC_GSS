@@ -99,6 +99,41 @@ class TestDeclarativeWalker(unittest.TestCase):
         # u32 ASCII width is dynamic — return None
         self.assertIsNone(walker.arg_run_size("set_v"))
 
+    def test_arg_run_size_with_two_fixed_strings_counts_one_separator(self):
+        """Two fixed-size string args (3 bytes + 5 bytes) joined by one space = 9 bytes."""
+        from mav_gss_lib.platform.spec.commands import Argument, MetaCommand
+        from mav_gss_lib.platform.spec.containers import SequenceContainer
+        from mav_gss_lib.platform.spec.mission import Mission, MissionHeader
+        from mav_gss_lib.platform.spec.parameter_types import (
+            BUILT_IN_PARAMETER_TYPES, StringParameterType,
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["S3"] = StringParameterType(name="S3", encoding="fixed", fixed_size_bytes=3)
+        types["S5"] = StringParameterType(name="S5", encoding="fixed", fixed_size_bytes=5)
+        cmds = {
+            "two_strs": MetaCommand(
+                id="two_strs",
+                packet={"dest": "X", "echo": "NONE", "ptype": "CMD"},
+                argument_list=(
+                    Argument(name="a", type_ref="S3"),
+                    Argument(name="b", type_ref="S5"),
+                ),
+            ),
+        }
+        m = Mission(
+            id="m", name="m", header=MissionHeader(version="1.0.0", date="2026-04-25"),
+            parameter_types=types, parameters={}, bitfield_types={},
+            sequence_containers={}, meta_commands=cmds,
+        )
+        walker = DeclarativeWalker(m, plugins={})
+        self.assertEqual(walker.arg_run_size("two_strs"), 3 + 1 + 5)
+
+    def test_arg_run_size_no_args_returns_zero(self):
+        """No arg list → 0 (no bytes, no separators)."""
+        m = _mission()
+        walker = DeclarativeWalker(m, plugins={})
+        self.assertEqual(walker.arg_run_size("gnc_get_mode"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

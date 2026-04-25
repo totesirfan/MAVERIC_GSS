@@ -366,11 +366,12 @@ class EntryDecoder:
                     assert t.size_ref is not None
                     blob = cursor.read_remaining_bytes()
                     n = decoded_into[t.size_ref]
-                    value, unit = bytes(blob[:n]), ""
+                    raw = bytes(blob[:n])
+                    value, unit = raw, ""
                 else:
                     raw = self._codec.decode_ascii(entry.type_ref, cursor)
                     value, unit = self._calibrators.apply(entry.type_ref, raw)
-            decoded_into[entry.name] = raw if entry.type_ref not in self._bitfields else value
+            decoded_into[entry.name] = value if entry.type_ref in self._bitfields else raw
         if entry.emit:
             yield TelemetryFragment(
                 domain=container.domain,
@@ -505,6 +506,8 @@ class CommandEncoder:
 
     def arg_run_size(self, cmd_id: str) -> int | None:
         meta = self._meta[cmd_id]
+        if not meta.argument_list:
+            return 0
         total = 0
         for arg in meta.argument_list:
             t = self._types[arg.type_ref]
@@ -525,7 +528,8 @@ class CommandEncoder:
                     return None
             else:
                 return None
-            total += 1  # space separator
+        # N-1 single-space separators
+        total += max(0, len(meta.argument_list) - 1)
         return total
 
 
