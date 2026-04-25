@@ -436,6 +436,62 @@ bitfield_types:
       - { name: byte2_raw,   bits: [16, 23], kind: uint }
       - { name: TARGET_ELEV, bits: [24, 31], kind: uint, unit: "deg" }
 
-sequence_containers: {}
+sequence_containers:
+  eps_hk:
+    domain: eps
+    layout: binary
+    restriction_criteria:
+      packet:
+        cmd_id: eps_hk
+        ptype: TLM
+    entry_list:
+      - { name: I_BUS,  type: I_milli_i16 }
+      - { name: I_BAT,  type: I_milli_i16 }
+      - { name: V_BUS,  type: V_milli_i16 }
+      - { name: V_AC1,  type: V_milli_i16 }
+      - { name: V_AC2,  type: V_milli_i16 }
+      - { name: V_BAT,  type: V_milli_i16 }
+      - { name: V_SYS,  type: V_milli_i16 }
+      - { name: TS_ADC, type: TS_ADC_i16 }
+      - { name: T_DIE,  type: T_DIE_i16 }
+      - { name: V3V3,   type: V_milli_i16 }
+      - { name: I3V3,   type: I_milli_i16 }
+      - { name: P3V3,   type: P_milli_i16 }
+      - { name: V5V0,   type: V_milli_i16 }
+      - { name: I5V0,   type: I_milli_i16 }
+      - { name: P5V0,   type: P_milli_i16 }
+      - { name: VOUT1,  type: V_milli_i16 }
+      - { name: IOUT1,  type: I_milli_i16 }
+      - { name: POUT1,  type: P_milli_i16 }
+      - { name: VOUT2,  type: V_milli_i16 }
+      - { name: IOUT2,  type: I_milli_i16 }
+      - { name: POUT2,  type: P_milli_i16 }
+      - { name: VOUT3,  type: V_milli_i16 }
+      - { name: IOUT3,  type: I_milli_i16 }
+      - { name: POUT3,  type: P_milli_i16 }
+      - { name: VOUT4,  type: V_milli_i16 }
+      - { name: IOUT4,  type: I_milli_i16 }
+      - { name: POUT4,  type: P_milli_i16 }
+      - { name: VOUT5,  type: V_milli_i16 }
+      - { name: IOUT5,  type: I_milli_i16 }
+      - { name: POUT5,  type: P_milli_i16 }
+      - { name: VOUT6,  type: V_milli_i16 }
+      - { name: IOUT6,  type: I_milli_i16 }
+      - { name: POUT6,  type: P_milli_i16 }
+      - { name: VBRN1,  type: V_milli_i16 }
+      - { name: IBRN1,  type: I_milli_i16 }
+      - { name: PBRN1,  type: P_milli_i16 }
+      - { name: VBRN2,  type: V_milli_i16 }
+      - { name: IBRN2,  type: I_milli_i16 }
+      - { name: PBRN2,  type: P_milli_i16 }
+      - { name: VSIN1,  type: V_milli_i16 }
+      - { name: ISIN1,  type: I_milli_i16 }
+      - { name: PSIN1,  type: P_milli_i16 }
+      - { name: VSIN2,  type: V_milli_i16 }
+      - { name: ISIN2,  type: I_milli_i16 }
+      - { name: PSIN2,  type: P_milli_i16 }
+      - { name: VSIN3,  type: V_milli_i16 }
+      - { name: ISIN3,  type: I_milli_i16 }
+      - { name: PSIN3,  type: P_milli_i16 }
 
 meta_commands: {}
