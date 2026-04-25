@@ -355,6 +355,33 @@ bitfield_types:
       - { name: byte2_raw,   bits: [16, 23], kind: uint }
       - { name: byte3_raw,   bits: [24, 31], kind: uint }
 
+  SEN_ERR_REG:
+    size_bits: 32
+    byte_order: little
+    entry_list:
+      - { name: FSS0, bits: [0, 0], kind: bool }
+      - { name: FSS1, bits: [1, 1], kind: bool }
+      - { name: FSS2, bits: [2, 2], kind: bool }
+      - { name: FSS3, bits: [3, 3], kind: bool }
+      - { name: FSS4, bits: [4, 4], kind: bool }
+      - { name: FSS5, bits: [5, 5], kind: bool }
+      - { name: byte0_spare, bits: [6, 7], kind: uint }
+      - { name: MAG0, bits: [8, 8],   kind: bool }
+      - { name: MAG1, bits: [9, 9],   kind: bool }
+      - { name: MAG2, bits: [10, 10], kind: bool }
+      - { name: MAG3, bits: [11, 11], kind: bool }
+      - { name: MAG4, bits: [12, 12], kind: bool }
+      - { name: MAG5, bits: [13, 13], kind: bool }
+      - { name: byte1_spare, bits: [14, 15], kind: uint }
+      - { name: IMU0, bits: [16, 16], kind: bool }
+      - { name: IMU1, bits: [17, 17], kind: bool }
+      - { name: IMU2, bits: [18, 18], kind: bool }
+      - { name: IMU3, bits: [19, 19], kind: bool }
+      - { name: byte2_spare, bits: [20, 23], kind: uint }
+      - { name: STR0, bits: [24, 24], kind: bool }
+      - { name: STR1, bits: [25, 25], kind: bool }
+      - { name: byte3_spare, bits: [26, 31], kind: uint }
+
 sequence_containers: {}
 
 meta_commands: {}
