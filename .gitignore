@@ -77,6 +77,8 @@ docs/gnc-migration.md
 docs/user-guide.md
 # Live RX injector scripts for design-time preview — match *-preview.html pattern
 scripts/preview_*.py
+# Local-only fake flight responder for verifier UI testing
+scripts/fake_flight.py
 # Dashboard port work — spec doc and scratch artifacts for porting preview HTML
 # into the production React app (same category as gnc-migration.md)
 docs/eps-port-spec.md
