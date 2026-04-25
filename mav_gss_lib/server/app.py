@@ -93,6 +93,13 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
     # and uvicorn begins accepting connections.
     runtime.preflight_task = asyncio.create_task(run_preflight_and_broadcast(runtime))
     runtime.preflight_task.add_done_callback(log_task_exception("preflight"))
+
+    # Periodic verifier sweep — drives window_expired + timed_out transitions
+    # when no RX traffic is arriving (e.g., no flight connected during ground
+    # testing). Without this, stage stays 'released' forever and the UI
+    # never turns red on timeout.
+    runtime.verifier_sweep_task = asyncio.create_task(_verifier_sweep_loop(runtime))
+    runtime.verifier_sweep_task.add_done_callback(log_task_exception("verifier-sweep"))
     yield
 
     await _shutdown_runtime(runtime)
@@ -116,6 +123,13 @@ async def _shutdown_runtime(runtime: "WebRuntime") -> None:
             await asyncio.wait_for(preflight_task, timeout=2.0)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             pass
+    sweep_task = getattr(runtime, "verifier_sweep_task", None)
+    if sweep_task and not sweep_task.done():
+        sweep_task.cancel()
+        try:
+            await asyncio.wait_for(sweep_task, timeout=1.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
     if runtime.rx.log:
         try:
             runtime.rx.log.close()
@@ -131,6 +145,28 @@ async def _shutdown_runtime(runtime: "WebRuntime") -> None:
             zmq_cleanup(runtime.tx.zmq_monitor, PUB_STATUS, "OFFLINE", runtime.tx.zmq_sock, runtime.tx.zmq_ctx)
         except Exception:
             pass
+
+
+async def _verifier_sweep_loop(runtime: "WebRuntime") -> None:
+    """Fire the verifier registry's sweep() once per second.
+
+    Inside the sweep, any pending verifier whose CheckWindow has elapsed
+    transitions to window_expired; stage is re-derived and may advance to
+    timed_out. Dirty instances get broadcast to /ws/tx clients so the UI
+    rail + tick strip update promptly even with zero inbound packets.
+    """
+    import time as _time
+    while True:
+        try:
+            await asyncio.sleep(1.0)
+            now_ms = int(_time.time() * 1000)
+            runtime.platform.verifiers.sweep(now_ms=now_ms)
+            for inst in runtime.platform.verifiers.consume_dirty():
+                asyncio.create_task(runtime.tx.broadcast_verifier_instance(inst))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.warning("verifier sweep tick failed: %s", exc)
 
 
 # =============================================================================
