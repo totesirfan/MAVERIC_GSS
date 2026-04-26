@@ -1,8 +1,8 @@
 """BitfieldType — first-class bit-slice descriptor.
 
-Walker emits ONE TelemetryFragment per bitfield register, with `value`
-shaped as `dict[slice_name, decoded_value]` plus auto-synthesized
-`<slice>_name` entries for enum slices (§4.4 of the spec).
+Walker emits ONE ParamUpdate per bitfield register, with `value` shaped
+as `dict[slice_name, decoded_value]` plus auto-synthesized `<slice>_name`
+entries for enum slices (§4.4 of the spec).
 """
 
 from __future__ import annotations

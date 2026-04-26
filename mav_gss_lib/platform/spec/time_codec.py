@@ -1,7 +1,7 @@
 """AbsoluteTime millis_u64 codec.
 
 Decodes 8 LE bytes (u64 ms since Unix epoch) into a JSON-safe dict so
-TelemetryFragment values can be persisted via json.dumps without crashing.
+ParamUpdate values can be persisted via json.dumps without crashing.
 Shape matches today's MAVERIC `_spacecraft_time` exactly.
 """
 

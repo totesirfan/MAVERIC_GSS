@@ -1,7 +1,7 @@
 """Flat parameter cache keyed by fully-qualified name (``"<group>.<key>"``).
 
-Replaces the per-domain TelemetryRouter + DomainState pair. One JSON file
-on disk; one shared lock. LWW by ts_ms. Mission metadata (unit, type,
+Single live-state surface for all decoded parameters: one JSON file on
+disk; one shared lock. LWW by ts_ms. Mission metadata (unit, type,
 description, enum/bitfield, tags) lives in mission.yml — not here.
 
 Author: Irfan Annuar - USC ISI SERC

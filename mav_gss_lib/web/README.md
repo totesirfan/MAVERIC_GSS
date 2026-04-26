@@ -179,8 +179,8 @@ HTTP endpoints (see `mav_gss_lib/server/api/`):
 | `GET /api/session` | Current session info |
 | `POST /api/session/new` | Start a new session |
 | `PATCH /api/session` | Rename the current session tag |
-| `GET /api/telemetry/{domain}/catalog` | Mission-owned telemetry catalog for a registered domain |
-| `DELETE /api/telemetry/{domain}/snapshot` | Clear latest-value state for a registered telemetry domain |
+| `GET /api/parameters` | Mission parameter spec list (name, group, type, unit, enum, tags). Live values flow over `/ws/rx` |
+| `DELETE /api/parameters/group/{group}` | Clear cached values for one parameter group |
 | `GET /api/import-files` | List importable queue files |
 | `GET /api/import/{filename}/preview` | Preview a queue import |
 | `POST /api/import/{filename}` | Apply a queue import |
