@@ -61,7 +61,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
     def test_parse_import_file_produces_mission_cmd_items(self):
         payload = """
         // comment
-        {"type": "mission_cmd", "payload": {"cmd_id": "com_ping", "args": "", "dest": "EPS", "echo": "NONE", "ptype": "CMD", "guard": true}} // trailing
+        {"type": "mission_cmd", "guard": true, "payload": {"cmd_id": "com_ping", "args": "", "dest": "EPS", "echo": "NONE", "ptype": "CMD"}} // trailing
         {"type": "delay", "delay_ms": 250}
         """.strip()
         path = self.generated_dir / "sample.jsonl"

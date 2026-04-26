@@ -111,9 +111,10 @@ class TestWebRuntimePrimarySplitState(unittest.TestCase):
         self.assertEqual(
             rt.tx_blackout_ms, int(rt.platform_cfg["rx"].get("tx_blackout_ms", 0) or 0),
         )
+        from mav_gss_lib.constants import DEFAULT_MISSION_NAME
         self.assertEqual(
             rt.mission_name,
-            rt.mission_cfg.get("mission_name") or "Mission",
+            rt.mission_cfg.get("mission_name") or DEFAULT_MISSION_NAME,
         )
 
 

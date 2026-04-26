@@ -41,8 +41,10 @@ class TestApiConfigGetReturnsNativeShape(unittest.TestCase):
         self.assertIn("log_dir", platform["general"])
 
         mission_cfg = body["mission"]["config"]
-        # Mission identity is seeded by the mission's build(ctx) at create_app time.
-        self.assertIn("mission_name", mission_cfg)
+        # Operator-editable mission subtrees (ax25.*, csp.*, imaging.*) surface here.
+        # Identity keys (mission_name, nodes, ptypes, …) live in the declarative
+        # codec runtime now, not in mission_cfg.
+        self.assertIsInstance(mission_cfg, dict)
 
     def test_response_reflects_mission_config_mutations(self):
         """Primary state lives on the split; GET must reflect runtime edits."""

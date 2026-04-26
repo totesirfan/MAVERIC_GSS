@@ -131,7 +131,7 @@ class TestMavericPreflightHook(unittest.TestCase):
         results = list(rt.mission.preflight())
         self.assertTrue(results)
         labels = {r.label for r in results}
-        self.assertTrue(any("Command schema" in label for label in labels))
+        self.assertTrue(any("Mission schema" in label for label in labels))
         self.assertTrue(any("libfec" in label for label in labels))
 
 

@@ -74,7 +74,7 @@ class TestTxRuntime(unittest.TestCase):
         return validate_mission_cmd(payload, runtime=self.runtime)
 
     def test_unknown_command_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "not in schema"):
+        with self.assertRaisesRegex(ValueError, "Unknown command"):
             validate_mission_cmd(_make_payload("definitely_not_real", "REQ"), runtime=self.runtime)
 
     def test_rx_only_command_is_rejected(self):
