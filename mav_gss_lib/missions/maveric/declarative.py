@@ -45,7 +45,7 @@ from mav_gss_lib.platform.spec import (
 )
 
 from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
-from mav_gss_lib.missions.maveric.commands.framing import MavericFramer
+from mav_gss_lib.missions.maveric.framing import MavericFramer
 from mav_gss_lib.missions.maveric.plugins import PLUGINS
 
 

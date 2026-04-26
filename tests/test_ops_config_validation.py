@@ -1,10 +1,17 @@
 """Tests for mission config seeding and startup diagnostics.
 
 Verifies:
-  1. MAVERIC build(ctx) seeds mission_cfg and platform_cfg.tx with defaults
-  2. Operator-supplied values in gss.yml win over mission defaults
-  3. Platform _DEFAULTS stay mission-free
-  4. MAVERIC settings helpers and init_nodes accept the native mission-config shape
+  1. MAVERIC build(ctx) seeds mission_cfg with operator-overridable defaults
+     (ax25/csp/imaging) and gap-fills tx defaults onto platform_cfg.
+  2. Operator-supplied values in gss.yml win over mission defaults.
+  3. Platform _DEFAULTS stay mission-free.
+  4. load_mission_spec_from_split + build(ctx) produce a populated MissionSpec.
+
+NodeTable / nodes.py / config_access.py assertions were removed when the
+declarative codec took ownership of node/ptype identity (those live under
+mission.yml `extensions:` now and are exercised by the gitignored
+declarative test suite). Tests skip-gate on mission.yml presence since
+the declarative builder requires it.
 """
 
 import sys
@@ -14,42 +21,54 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mav_gss_lib.config import _DEFAULTS, load_split_config
-from mav_gss_lib.missions.maveric.defaults import seed_mission_cfg
-from mav_gss_lib.missions.maveric.nodes import init_nodes
-from mav_gss_lib.missions.maveric.config_access import command_defs_name, gs_node_name
+from mav_gss_lib.missions.maveric.mission import MISSION_YML_PATH, _seed
 from mav_gss_lib.platform.loader import load_mission_spec_from_split
 
 
+_MISSION_YML_PRESENT = MISSION_YML_PATH.is_file()
+
+
+@unittest.skipUnless(_MISSION_YML_PRESENT, "mission.yml not present (gitignored)")
 class TestMissionDefaultsSeeding(unittest.TestCase):
     """Verify MAVERIC defaults seeding into split state."""
 
-    def test_seed_mission_cfg_fills_missing_keys(self):
-        platform_cfg = {"tx": {}}
+    def test_seed_fills_missing_keys(self):
+        platform_cfg: dict = {"tx": {}}
         mission_cfg: dict = {}
-        seed_mission_cfg(mission_cfg, platform_cfg)
-        self.assertIn("nodes", mission_cfg)
-        self.assertIn("ptypes", mission_cfg)
-        self.assertEqual(mission_cfg["mission_name"], "MAVERIC")
-        self.assertEqual(mission_cfg["gs_node"], "GS")
-        self.assertEqual(mission_cfg["command_defs"], "commands.yml")
+        _seed(mission_cfg, platform_cfg)
+
+        # ax25 / csp / imaging gap-filled with placeholder defaults.
+        self.assertIn("ax25", mission_cfg)
+        self.assertIn("csp", mission_cfg)
+        self.assertIn("imaging", mission_cfg)
+        self.assertEqual(mission_cfg["ax25"]["src_call"], "NOCALL")
+        self.assertEqual(mission_cfg["ax25"]["dest_call"], "NOCALL")
+        self.assertEqual(mission_cfg["imaging"]["thumb_prefix"], "tn_")
+        self.assertEqual(mission_cfg["csp"]["dest_port"], 0)
+
+        # tx defaults gap-fill onto platform_cfg.
         self.assertIn("frequency", platform_cfg["tx"])
         self.assertEqual(platform_cfg["tx"]["uplink_mode"], "ASM+Golay")
 
-    def test_seed_mission_cfg_respects_operator_values(self):
-        """Operator-set mission_cfg values win over mission defaults."""
+    def test_seed_respects_operator_overrides(self):
+        """Operator-set values win over mission defaults; one-deep merge on
+        ax25/csp/imaging fills only the gaps."""
         mission_cfg = {
-            "mission_name": "OPERATOR_NAME",
-            "nodes": {0: "ZERO", 99: "CUSTOM"},
             "ax25": {"src_call": "REAL"},
+            "csp": {"dest_port": 24},
+            "imaging": {"thumb_prefix": "thumb_"},
         }
-        seed_mission_cfg(mission_cfg, {"tx": {"frequency": "437.6 MHz"}})
-        self.assertEqual(mission_cfg["mission_name"], "OPERATOR_NAME")
-        self.assertEqual(mission_cfg["nodes"][0], "ZERO")
-        self.assertEqual(mission_cfg["nodes"][99], "CUSTOM")
-        # MAVERIC default for node 1 fills the gap.
-        self.assertEqual(mission_cfg["nodes"][1], "LPPM")
-        # One-deep merge on ax25: operator src_call wins, default dest_call fills.
+        platform_cfg = {"tx": {"frequency": "437.6 MHz", "uplink_mode": "AX.25"}}
+        _seed(mission_cfg, platform_cfg)
+
+        # Operator values preserved.
         self.assertEqual(mission_cfg["ax25"]["src_call"], "REAL")
+        self.assertEqual(mission_cfg["csp"]["dest_port"], 24)
+        self.assertEqual(mission_cfg["imaging"]["thumb_prefix"], "thumb_")
+        self.assertEqual(platform_cfg["tx"]["frequency"], "437.6 MHz")
+        self.assertEqual(platform_cfg["tx"]["uplink_mode"], "AX.25")
+
+        # Default fills the gap on the same dict.
         self.assertEqual(mission_cfg["ax25"]["dest_call"], "NOCALL")
 
     def test_build_maveric_from_empty_split_seeds_mission_cfg(self):
@@ -58,29 +77,9 @@ class TestMissionDefaultsSeeding(unittest.TestCase):
         mission_cfg: dict = {}
         spec = load_mission_spec_from_split({}, "maveric", mission_cfg)
         self.assertEqual(spec.name, "MAVERIC")
-        self.assertIn("nodes", mission_cfg)
-        self.assertIn("ptypes", mission_cfg)
         self.assertIn("ax25", mission_cfg)
         self.assertIn("csp", mission_cfg)
-
-    def test_maveric_settings_helpers_accept_native_mission_shape(self):
-        mission_cfg = {
-            "nodes": {0: "NONE", 1: "CPU"},
-            "ptypes": {1: "CMD"},
-            "gs_node": "CPU",
-            "command_defs": "native-commands.yml",
-        }
-        self.assertEqual(gs_node_name(mission_cfg), "CPU")
-        self.assertEqual(command_defs_name(mission_cfg), "native-commands.yml")
-
-    def test_init_nodes_accepts_native_mission_shape(self):
-        mission_cfg = {
-            "nodes": {0: "NONE", 1: "CPU"},
-            "ptypes": {1: "CMD"},
-            "gs_node": "CPU",
-        }
-        nodes = init_nodes(mission_cfg)
-        self.assertEqual(nodes.gs_node, 1)
+        self.assertIn("imaging", mission_cfg)
 
 
 class TestConfigDefaults(unittest.TestCase):
@@ -99,16 +98,15 @@ class TestConfigDefaults(unittest.TestCase):
         for key in ("nodes", "ptypes", "ax25", "csp"):
             self.assertNotIn(key, platform_cfg)
 
+    @unittest.skipUnless(_MISSION_YML_PRESENT, "mission.yml not present (gitignored)")
     def test_build_populates_mission_cfg_from_real_gss_yml(self):
         """Loading MAVERIC against the real operator split state yields a
-        fully populated mission_cfg."""
+        populated mission_cfg."""
         platform_cfg, mission_id, mission_cfg = load_split_config()
         load_mission_spec_from_split(platform_cfg, mission_id, mission_cfg)
-        self.assertIn("nodes", mission_cfg)
-        self.assertIn("ptypes", mission_cfg)
         self.assertIn("ax25", mission_cfg)
         self.assertIn("csp", mission_cfg)
-        self.assertTrue(len(mission_cfg["nodes"]) > 0)
+        self.assertIn("imaging", mission_cfg)
 
 
 if __name__ == "__main__":

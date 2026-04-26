@@ -7,7 +7,7 @@ MAVERIC's inner command wire format:
     [id\\x00][args\\x00][CRC-16 LE]
 
 Outer CSP / AX.25 / ASM+Golay framing remains the responsibility of
-``mav_gss_lib.missions.maveric.commands.framing.MavericFramer``.
+``mav_gss_lib.missions.maveric.framing.MavericFramer``.
 The codec is wired into the declarative command-ops adapter alongside
 the framer; the adapter calls ``complete_header`` -> ``wrap`` to encode
 and ``unwrap`` to decode inbound CSP payloads.

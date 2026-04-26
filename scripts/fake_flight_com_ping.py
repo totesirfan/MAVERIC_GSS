@@ -8,11 +8,11 @@ for the destination that just went out. No duplicate ACKs, no rogue
 cross-destination RES.
 
 Routing:
-  com_ping → LPPM: UPPM ACK ≈0.4s → LPPM ACK ≈1.2s → LPPM RES "pong" ≈2.5s
-  com_ping → UPPM: UPPM ACK ≈0.4s →                 → UPPM RES "pong" ≈2.5s
-  com_ping → HLNV: UPPM ACK ≈0.4s → HLNV ACK ≈1.2s → HLNV RES "pong" ≈2.5s
-  com_ping → ASTR: UPPM ACK ≈0.4s → ASTR ACK ≈1.2s → ASTR RES "pong" ≈2.5s
-  com_ping → EPS : UPPM ACK ≈0.4s → (EPS never acks) → EPS RES "pong" ≈2.5s
+  com_ping -> LPPM: UPPM ACK ~0.4s -> LPPM ACK ~1.2s -> LPPM RES "pong" ~2.5s
+  com_ping -> UPPM: UPPM ACK ~0.4s ->                 -> UPPM RES "pong" ~2.5s
+  com_ping -> HLNV: UPPM ACK ~0.4s -> HLNV ACK ~1.2s -> HLNV RES "pong" ~2.5s
+  com_ping -> ASTR: UPPM ACK ~0.4s -> ASTR ACK ~1.2s -> ASTR RES "pong" ~2.5s
+  com_ping -> EPS : UPPM ACK ~0.4s -> (EPS never acks) -> EPS RES "pong" ~2.5s
 
 Other commands are ignored. Run BEFORE sending a command:
 
@@ -41,50 +41,46 @@ from urllib.request import urlopen
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mav_gss_lib.config import load_split_config
-from mav_gss_lib.protocols.csp import CSPConfig
-from mav_gss_lib.missions.maveric.defaults import NODES, PTYPES
-from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
+from mav_gss_lib.missions.maveric.declarative import build_declarative_capabilities
+from mav_gss_lib.missions.maveric.mission import MISSION_YML_PATH
+from mav_gss_lib.platform.framing.csp_v1 import CSPConfig
+from mav_gss_lib.platform.spec import CommandHeader
 from mav_gss_lib.transport import init_zmq_pub, send_pdu
 
-NODE_ID = {name: nid for nid, name in NODES.items()}
-PTYPE_ID = {name: pid for pid, name in PTYPES.items()}
 
-GS   = NODE_ID["GS"]
-UPPM = NODE_ID["UPPM"]
-LPPM = NODE_ID["LPPM"]
-EPS  = NODE_ID["EPS"]
-HLNV = NODE_ID["HLNV"]
-ASTR = NODE_ID["ASTR"]
-ACK  = PTYPE_ID["ACK"]
-RES  = PTYPE_ID["RES"]
-
-
-# Per-dest flow: (second_ack_source_or_None, res_source).
-# UPPM is always the gateway-ack source — emitted for every dest except FTDI.
-FLOWS: dict[str, tuple[int | None, int]] = {
-    "LPPM": (LPPM, LPPM),
-    "UPPM": (None, UPPM),   # UPPM is both gateway and responder
-    "HLNV": (HLNV, HLNV),
-    "ASTR": (ASTR, ASTR),
-    "EPS":  (None, EPS),    # EPS has no ack, only RES
+# Per-dest flow: (second_ack_source_or_None, res_source). Names — the
+# codec resolves them to numeric IDs. UPPM is always the gateway-ack
+# source — emitted for every dest except FTDI.
+FLOWS: dict[str, tuple[str | None, str]] = {
+    "LPPM": ("LPPM", "LPPM"),
+    "UPPM": (None, "UPPM"),   # UPPM is both gateway and responder
+    "HLNV": ("HLNV", "HLNV"),
+    "ASTR": ("ASTR", "ASTR"),
+    "EPS":  (None, "EPS"),    # EPS has no ack, only RES
 }
 
 
-def _build_response(src: int, ptype: int, cmd_id: str, args: str = "") -> bytes:
-    """CSP-wrapped CommandFrame from flight → GS."""
+def _build_response(codec, src: str, ptype: str, cmd_id: str, args: str = "") -> bytes:
+    """CSP-wrapped CommandFrame from flight -> GS."""
     csp = CSPConfig()
     csp.src = 8; csp.dest = 0; csp.dport = 24; csp.sport = 0
-    frame = build_cmd_raw(src=src, dest=GS, cmd=cmd_id, args=args, echo=0, ptype=ptype)
-    return csp.wrap(bytes(frame))
+    header = CommandHeader(
+        id=cmd_id,
+        fields={"src": src, "dest": codec.gs_node_name or "GS",
+                "echo": codec.gs_node_name or "GS", "ptype": ptype},
+    )
+    inner = codec.wrap(codec.complete_header(header), args.encode("ascii"))
+    return csp.wrap(inner)
 
 
 def _publish(sock, payload: bytes, label: str) -> None:
     ts = time.strftime("%H:%M:%S")
     ok = send_pdu(sock, payload)
-    print(f"  [{ts}] → {label} ({len(payload)}B) {'ok' if ok else 'FAIL'}")
+    print(f"  [{ts}] -> {label} ({len(payload)}B) {'ok' if ok else 'FAIL'}")
 
 
-async def respond(pub_sock, cmd_id: str, dest: str, exercised_cmds: set[str]) -> None:
+async def respond(pub_sock, codec, cmd_id: str, dest: str,
+                  exercised_cmds: set[str]) -> None:
     """Fire the canonical response sequence for a given (cmd_id, dest)."""
     if cmd_id not in exercised_cmds:
         return
@@ -95,23 +91,23 @@ async def respond(pub_sock, cmd_id: str, dest: str, exercised_cmds: set[str]) ->
 
     # UPPM gateway ACK (always fires except for FTDI, which isn't in FLOWS).
     await asyncio.sleep(0.4)
-    _publish(pub_sock, _build_response(UPPM, ACK, cmd_id),
-             f"UPPM ACK  ({cmd_id} → {dest_u})")
+    _publish(pub_sock, _build_response(codec, "UPPM", "ACK", cmd_id),
+             f"UPPM ACK  ({cmd_id} -> {dest_u})")
 
     # Destination ACK for multi-hop nodes (LPPM / HLNV / ASTR).
     if second_ack_src is not None:
         await asyncio.sleep(0.8)
-        _publish(pub_sock, _build_response(second_ack_src, ACK, cmd_id),
+        _publish(pub_sock, _build_response(codec, second_ack_src, "ACK", cmd_id),
                  f"{dest_u} ACK")
 
     # Response.
     await asyncio.sleep(1.3)
-    _publish(pub_sock, _build_response(res_src, RES, cmd_id, "pong"),
+    _publish(pub_sock, _build_response(codec, res_src, "RES", cmd_id, "pong"),
              f"{dest_u} RES 'pong'")
 
 
 async def run(http_base: str, ws_base: str, rx_addr: str,
-              only: str, exercised: set[str]) -> int:
+              only: str, exercised: set[str], codec) -> int:
     try:
         with urlopen(f"{http_base}/api/status", timeout=5) as resp:
             status = json.loads(resp.read())
@@ -134,8 +130,8 @@ async def run(http_base: str, ws_base: str, rx_addr: str,
     pub_ctx, pub_sock, pub_mon = init_zmq_pub(rx_addr)
     uri = f"{ws_base}/ws/tx?token={token}"
     print(f"fake_flight_com_ping")
-    print(f"  /ws/tx  ← {uri}")
-    print(f"  downlink → {rx_addr}")
+    print(f"  /ws/tx  <- {uri}")
+    print(f"  downlink -> {rx_addr}")
     print(f"  only: {only}   exercised cmd_ids: {sorted(exercised)}")
     print(f"  Ctrl-C to stop.\n")
 
@@ -153,10 +149,10 @@ async def run(http_base: str, ws_base: str, rx_addr: str,
                 cmd_id = payload.get("cmd_id", "")
                 dest = (payload.get("dest") or "").upper()
                 if only != "ANY" and dest != only:
-                    print(f"[{time.strftime('%H:%M:%S')}] skip {cmd_id} → {dest} (only={only})")
+                    print(f"[{time.strftime('%H:%M:%S')}] skip {cmd_id} -> {dest} (only={only})")
                     continue
-                print(f"[{time.strftime('%H:%M:%S')}] ↑ sent {cmd_id} → {dest}")
-                asyncio.create_task(respond(pub_sock, cmd_id, dest, exercised))
+                print(f"[{time.strftime('%H:%M:%S')}] ^ sent {cmd_id} -> {dest}")
+                asyncio.create_task(respond(pub_sock, codec, cmd_id, dest, exercised))
     except KeyboardInterrupt:
         print("\nstopped.")
     except Exception as exc:
@@ -190,12 +186,22 @@ def main() -> int:
     if args.cmd:
         exercised.update(args.cmd)
 
+    if not MISSION_YML_PATH.is_file():
+        print(f"ERROR: mission.yml not found at {MISSION_YML_PATH}", file=sys.stderr)
+        return 1
+
+    capabilities = build_declarative_capabilities(
+        mission_yml_path=MISSION_YML_PATH, platform_cfg={}, mission_cfg={},
+    )
+    codec = capabilities.packet_codec
+
     platform_cfg, _mid, _mcfg = load_split_config()
     rx_addr = args.rx_addr or platform_cfg["rx"]["zmq_addr"]
     http_base = args.http.rstrip("/")
     ws_base = http_base.replace("http://", "ws://").replace("https://", "wss://")
 
-    return asyncio.run(run(http_base, ws_base, rx_addr, args.only.upper(), exercised))
+    return asyncio.run(run(http_base, ws_base, rx_addr, args.only.upper(),
+                           exercised, codec))
 
 
 if __name__ == "__main__":

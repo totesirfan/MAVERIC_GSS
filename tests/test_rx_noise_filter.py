@@ -8,7 +8,40 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from mav_gss_lib.missions.maveric.mission import MISSION_YML_PATH
 from mav_gss_lib.platform.rx.frame_detect import is_noise_frame
+
+
+_MISSION_YML_PRESENT = MISSION_YML_PATH.is_file()
+
+
+def _build_cmd_raw_via_codec(src: int, dest: int, cmd_id: str, args: str = "") -> bytes:
+    """Encode an inner MAVERIC command frame via the declarative codec.
+
+    Constructs MaverPacketCodec from build_declarative_capabilities, then
+    calls complete_header + wrap. Replaces the legacy
+    `wire_format.build_cmd_raw` helper used by the noise-filter regression
+    tests below; output bytes are byte-identical (same wire format).
+    """
+    from mav_gss_lib.missions.maveric.declarative import build_declarative_capabilities
+    from mav_gss_lib.platform.spec import CommandHeader
+
+    capabilities = build_declarative_capabilities(
+        mission_yml_path=MISSION_YML_PATH,
+        platform_cfg={},
+        mission_cfg={},
+    )
+    codec = capabilities.packet_codec
+    header = CommandHeader(
+        id=cmd_id,
+        fields={
+            "src": codec.node_name_for(src),
+            "dest": codec.node_name_for(dest),
+            "echo": codec.node_name_for(0),
+            "ptype": codec.ptype_name_for(1),  # CMD
+        },
+    )
+    return codec.wrap(codec.complete_header(header), args.encode("ascii"))
 
 
 class TestIsNoiseFrame(unittest.TestCase):
@@ -202,15 +235,15 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         self.assertEqual(self.spy_log.jsonl_calls, [])
         self.assertEqual(self.spy_log.packet_calls, [])
 
+    @unittest.skipUnless(_MISSION_YML_PRESENT, "mission.yml not present (gitignored)")
     def test_real_ax25_frame_still_flows_through(self):
         """Regression guard: a well-formed AX.25 packet is NOT filtered."""
-        from mav_gss_lib.protocols.ax25 import AX25Config
-        from mav_gss_lib.protocols.csp import CSPConfig
-        from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
+        from mav_gss_lib.platform.framing.ax25 import AX25Config
+        from mav_gss_lib.platform.framing.csp_v1 import CSPConfig
 
         csp = CSPConfig()
         ax25 = AX25Config()
-        raw_cmd = build_cmd_raw(6, 2, "com_ping", "")
+        raw_cmd = _build_cmd_raw_via_codec(6, 2, "com_ping", "")
         payload = ax25.wrap(csp.wrap(raw_cmd))
 
         meta = {"transmitter": "9k6 FSK AX.25 downlink"}
@@ -241,13 +274,13 @@ class TestBroadcastLoopSuppressesNoise(unittest.TestCase):
         self.assertEqual(len(packets), 1)
         self.assertTrue(packets[0]["data"]["is_unknown"])
 
+    @unittest.skipUnless(_MISSION_YML_PRESENT, "mission.yml not present (gitignored)")
     def test_asm_golay_without_delimiter_still_flows_through(self):
         """Spec requirement: the filter is scoped to AX.25 only."""
-        from mav_gss_lib.protocols.csp import CSPConfig
-        from mav_gss_lib.missions.maveric.wire_format import build_cmd_raw
+        from mav_gss_lib.platform.framing.csp_v1 import CSPConfig
 
         csp = CSPConfig()
-        raw_cmd = build_cmd_raw(6, 2, "com_ping", "")
+        raw_cmd = _build_cmd_raw_via_codec(6, 2, "com_ping", "")
         payload = csp.wrap(raw_cmd)
 
         meta = {"transmitter": "4k8 FSK AX100 ASM+Golay downlink"}
