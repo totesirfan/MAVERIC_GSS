@@ -1,10 +1,17 @@
-"""MAVERIC wire framing — CSP + AX.25 / ASM+Golay.
+"""MAVERIC wire framing — composes platform-provided framers.
 
 MAVERIC owns its uplink stack end-to-end. The platform hands the mission an
 `EncodedCommand.raw` (inner command bytes) and expects a `FramedCommand.wire`
-back — the exact bytes to publish on ZMQ. This module performs the CSP wrap
-plus the selected outer framing (AX.25 HDLC/GFSK or ASM+Golay/RS) and emits
-structured log hooks the platform TX log merges into the per-command record.
+back — the exact bytes to publish on ZMQ. This module is a thin composer:
+
+    raw_cmd
+      → CSPv1Framer (mission-configured src/dest/ports/CRC)
+      → AsmGolayFramer  | Ax25Framer
+      = wire
+
+Byte-level framing lives in `mav_gss_lib.platform.framing.*`. This module
+binds operator/mission config values into Framer instances and assembles
+the per-send `FramerChain`.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -15,18 +22,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from mav_gss_lib.platform import EncodedCommand, FramedCommand
-from mav_gss_lib.protocols.ax25 import AX25Config, build_ax25_gfsk_frame
-from mav_gss_lib.protocols.csp import CSPConfig
-
-try:
-    from mav_gss_lib.protocols.golay import MAX_PAYLOAD as GOLAY_MAX_PAYLOAD
-    from mav_gss_lib.protocols.golay import _GR_RS_OK, build_asm_golay_frame
-except ImportError:  # pragma: no cover - libfec optional
-    GOLAY_MAX_PAYLOAD = 223
-    _GR_RS_OK = False
-
-    def build_asm_golay_frame(_data: bytes) -> bytes:  # type: ignore[misc]
-        raise RuntimeError("ASM+Golay requested but libfec is unavailable")
+from mav_gss_lib.platform.framing import (
+    AX25Config,
+    CSPConfig,
+    FramerChain,
+    MAX_PAYLOAD as ASM_GOLAY_MAX_PAYLOAD,
+    build_chain,
+)
 
 
 _AX25_FIELDS = [
@@ -97,38 +99,38 @@ class MavericFramer:
             csp=_build_csp(mission_cfg),
         )
 
-    def max_wire_payload(self) -> int | None:
-        """Return the admission ceiling (post-framing) or None for unlimited."""
+    def _build_chain(self) -> FramerChain:
+        csp_cfg = {
+            "enabled": self.csp.enabled,
+            "prio": self.csp.prio, "src": self.csp.src, "dest": self.csp.dest,
+            "dport": self.csp.dport, "sport": self.csp.sport,
+            "flags": self.csp.flags, "csp_crc": self.csp.csp_crc,
+        }
         if self.uplink_mode == "ASM+Golay":
-            return GOLAY_MAX_PAYLOAD
+            return build_chain([
+                {"framer": "csp_v1", "config": csp_cfg},
+                {"framer": "asm_golay"},
+            ])
+        ax25_cfg = {
+            "enabled": self.ax25.enabled,
+            "src_call": self.ax25.src_call, "src_ssid": self.ax25.src_ssid,
+            "dest_call": self.ax25.dest_call, "dest_ssid": self.ax25.dest_ssid,
+        }
+        return build_chain([
+            {"framer": "csp_v1", "config": csp_cfg},
+            {"framer": "ax25", "config": ax25_cfg},
+        ])
+
+    def max_wire_payload(self) -> int | None:
+        """Inner-CSP-packet ceiling (post-CSP-wrap) or None for unlimited."""
+        if self.uplink_mode == "ASM+Golay":
+            return ASM_GOLAY_MAX_PAYLOAD
         return None
 
     def frame(self, encoded: EncodedCommand) -> FramedCommand:
         raw_cmd = encoded.raw
-        csp_packet = self.csp.wrap(raw_cmd)
-        assert len(csp_packet) >= len(raw_cmd), \
-            f"CSP shrank payload: {len(csp_packet)} < {len(raw_cmd)}"
-
-        if self.uplink_mode == "ASM+Golay":
-            if not _GR_RS_OK:
-                raise RuntimeError(
-                    "ASM+Golay selected but libfec RS encoder is unavailable in this "
-                    "environment. Install libfec (e.g. `sudo apt install libfec-dev && "
-                    "sudo ldconfig`, `conda install -c ryanvolz libfec`, or build from "
-                    "https://github.com/quiet/libfec) or switch tx.uplink_mode to AX.25."
-                )
-            if len(csp_packet) > GOLAY_MAX_PAYLOAD:
-                raise ValueError(
-                    f"command too large for ASM+Golay RS payload "
-                    f"({len(csp_packet)}B > {GOLAY_MAX_PAYLOAD}B)"
-                )
-            wire = build_asm_golay_frame(csp_packet)
-        else:
-            ax25_packet = self.ax25.wrap(csp_packet)
-            wire = build_ax25_gfsk_frame(ax25_packet)
-
-        assert len(wire) > len(csp_packet), \
-            f"framer produced suspiciously small wire: {len(wire)}B ≤ csp {len(csp_packet)}B"
+        chain = self._build_chain()
+        wire = chain.frame(raw_cmd)
         return FramedCommand(
             wire=wire,
             frame_label=self.uplink_mode,
