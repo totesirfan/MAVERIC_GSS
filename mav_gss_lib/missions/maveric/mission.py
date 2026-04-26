@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from mav_gss_lib.missions.maveric.declarative import build_declarative_capabilities
+from mav_gss_lib.missions.maveric.identity_router import get_identity_router
 from mav_gss_lib.missions.maveric.imaging.events import MavericImagingEvents
 from mav_gss_lib.missions.maveric.imaging import ImageAssembler, get_imaging_router
 from mav_gss_lib.missions.maveric.packets import DeclarativePacketsAdapter
@@ -77,7 +78,10 @@ def build(ctx: MissionContext) -> MissionSpec:
     # Accessor closes over the live `ctx.mission_config` reference so
     # /api/config edits to `imaging.thumb_prefix` reach the imaging router
     # without a MissionSpec rebuild.
-    routers = [get_imaging_router(image_assembler, config_accessor=lambda: ctx.mission_config)]
+    routers = [
+        get_imaging_router(image_assembler, config_accessor=lambda: ctx.mission_config),
+        get_identity_router(capabilities.packet_codec, capabilities.mission),
+    ]
 
     preflight_hook = build_preflight(
         platform_config=ctx.platform_config,

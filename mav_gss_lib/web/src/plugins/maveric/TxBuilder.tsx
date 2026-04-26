@@ -7,7 +7,14 @@ import { Switch } from '@/components/ui/switch'
 import type { MissionBuilderProps } from '@/lib/types'
 import { GssInput } from '@/components/ui/gss-input'
 import { strictFilter } from '@/lib/cmdkFilter'
-import type { GssConfig } from '@/lib/types'
+
+interface MavericIdentity {
+  mission_name: string
+  nodes: Record<string, string>
+  ptypes: Record<string, string>
+  node_descriptions: Record<string, string>
+  gs_node: string | null
+}
 
 interface CommandArg {
   name: string
@@ -31,7 +38,7 @@ type CommandSchema = Record<string, CommandDef>
 
 export default function MavericTxBuilder({ onQueue, onClose, disabled }: MissionBuilderProps) {
   const [schema, setSchema] = useState<CommandSchema | null>(null)
-  const [config, setConfig] = useState<GssConfig | null>(null)
+  const [identity, setIdentity] = useState<MavericIdentity | null>(null)
   const [destNode, setDestNode] = useState<string | null>(null)
   const [selectedCmd, setSelectedCmd] = useState<string | null>(null)
   const [argValues, setArgValues] = useState<Record<string, string>>({})
@@ -50,9 +57,9 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
   }, [])
 
   useEffect(() => {
-    fetch('/api/config')
+    fetch('/api/plugins/maveric/identity')
       .then((r) => r.json())
-      .then((data: GssConfig) => setConfig(data))
+      .then((data: MavericIdentity) => setIdentity(data))
       .catch(() => {})
   }, [])
 
@@ -64,14 +71,14 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
     }
   }, [destNode])
 
-  const gsNodeName = config?.mission.config.gs_node ?? ''
+  const gsNodeName = identity?.gs_node ?? ''
   const nodes = useMemo(() => {
-    const nodeMap = config?.mission.config.nodes
+    const nodeMap = identity?.nodes
     if (!nodeMap) return []
     return Object.entries(nodeMap)
-      .map(([id, name]) => ({ id: Number(id), name }))
+      .map(([name, id]) => ({ id: Number(id), name }))
       .filter(n => n.id !== 0 && n.name !== String(gsNodeName))
-  }, [config, gsNodeName])
+  }, [identity, gsNodeName])
 
   // Auto-select first node so cmdk picker renders on builder open
   useEffect(() => {
