@@ -1,0 +1,1 @@
+import{o as e,t}from"./react-DtrESx-C.js";var n=e(t(),1),r=(0,n.createContext)(!0);function i(){return(0,n.useContext)(r)}var a=r.Provider;export{i as n,a as t};

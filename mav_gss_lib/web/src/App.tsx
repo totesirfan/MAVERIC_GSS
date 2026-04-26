@@ -5,7 +5,7 @@ import { useSessionContext, useConfig } from '@/state/session'
 import { TxProvider } from '@/state/TxProvider'
 import { useTx } from '@/state/tx'
 import { RxProvider } from '@/state/RxProvider'
-import { TelemetryProvider } from '@/state/TelemetryProvider'
+import { ParametersProvider } from '@/state/ParametersProvider'
 import { useRxStatus, useRxDisplayToggles } from '@/state/rx'
 import { colors } from '@/lib/colors'
 import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
@@ -69,12 +69,12 @@ export default function App() {
     <SessionProvider>
       <TxProvider>
         <RxProvider>
-          <TelemetryProvider>
+          <ParametersProvider>
             <MissionProviders>
               <AppShell />
               <PreflightOverlay />
             </MissionProviders>
-          </TelemetryProvider>
+          </ParametersProvider>
         </RxProvider>
       </TxProvider>
     </SessionProvider>

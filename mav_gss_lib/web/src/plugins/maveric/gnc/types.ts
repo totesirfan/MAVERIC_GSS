@@ -112,43 +112,29 @@ export type RegisterValue =
   | null
 
 /**
- * Live-state entry for one GNC register.
- *
- * Post-v2 this is a thin view model over the platform `TelemetryEntry`:
- *   `value` is projected from `entry.v` (structured `RegisterValue`);
- *   `t` is the server-anchored ingest timestamp used for staleness
- *   calculations (age = Date.now() - t).
- *
- * Transport/debug fields (`raw_tokens`, `decode_ok`, `decode_error`,
- * `gs_ts`, `pkt_num`) are intentionally dropped — the extractor filters
- * decode_ok=False entries before they reach state, and per-packet
- * provenance lives in the RX log, not in canonical state.
- *
- * Static metadata (`name`, `module`, `register`, `type`, `unit`, `notes`)
- * moved to `CatalogEntry` — fetched via
- * `useTelemetryCatalog<CatalogEntry[]>('gnc')` and keyed by register name.
+ * Local view model used by the GNC card components. GNCPage projects
+ * the platform ParametersProvider's `{ v, t }` parameter entries into
+ * this `{ value, t }` shape so the cards keep a stable prop signature.
+ * `value` is typed against the `RegisterValue` discriminated union so
+ * shape-dispatch helpers (formatValue, type-guards) stay type-safe.
  */
 export interface RegisterSnapshot {
   value: RegisterValue
-  /** Server-anchored Unix ms — matches the platform TelemetryEntry `t`
-   *  field. */
+  /** Server-anchored Unix ms used for staleness calculations
+   *  (age = Date.now() - t). Mirrors the platform parameter `t`. */
   t: number
 }
 
 /** Keyed by register name: "STAT", "TIME", "MTQ_USER", etc. */
 export type GncState = Record<string, RegisterSnapshot>
 
-/** One row in the GNC catalog, served by
- *  GET /api/telemetry/gnc/catalog. Metadata only — live values come
- *  from useTelemetry('gnc').
- *
- *  `module` / `register` are null for canonical keys that aren't
- *  addressable spacecraft registers (handler-emitted GNC_MODE /
- *  GNC_COUNTERS, beacon-only GYRO_RATE_SRC / MAG_SRC / heartbeats).
- *  The Registers table filters those out via `module !== null` so
- *  the register list stays register-only, but the dashboard can
- *  still use the catalog as a metadata lookup for every canonical
- *  gnc key. */
+/** Local view-model row for the Registers table. Built in GNCPage by
+ *  projecting the parameter spec list — `module` / `register` map to
+ *  `tags.module` / `tags.register` and are null for canonical keys
+ *  that aren't addressable spacecraft registers (handler-emitted
+ *  GNC_MODE / GNC_COUNTERS, beacon-only GYRO_RATE_SRC / MAG_SRC /
+ *  heartbeats). The Registers table filters those out via
+ *  `module !== null` so the register list stays register-only. */
 export interface CatalogEntry {
   module: number | null
   register: number | null

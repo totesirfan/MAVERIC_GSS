@@ -1,60 +1,24 @@
 /**
- * EpsProvider — root-mounted state for the EPS HK dashboard.
+ * useEpsLive — derived EPS state from the platform ParametersProvider.
  *
- * Mission-owned (MAVERIC), mounted at the app root by the platform's
- * MissionProviders wrapper. Reads live state from the platform
- * TelemetryProvider via `useTelemetry('eps')` — no direct WS
- * subscription.
+ * The platform ParametersProvider (mounted at the App root) owns the
+ * cross-navigation cache of live `{ v, t }` parameter entries; this
+ * hook reads the EPS slice and accumulates the per-field "prev"
+ * rotation, I_BAT charge-direction hysteresis, one-shot fault
+ * latches, and per-link ingest counter on top of it.
  *
- * Architecture
- * ------------
- * Per-field. The platform domain store already holds one `{v, t}`
- * entry per EPS field, updated independently by whichever source
- * (eps_hk, tlm_beacon) last touched that field. The provider projects
- * that into a per-field view without re-aggregating into an atomic
- * snapshot: each consumer reads individual fields and computes its
- * own staleness tier. There is no "packet-level received_at_ms" in
- * this model — two sources with different cadences means different
- * fields have different ages, and collapsing those into one number
- * would lie about the stale ones.
+ * Trade-off: derived state (prev_fields, chargeDir, latched,
+ * receivedThisLink) is owned by EpsPage and resets when the page
+ * unmounts. The underlying parameter values are still root-cached
+ * and replay correctly — only the trend indicators / latched
+ * warnings start blank on a fresh EpsPage open.
  *
- * What the provider adds beyond the platform store:
- *   • Per-field prev — the value a field had before its current one.
- *     Needed for trend indicators (V_BUS vs prev_V_BUS) and integrals
- *     (thermalEta over T_DIE). Unlike the atomic model, prev rotates
- *     per field on every real update of that field, regardless of
- *     which source produced it.
- *   • `chargeDir` — I_BAT ring-buffer hysteresis.
- *   • `latched` — one-shot warnings (VBRN burn, T_DIE junction limit)
- *     that survive across packets until operator ack.
- *   • `receivedThisLink` — domain-update counter (any EPS field change
- *     counts as one update). Resets on session boundary.
- *
- * Why root-level and not inside EpsPage: the platform
- * TelemetryProvider receives the replay-on-connect snapshot at app
- * start; a page-local provider would miss the replay and open blank.
- * chargeDir hysteresis + latched + receivedThisLink accumulate across
- * navigation instead of resetting on every mount.
- *
- * IMPORTANT — single-consumer rule:
- *   `useEps()` returns ONE context value. React rerenders every
- *   consumer of that context on any field change. Only `EpsPage.tsx`
- *   should call `useEps()`; it destructures and passes narrow
- *   primitive props down to the memo'd children. Pushing `useEps()`
- *   into children defeats React.memo and means every packet
- *   rerenders the whole tree.
+ * Single-consumer rule: EpsPage destructures and passes narrow props
+ * to memo'd children; do not call this hook from leaf cards or every
+ * field change will rerender the whole subtree.
  */
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PropsWithChildren,
-} from 'react'
-import { useTelemetry } from '@/state/TelemetryProvider'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { clearParameterGroup, useParameterGroup } from '@/state/ParametersProvider'
 import { useRxStatus } from '@/state/rx'
 import { chargeDirection } from './derive'
 import type { EpsFieldName, EpsFieldMap, ChargeDir } from './types'
@@ -77,7 +41,7 @@ interface EpsState {
   /** Field name → received_at_ms of the first fire. Populated on
    *  VBRN1/VBRN2 > 0.1 V and on T_DIE ≥ 85 °C (junction limit).
    *  Cleared per-field by acknowledgeLatch() or wholesale by a
-   *  cleared telemetry domain. */
+   *  cleared parameter group. */
   latched: Record<string, number>
   /** Raw eps_mode byte from beacon (FSW enum pending). */
   epsMode: number | null
@@ -89,12 +53,10 @@ interface EpsState {
   epsHeartbeatT: number | null
 }
 
-interface EpsApi extends EpsState {
+export interface EpsLive extends EpsState {
   clearSnapshot: () => Promise<void>
   acknowledgeLatch: (field: string) => void
 }
-
-const EpsContext = createContext<EpsApi | null>(null)
 
 const EMPTY_MAP: EpsFieldMap = {}
 
@@ -119,8 +81,8 @@ const LATCH_T_DIE_JUNCTION_C = 85
 
 const FIELD_NAMES: readonly EpsFieldName[] = FIELD_DEFS.map((d) => d.name)
 
-export function EpsProvider({ children }: PropsWithChildren) {
-  const eps = useTelemetry('eps')
+export function useEpsLive(): EpsLive {
+  const { byKey } = useParameterGroup('eps')
   const { sessionGeneration } = useRxStatus()
   const [state, setState] = useState<EpsState>(INITIAL_STATE)
 
@@ -129,13 +91,13 @@ export function EpsProvider({ children }: PropsWithChildren) {
   const recentIBatsRef = useRef<number[]>([])
   const prevNonEmptyRef = useRef<boolean>(false)
 
-  // React to domain-state identity changes (one per ingest batch).
+  // React to parameter-group identity changes (one per ingest batch).
   useEffect(() => {
-    const isEmpty = Object.keys(eps).length === 0
+    const isEmpty = Object.keys(byKey).length === 0
     const wasNonEmpty = prevNonEmptyRef.current
     prevNonEmptyRef.current = !isEmpty
 
-    // Transition non-empty → empty: platform cleared the domain.
+    // Transition non-empty → empty: parameter group was cleared.
     if (isEmpty) {
       if (wasNonEmpty) {
         recentIBatsRef.current = []
@@ -156,7 +118,7 @@ export function EpsProvider({ children }: PropsWithChildren) {
       return
     }
 
-    // Per-field rotation. For each eps field in the domain state:
+    // Per-field rotation. For each eps field in the group:
     //   if its `t` is newer than what we last recorded, rotate
     //   current -> prev for that single field. Fields that didn't
     //   change in this batch stay exactly where they were (including
@@ -172,7 +134,7 @@ export function EpsProvider({ children }: PropsWithChildren) {
       let anyChanged = false
 
       for (const name of FIELD_NAMES) {
-        const entry = (eps as Record<string, { v?: unknown; t: number } | undefined>)[name]
+        const entry = byKey[name]
         if (!entry) continue
         const newT = entry.t
         const prevT = field_t[name]
@@ -192,7 +154,7 @@ export function EpsProvider({ children }: PropsWithChildren) {
       // Beacon-only fields (not in FIELD_NAMES): track raw value + timestamp.
       let epsMode = s.epsMode
       let epsModeT = s.epsModeT
-      const modeEntry = (eps as Record<string, { v?: unknown; t: number } | undefined>)['eps_mode']
+      const modeEntry = byKey['eps_mode']
       if (modeEntry && modeEntry.t !== epsModeT) {
         epsMode = typeof modeEntry.v === 'number' ? modeEntry.v : Number(modeEntry.v)
         epsModeT = modeEntry.t
@@ -200,7 +162,7 @@ export function EpsProvider({ children }: PropsWithChildren) {
       }
       let epsHeartbeat = s.epsHeartbeat
       let epsHeartbeatT = s.epsHeartbeatT
-      const hbEntry = (eps as Record<string, { v?: unknown; t: number } | undefined>)['eps_heartbeat']
+      const hbEntry = byKey['eps_heartbeat']
       if (hbEntry && hbEntry.t !== epsHeartbeatT) {
         epsHeartbeat = typeof hbEntry.v === 'number' ? hbEntry.v : Number(hbEntry.v)
         epsHeartbeatT = hbEntry.t
@@ -258,7 +220,7 @@ export function EpsProvider({ children }: PropsWithChildren) {
         epsHeartbeatT,
       }
     })
-  }, [eps])
+  }, [byKey])
 
   // Session reset: keep current values (last-known satellite state is
   // deliberately persistent across operator session breaks), clear the
@@ -281,11 +243,11 @@ export function EpsProvider({ children }: PropsWithChildren) {
   }, [sessionGeneration])
 
   const clearSnapshot = useCallback(async () => {
-    // Fire-and-forget DELETE against the platform route; server broadcasts
-    // `{type:"telemetry", domain:"eps", cleared:true}` which the
-    // TelemetryProvider turns into an empty domain state. Our effect
-    // above picks the empty transition up and resets local derived state.
-    await fetch('/api/telemetry/eps/snapshot', { method: 'DELETE' }).catch(() => {})
+    // Server broadcasts `{type:"parameters_cleared", group:"eps"}`
+    // which the ParametersProvider turns into an empty group state;
+    // our effect above picks the empty transition up and resets local
+    // derived state.
+    await clearParameterGroup('eps').catch(() => {})
   }, [])
 
   const acknowledgeLatch = useCallback((field: string) => {
@@ -297,21 +259,5 @@ export function EpsProvider({ children }: PropsWithChildren) {
     })
   }, [])
 
-  const api = useMemo<EpsApi>(
-    () => ({ ...state, clearSnapshot, acknowledgeLatch }),
-    [state, clearSnapshot, acknowledgeLatch],
-  )
-
-  return <EpsContext.Provider value={api}>{children}</EpsContext.Provider>
-}
-
-export function useEps(): EpsApi {
-  const ctx = useContext(EpsContext)
-  if (!ctx) {
-    throw new Error(
-      'useEps must be used inside <EpsProvider>. '
-      + 'Check that plugins/maveric/providers.ts registers EpsProvider.',
-    )
-  }
-  return ctx
+  return { ...state, clearSnapshot, acknowledgeLatch }
 }

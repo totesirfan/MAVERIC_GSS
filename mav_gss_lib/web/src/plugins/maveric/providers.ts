@@ -4,10 +4,6 @@
  * that mounts at the app root (inside RxProvider) so plugin state is
  * alive from app launch, independent of which page is visible.
  *
- * Copy to `mav_gss_lib/web/src/plugins/maveric/providers.ts`. Ensure
- * the import is synchronous (no `lazy()`) — providers must be ready
- * before RxProvider's WebSocket begins delivering messages.
- *
  * Platform/mission separation:
  *   • Platform defines the discovery mechanism (see plugins/missionRuntime.ts)
  *     and the mount slot (see App.tsx's <MissionProviders> wrapper).
@@ -17,15 +13,16 @@
  *     plugin-service API (usePluginServices) and the state-consumer
  *     hooks (useRxStatus, useSession). Any deeper coupling breaks the
  *     mission-replacement seam.
+ *
+ * GNC and EPS state is now served by the platform-level
+ * `ParametersProvider` (mounted in App.tsx); their pages bind directly
+ * to `useParameter` / `useParameterGroup`, so no per-domain provider
+ * is needed here.
  */
 import type { ComponentType, PropsWithChildren } from 'react'
-import { EpsProvider } from './eps/EpsProvider'
-import { GncProvider } from './gnc/GncProvider'
 import { ImagingProvider } from './imaging/ImagingProvider'
 
 const providers: ComponentType<PropsWithChildren>[] = [
-  EpsProvider,
-  GncProvider,
   ImagingProvider,
 ]
 

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { useGnc } from './GncProvider'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useParameterGroup } from '@/state/ParametersProvider'
 import { GncPlannerCard } from './dashboard/GncPlannerCard'
 import { AdcsMtqCard } from './dashboard/AdcsMtqCard'
 import { NaviGuiderCard } from './dashboard/NaviGuiderCard'
 import { FlagsStrip } from './dashboard/FlagsStrip'
 import { RegistersTable } from './registers/RegistersTable'
+import type { CatalogEntry, GncState, RegisterValue } from './types'
 import { useTabActive } from '@/components/layout/TabActiveContext'
 import { colors } from '@/lib/colors'
 
@@ -32,7 +33,34 @@ function readTabFromUrl(): TabId {
  *                 overlaid from the same snapshot cache.
  */
 export default function GNCPage() {
-  const { state, catalog, lastUpdateAt } = useGnc()
+  const { byKey, specs, lastUpdateAt } = useParameterGroup('gnc')
+
+  // Project the parameter group into the legacy {value, t} shape the
+  // dashboard cards already consume. This keeps each card's component
+  // signature stable while the underlying state moves to the platform
+  // ParametersProvider.
+  const state = useMemo<GncState>(() => {
+    const out: GncState = {}
+    for (const [key, entry] of Object.entries(byKey)) {
+      out[key] = { value: entry.v as RegisterValue, t: entry.t }
+    }
+    return out
+  }, [byKey])
+
+  // Project parameter specs into the legacy CatalogEntry[] shape the
+  // RegistersTable consumes. tags.module / tags.register identify
+  // addressable spacecraft registers; keys without tags get null on
+  // both, so the table's `module !== null` filter still hides
+  // non-register canonical keys.
+  const catalog = useMemo<CatalogEntry[]>(() => specs.map((s) => ({
+    module:   typeof s.tags?.module === 'number'   ? s.tags.module   : null,
+    register: typeof s.tags?.register === 'number' ? s.tags.register : null,
+    name:     s.key,
+    type:     s.type,
+    unit:     s.unit,
+    notes:    s.description,
+  })), [specs])
+
   const tabActive = useTabActive()
   const [tab, setTab] = useState<TabId>(readTabFromUrl)
 

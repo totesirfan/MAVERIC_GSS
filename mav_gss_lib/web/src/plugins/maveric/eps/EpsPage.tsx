@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import './styles.css'
-import { useEps } from './EpsProvider'
+import { useEpsLive } from './useEpsLive'
 import { alarmState, socFromVbat, thermalEta } from './derive'
 import type { AlarmLevel, EpsFieldName } from './types'
 import { useNowMs } from '@/hooks/useNowMs'
@@ -61,7 +61,7 @@ export default function EpsPage() {
     fields, field_t, prev_fields, prev_field_t,
     chargeDir, latched, acknowledgeLatch,
     epsMode, epsHeartbeat,
-  } = useEps()
+  } = useEpsLive()
 
   const hasAny = Object.keys(fields).length > 0
 

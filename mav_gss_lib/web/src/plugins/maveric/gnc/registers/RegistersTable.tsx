@@ -12,8 +12,8 @@ interface RegistersTableProps {
 }
 
 /** Full register table — one row per catalog entry, overlaying live
- *  snapshot values from the shared `useGncRegisters` cache. Rows group
- *  visually by module. Filtered by name/module search text. */
+ *  values from the platform parameter cache (projected by GNCPage).
+ *  Rows group visually by module. Filtered by name/module search text. */
 export function RegistersTable({ catalog, state, nowMs }: RegistersTableProps) {
   const [filter, setFilter] = useState('')
 

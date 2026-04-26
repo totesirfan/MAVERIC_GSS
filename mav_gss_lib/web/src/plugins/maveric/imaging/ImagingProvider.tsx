@@ -10,13 +10,14 @@
  * Why root-level and not inside ImagingPage: the RX socket delivers
  * `imaging_progress` and `on_client_connect` replay messages
  * immediately on connect — a page-local provider would miss anything
- * that fires while the operator is on a different tab, exactly the
- * late-mount replay issue that the EpsProvider / GncProvider
- * ancestors were designed to avoid.
+ * that fires while the operator is on a different tab. The platform
+ * ParametersProvider plays the same root-mount role for live
+ * parameter values; this provider mirrors that pattern for imaging
+ * progress events.
  *
- * Single-consumer rule (mirrors EpsProvider): only `ImagingPage.tsx`
- * should call `useImaging()`. It destructures once and passes narrow
- * props to memo'd children.
+ * Single-consumer rule: only `ImagingPage.tsx` should call
+ * `useImaging()`. It destructures once and passes narrow props to
+ * memo'd children.
  */
 import {
   createContext,
