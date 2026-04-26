@@ -46,7 +46,6 @@ def build_log_mission_data(
         "csp_plausible":   payload.csp_plausible,
         "csp_crc32":       payload.csp_crc32,
         "csp_crc32_valid": payload.csp_crc32_valid,
-        "stripped_hdr":    payload.stripped_hdr,
         "args_hex":        payload.args_raw.hex(),
     }
     if envelope.transport_meta:
@@ -63,7 +62,6 @@ def format_log_lines(
 
     Output sections (each a single line, two-space indent + label-aligned):
       MODE      — envelope.frame_type
-      AX25      — decoded AX.25 header (when stripped_hdr present)
       ROUTING   — Src:<src>  Dest:<dest>  Echo:<echo>
       CMD       — id:<cmd_id>  type:<ptype>
       TS        — formatted ts_result if any (else GS receive time)
@@ -77,20 +75,6 @@ def format_log_lines(
     lines: list[str] = []
 
     lines.append(_field_line("MODE", envelope.frame_type))
-
-    # AX.25 header
-    if payload.stripped_hdr:
-        try:
-            from mav_gss_lib.platform.framing.ax25 import ax25_decode_header
-            decoded = ax25_decode_header(bytes.fromhex(payload.stripped_hdr.replace(" ", "")))
-            lines.append(_field_line(
-                "AX25",
-                f"Dest:{decoded['dest']['callsign']}-{decoded['dest']['ssid']}  "
-                f"Src:{decoded['src']['callsign']}-{decoded['src']['ssid']}  "
-                f"Ctrl:{decoded['control_hex']}  PID:{decoded['pid_hex']}",
-            ))
-        except Exception:
-            lines.append(_field_line("AX25", payload.stripped_hdr))
 
     if h:
         lines.append(_field_line(

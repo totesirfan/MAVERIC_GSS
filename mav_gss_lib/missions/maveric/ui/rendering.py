@@ -1,7 +1,7 @@
 """MAVERIC RX/TX rendering helpers — declarative shape.
 
 Reads MaverMissionPayload attributes (header, args_raw, valid_crc,
-csp_header, csp_plausible, csp_crc32, csp_crc32_valid, stripped_hdr) +
+csp_header, csp_plausible, csp_crc32, csp_crc32_valid) +
 envelope.parameters directly. No mission_data dict, no NodeTable.
 
 Author:  Irfan Annuar - USC ISI SERC
@@ -176,20 +176,6 @@ def protocol_blocks(payload: "MaverMissionPayload", envelope: "PacketEnvelope") 
                 for k, v in payload.csp_header.items()
             ],
         ))
-    if payload.stripped_hdr:
-        ax25_fields = [{"name": "Header", "value": payload.stripped_hdr}]
-        try:
-            from mav_gss_lib.platform.framing.ax25 import ax25_decode_header
-            decoded = ax25_decode_header(bytes.fromhex(payload.stripped_hdr.replace(" ", "")))
-            ax25_fields = [
-                {"name": "Dest", "value": f"{decoded['dest']['callsign']}-{decoded['dest']['ssid']}"},
-                {"name": "Src", "value": f"{decoded['src']['callsign']}-{decoded['src']['ssid']}"},
-                {"name": "Control", "value": decoded["control_hex"]},
-                {"name": "PID", "value": decoded["pid_hex"]},
-            ]
-        except Exception:
-            pass
-        out.append(ProtocolBlock(kind="ax25", label="AX.25", fields=ax25_fields))
     return out
 
 
