@@ -51,6 +51,21 @@ from mav_gss_lib.missions.maveric.plugins import PLUGINS
 _HEADER_FIELDS = ("dest", "echo", "ptype", "src")
 
 
+def _coerce_token(token: str) -> Any:
+    """Best-effort numeric coercion for CLI tokens. Mirrors the inner
+    declarative parse_input so positional CLI tokens reach the walker
+    typed (int/float) when they look numeric."""
+    try:
+        return int(token, 0)
+    except ValueError:
+        pass
+    try:
+        return float(token)
+    except ValueError:
+        pass
+    return token
+
+
 # Column definitions for the TX queue/history list. The `verifiers` column
 # is rendered client-side from the verification WS stream — its row value
 # stays empty, so it's declared without `hide_if_all` so the tick strip is
@@ -92,17 +107,34 @@ class _LiveFramer:
 
 
 class _MaverCommandOpsWrapper:
-    """Translates legacy flat MAVERIC payloads into the canonical
-    declarative ``{cmd_id, args:dict, packet:dict}`` shape on
-    parse_input, then delegates everything else (validate, encode,
-    frame, render, verifier_set, correlation_key, schema, tx_columns,
-    …) to the inner declarative ops via ``__getattr__``."""
+    """Operator-surface adapter over the declarative CommandOps.
 
-    __slots__ = ("inner", "mission")
+    Two shape translations:
 
-    def __init__(self, *, inner: CommandOps, mission: Mission) -> None:
+    * **CLI grammars** (parse_input on a string):
+        - shortcut: ``CMD [arg1 arg2 ...]`` — declarative pass-through.
+        - full:     ``[SRC] DEST ECHO TYPE CMD [arg1 arg2 ...]`` — legacy
+          MAVERIC operator format. SRC/DEST/ECHO accept node names or
+          numeric ids; TYPE accepts ptype names or ids. SRC defaults to
+          the GS node when 4-token form is detected.
+
+    * **Frontend dict shape** (parse_input on a dict): legacy flat
+      ``{cmd_id, args, dest, echo, ptype, src}`` is canonicalized to
+      declarative ``{cmd_id, args:dict, packet:dict}``.
+
+    Plus an `rx_only` admission gate, an operator-friendly `schema()`
+    reshape (frontend-compatible flat ``{cmd_id: {tx_args, dest, echo,
+    ptype, nodes, ...}}``), and a static `tx_columns` providing the
+    MAVERIC TX queue/history column list. All other CommandOps methods
+    delegate to the inner declarative adapter via ``__getattr__``.
+    """
+
+    __slots__ = ("inner", "mission", "_codec")
+
+    def __init__(self, *, inner: CommandOps, mission: Mission, codec: MaverPacketCodec) -> None:
         self.inner = inner
         self.mission = mission
+        self._codec = codec
 
     def parse_input(self, value: str | dict[str, Any]) -> CommandDraft:
         if isinstance(value, dict):
@@ -111,13 +143,124 @@ class _MaverCommandOpsWrapper:
             if meta is not None and meta.rx_only:
                 raise ValueError(f"'{cmd_id}' is receive-only")
             return self.inner.parse_input(self._canonicalize(value))
-        return self.inner.parse_input(value)
+        return self._parse_cli(value)
+
+    def schema(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for cmd_id, meta in self.mission.meta_commands.items():
+            out[cmd_id] = {
+                "tx_args": [
+                    {
+                        "name": a.name,
+                        "type": a.type_ref,
+                        "description": a.description,
+                        "important": a.important,
+                    }
+                    for a in meta.argument_list
+                ],
+                "rx_args": [],
+                "dest":  meta.packet.get("dest"),
+                "echo":  meta.packet.get("echo"),
+                "ptype": meta.packet.get("ptype"),
+                "nodes": list(meta.allowed_packet.get("dest", ())),
+                "guard": meta.guard,
+                "rx_only": meta.rx_only,
+                "deprecated": meta.deprecated,
+            }
+        return out
 
     def tx_columns(self) -> list[ColumnDef]:
         return [ColumnDef.from_dict(col) for col in _TX_QUEUE_COLUMNS]
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)
+
+    # -- CLI grammar -----------------------------------------------------
+
+    def _parse_cli(self, line: str) -> CommandDraft:
+        parts = line.strip().split()
+        if not parts:
+            raise ValueError("empty command input")
+        first_lower = parts[0].lower()
+        if first_lower in self.mission.meta_commands:
+            # Shortcut: declarative inner already handles `cmd_id arg1 arg2 ...`.
+            meta = self.mission.meta_commands[first_lower]
+            if meta.rx_only:
+                raise ValueError(f"'{first_lower}' is receive-only")
+            return self.inner.parse_input(line)
+        return self._parse_full_form(parts)
+
+    def _parse_full_form(self, parts: list[str]) -> CommandDraft:
+        if len(parts) < 4:
+            raise ValueError(
+                "need at least: <dest> <echo> <type> <cmd>  "
+                "(or <src> <dest> <echo> <type> <cmd>)"
+            )
+        # 5+ tokens AND parts[3] resolves as a ptype → form WITH src.
+        # Otherwise (4 tokens, OR 5+ where parts[2] is the ptype) → SRC=GS.
+        src_name: str | None = None
+        if len(parts) >= 5 and self._token_is_ptype(parts[3]):
+            src_name = self._resolve_node_name(parts[0], "src")
+            dest = self._resolve_node_name(parts[1], "dest")
+            echo = self._resolve_node_name(parts[2], "echo")
+            ptype = self._resolve_ptype_name(parts[3])
+            cmd_idx = 4
+        else:
+            dest = self._resolve_node_name(parts[0], "dest")
+            echo = self._resolve_node_name(parts[1], "echo")
+            ptype = self._resolve_ptype_name(parts[2])
+            cmd_idx = 3
+        if cmd_idx >= len(parts):
+            raise ValueError("missing command id after routing tokens")
+        cmd_id = parts[cmd_idx].lower()
+        meta = self.mission.meta_commands.get(cmd_id)
+        if meta is None:
+            raise ValueError(f"Unknown command {cmd_id!r} — verify command name in schema")
+        if meta.rx_only:
+            raise ValueError(f"'{cmd_id}' is receive-only")
+        args_dict: dict[str, Any] = {}
+        for arg, token in zip(meta.argument_list, parts[cmd_idx + 1:]):
+            args_dict[arg.name] = _coerce_token(token)
+        payload: dict[str, Any] = {
+            "cmd_id": cmd_id, "args": args_dict,
+            "dest": dest, "echo": echo, "ptype": ptype,
+        }
+        if src_name is not None:
+            payload["src"] = src_name
+        return self.inner.parse_input(self._canonicalize(payload))
+
+    def _resolve_node_name(self, token: str, field: str) -> str:
+        s = token.strip()
+        if s.lstrip("-").isdigit():
+            try:
+                return self._codec.node_name_for(int(s))
+            except Exception as exc:
+                raise ValueError(f"unknown {field} node id {token!r}") from exc
+        try:
+            self._codec.node_id_for(s)
+        except Exception as exc:
+            raise ValueError(f"unknown {field} node {token!r}") from exc
+        return s
+
+    def _resolve_ptype_name(self, token: str) -> str:
+        s = token.strip()
+        if s.lstrip("-").isdigit():
+            try:
+                return self._codec.ptype_name_for(int(s))
+            except Exception as exc:
+                raise ValueError(f"unknown ptype id {token!r}") from exc
+        try:
+            self._codec.ptype_id_for(s)
+        except Exception as exc:
+            raise ValueError(f"unknown ptype {token!r}") from exc
+        return s
+
+    def _token_is_ptype(self, token: str) -> bool:
+        try:
+            self._resolve_ptype_name(token)
+            return True
+        except ValueError:
+            return False
 
     def _canonicalize(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Convert legacy MAVERIC flat shape into the declarative shape.
@@ -175,7 +318,9 @@ def build_declarative_capabilities(
     declarative_ops = build_declarative_command_ops(
         mission, PLUGINS, packet_codec=codec, framer=framer,
     )
-    command_ops = _MaverCommandOpsWrapper(inner=declarative_ops, mission=mission)
+    command_ops = _MaverCommandOpsWrapper(
+        inner=declarative_ops, mission=mission, codec=codec,
+    )
     return DeclarativeCapabilities(
         mission=mission,
         packet_codec=codec,
