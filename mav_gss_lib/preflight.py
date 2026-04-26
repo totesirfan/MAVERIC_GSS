@@ -63,7 +63,7 @@ def run_preflight(cfg: dict | None = None,
 
     Args:
         cfg: Pre-loaded platform config dict (native `platform_cfg` shape or
-            legacy flat runtime cfg — both expose `tx.uplink_mode`,
+            legacy flat runtime cfg — both expose `tx.frequency`,
             `rx.zmq_addr`, `tx.zmq_addr` at the same paths). If None, loads
             from gss.yml.
         mission_cfg: Mission-config dict for mission-specific checks such as

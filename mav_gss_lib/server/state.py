@@ -178,9 +178,19 @@ class WebRuntime:
         return str(name) if name else DEFAULT_MISSION_NAME
 
     @property
-    def uplink_mode(self) -> str:
-        tx = self.platform_cfg.get("tx") or {}
-        return str(tx.get("uplink_mode", "AX.25"))
+    def frame_label(self) -> str:
+        """The active mission's declared uplink frame label.
+
+        Sourced from `mission.framing.uplink_label` so the field reflects
+        what the framer chain actually emits, not an operator-selectable
+        mode. Falls back to "raw" only if a mission ships without a
+        framing block (which DeclarativeFramer construction will refuse,
+        so this is defensive).
+        """
+        framing = getattr(self.mission.spec_root, "framing", None) if self.mission.spec_root else None
+        if framing is None:
+            return "raw"
+        return framing.uplink_label or "raw"
 
     @property
     def tx_frequency(self) -> str:

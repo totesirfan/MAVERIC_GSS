@@ -38,7 +38,7 @@ def tx_log_record(
 
     *raw_cmd* is the inner mission command bytes (pre-framing); *wire* is the
     full on-air frame the platform publishes to ZMQ. *log_fields* carries
-    mission framer metadata (AX.25 / CSP headers etc.) — everything except
+    mission framer metadata (CSP headers, etc.) — everything except
     ``uplink_mode`` is merged under the ``mission`` block.
     """
 

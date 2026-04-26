@@ -58,7 +58,7 @@ async def api_status(request: Request) -> dict[str, Any]:
         "version": runtime.version,
         "zmq_rx": runtime.rx.status.get(),
         "zmq_tx": runtime.tx.status.get(),
-        "uplink_mode": runtime.uplink_mode,
+        "frame_label": runtime.frame_label,
         "frequency": runtime.tx_frequency,
         "schema_path": _mission_meta(runtime, "command_defs_resolved")
             or _mission_meta(runtime, "command_defs"),
@@ -107,7 +107,6 @@ async def api_selfcheck(request: Request) -> dict[str, Any]:
         "zmq_rx_status": runtime.rx.status.get(),
         "zmq_tx_status": runtime.tx.status.get(),
         "log_dir": runtime.log_dir,
-        "uplink_mode": runtime.uplink_mode,
     }
 
 

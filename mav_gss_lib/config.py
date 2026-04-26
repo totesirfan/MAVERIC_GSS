@@ -85,7 +85,7 @@ _DEFAULTS = {
 }
 
 _PLATFORM_GENERAL_KEYS = {"log_dir", "generated_commands_dir"}
-_MISSION_TOP_KEYS = {"nodes", "ptypes", "node_descriptions", "ax25", "csp", "imaging", "image_dir"}
+_MISSION_TOP_KEYS = {"nodes", "ptypes", "node_descriptions", "csp", "imaging", "image_dir"}
 _MISSION_GENERAL_KEYS = {
     "mission_name",
     "gs_node",
@@ -219,6 +219,12 @@ def split_to_persistable(platform_cfg: dict, mission_id: str, mission_cfg: dict)
     stray mission-general snapshots left in platform_cfg).
     """
     persistable_platform = copy.deepcopy(platform_cfg)
+    # Strip legacy operator-mode knob — pre-declarative-framing artifact.
+    # New saves don't write tx.uplink_mode; old gss.yml files with the key
+    # silently lose it on next save.
+    tx = persistable_platform.get("tx")
+    if isinstance(tx, dict):
+        tx.pop("uplink_mode", None)
     general = persistable_platform.get("general")
     if isinstance(general, dict):
         persistable_platform["general"] = {
