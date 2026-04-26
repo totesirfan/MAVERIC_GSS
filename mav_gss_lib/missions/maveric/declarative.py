@@ -30,10 +30,11 @@ from typing import Any, Mapping
 from mav_gss_lib.platform.contract import CommandOps
 from mav_gss_lib.platform.contract.commands import (
     CommandDraft,
+    CommandRendering,
     EncodedCommand,
     FramedCommand,
 )
-from mav_gss_lib.platform.contract.rendering import ColumnDef
+from mav_gss_lib.platform.contract.rendering import Cell, ColumnDef, DetailBlock
 from mav_gss_lib.platform.contract.telemetry import TelemetryOps
 from mav_gss_lib.platform.spec import (
     Mission,
@@ -171,6 +172,45 @@ class _MaverCommandOpsWrapper:
 
     def tx_columns(self) -> list[ColumnDef]:
         return [ColumnDef.from_dict(col) for col in _TX_QUEUE_COLUMNS]
+
+    def render(self, encoded: EncodedCommand) -> CommandRendering:
+        """Build display row + detail blocks from the encoded mission_payload.
+
+        The declarative inner adapter only fills title/subtitle. The TX
+        queue column ids (`dest`, `echo`, `ptype`, `cmd`) need populated
+        Cells so the row renders. `cmd` shows the command id plus a
+        compact arg summary; `ptype` is rendered as a badge per the
+        column def.
+        """
+        mp = encoded.mission_payload or {}
+        cmd_id = str(mp.get("cmd_id", "?"))
+        header = mp.get("header") or {}
+        args = mp.get("args") or {}
+        dest  = str(header.get("dest", ""))
+        echo  = str(header.get("echo", ""))
+        ptype = str(header.get("ptype", ""))
+        cmd_cell = cmd_id
+        if isinstance(args, dict) and args:
+            arg_str = " ".join(f"{k}={v}" for k, v in args.items())
+            cmd_cell = f"{cmd_id} {arg_str}"
+        row: dict[str, Cell] = {
+            "dest":  Cell(value=dest),
+            "echo":  Cell(value=echo),
+            "ptype": Cell(value=ptype, badge=True),
+            "cmd":   Cell(value=cmd_cell),
+        }
+        detail_blocks: list[DetailBlock] = []
+        if isinstance(args, dict) and args:
+            detail_blocks.append(DetailBlock(
+                kind="args", label="Args",
+                fields=[{"name": k, "value": str(v)} for k, v in args.items()],
+            ))
+        return CommandRendering(
+            title=cmd_id,
+            subtitle=dest,
+            row=row,
+            detail_blocks=detail_blocks,
+        )
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)
