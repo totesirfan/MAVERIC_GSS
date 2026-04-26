@@ -88,7 +88,7 @@ def make_mission_cmd(payload: dict[str, Any], runtime: "WebRuntime | None" = Non
         "type": "mission_cmd",
         "raw_cmd": prepared.encoded.raw,
         "display": _display_from_prepared(prepared),
-        "guard": prepared.encoded.guard,
+        "guard": bool(payload.get("guard", prepared.encoded.guard)),
         "payload": mission_payload.get("payload", payload),
     }
 

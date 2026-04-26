@@ -90,8 +90,13 @@ class TestTxRuntime(unittest.TestCase):
             old_mode = self.runtime.platform_cfg.get("tx", {}).get("uplink_mode", "AX.25")
             self.runtime.platform_cfg["tx"]["uplink_mode"] = "ASM+Golay"
         try:
+            payload = {
+                "cmd_id": "cfg_set_tle",
+                "args": {"tle": "A" * 220},
+                "dest": "LPPM", "echo": "NONE", "ptype": "CMD", "guard": False,
+            }
             with self.assertRaisesRegex(ValueError, "too large for ASM\\+Golay"):
-                validate_mission_cmd(_make_payload("cfg_set_ll", "A" * 220), runtime=self.runtime)
+                validate_mission_cmd(payload, runtime=self.runtime)
         finally:
             with self.runtime.cfg_lock:
                 self.runtime.platform_cfg["tx"]["uplink_mode"] = old_mode

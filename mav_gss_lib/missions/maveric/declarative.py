@@ -94,6 +94,10 @@ class _MaverCommandOpsWrapper:
 
     def parse_input(self, value: str | dict[str, Any]) -> CommandDraft:
         if isinstance(value, dict):
+            cmd_id = str(value.get("cmd_id", "")).lower()
+            meta = self.mission.meta_commands.get(cmd_id)
+            if meta is not None and meta.rx_only:
+                raise ValueError(f"'{cmd_id}' is receive-only")
             return self.inner.parse_input(self._canonicalize(value))
         return self.inner.parse_input(value)
 
