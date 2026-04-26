@@ -1,8 +1,5 @@
 """Build the declarative MAVERIC telemetry + command capabilities.
 
-Plan B exposes this helper for parity tests only. Plan C will swap
-``mission.py``'s active wiring to use it.
-
 Reads ``mission.yml`` via ``platform.spec.parse_yaml`` (with PLUGINS
 bound), constructs a ``MaverPacketCodec`` from the parsed extensions,
 constructs a ``MavericFramer`` from the live operator configs, then
@@ -35,6 +32,7 @@ from mav_gss_lib.missions.maveric.plugins import PLUGINS
 @dataclass(frozen=True, slots=True)
 class DeclarativeCapabilities:
     mission: Mission
+    packet_codec: MaverPacketCodec
     telemetry_ops: TelemetryOps
     command_ops: CommandOps
     parse_warnings: tuple[ParseWarning, ...]
@@ -61,6 +59,7 @@ def build_declarative_capabilities(
     )
     return DeclarativeCapabilities(
         mission=mission,
+        packet_codec=codec,
         telemetry_ops=telemetry_ops,
         command_ops=command_ops,
         parse_warnings=tuple(mission.parse_warnings),

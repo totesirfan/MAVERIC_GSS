@@ -91,6 +91,10 @@ class MaverPacketCodec:
 
         self._gs_node_name = gs_node_name
 
+    @property
+    def gs_node_name(self) -> str | None:
+        return self._gs_node_name
+
     def node_id_for(self, name: str) -> int:
         if name not in self._nodes_by_name:
             raise UnknownNodeId(field="node", value=name)
