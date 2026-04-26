@@ -88,7 +88,7 @@ def format_log_lines(pkt: "MavericRxPacket", nodes: "NodeTable") -> list[str]:
 
     # AX.25 header
     if pkt.stripped_hdr:
-        from mav_gss_lib.protocols.ax25 import ax25_decode_header
+        from mav_gss_lib.platform.framing.ax25 import ax25_decode_header
         try:
             decoded = ax25_decode_header(bytes.fromhex(pkt.stripped_hdr.replace(" ", "")))
             lines.append(

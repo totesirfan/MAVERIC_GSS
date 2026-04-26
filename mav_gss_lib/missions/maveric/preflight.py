@@ -70,7 +70,7 @@ def _command_schema_checks(
 
 def _uplink_capability_checks(platform_config: dict[str, Any], CheckResult: type) -> Iterable[Any]:
     try:
-        from mav_gss_lib.protocols.golay import _GR_RS_OK as _golay_rs_ok
+        from mav_gss_lib.platform.framing.asm_golay import _GR_RS_OK as _golay_rs_ok
     except ImportError:
         _golay_rs_ok = False
 

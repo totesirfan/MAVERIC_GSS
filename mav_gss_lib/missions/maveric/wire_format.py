@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mav_gss_lib.protocols.crc import crc16
+from mav_gss_lib.platform.framing.crc import crc16
 
 
 _CMD_HDR_LEN = 6  # src, dest, echo, ptype, id_len, args_len

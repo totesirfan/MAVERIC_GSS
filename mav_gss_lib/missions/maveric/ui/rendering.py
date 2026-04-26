@@ -142,7 +142,7 @@ def packet_list_row(pkt: "MavericRxPacket", nodes: "NodeTable") -> dict[str, Any
 
 def protocol_blocks(pkt: "MavericRxPacket") -> list[ProtocolBlock]:
     """Return protocol/wrapper blocks for the detail view."""
-    from mav_gss_lib.protocols.ax25 import ax25_decode_header
+    from mav_gss_lib.platform.framing.ax25 import ax25_decode_header
     md = _md(pkt)
     csp = md.get("csp")
     blocks = []

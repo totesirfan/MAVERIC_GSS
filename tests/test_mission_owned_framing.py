@@ -1,8 +1,8 @@
 """Mission-owned framing covers the platform TX boundary.
 
 Verifies:
-- Platform TX path delegates to mission.commands.frame() — no CSP/AX.25
-  imports remain in the server backend.
+- Platform TX path delegates to mission.commands.frame() — the server backend
+  does not import the platform's framing primitives directly.
 - MAVERIC framer reads ax25/csp from the live mission_config reference so
   /api/config updates take effect without a MissionSpec rebuild.
 - Echo-style missions with passthrough framing work through the same
@@ -22,11 +22,16 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 
 class TestBackendHasNoFramingImports(unittest.TestCase):
-    """Guardrail — the platform must not import MAVERIC protocol primitives."""
+    """Guardrail — the server must not import platform framing primitives.
+
+    TX framing flows through `MissionSpec.commands.frame()`. The server
+    publishes `FramedCommand.wire` on ZMQ as-is and never wraps, strips,
+    or inspects framing layers itself.
+    """
 
     BANNED_PATTERN = re.compile(
-        r"from\s+mav_gss_lib\.protocols(?:\.\w+)?\s+import|"
-        r"import\s+mav_gss_lib\.protocols(?:\.\w+)?"
+        r"from\s+mav_gss_lib\.platform\.framing(?:\.\w+)?\s+import|"
+        r"import\s+mav_gss_lib\.platform\.framing(?:\.\w+)?"
     )
 
     def test_server_does_not_import_protocol_framing(self):

@@ -111,9 +111,9 @@ class TestPlatformPreflightIsMissionNeutral(unittest.TestCase):
             text,
             r"from\s+mav_gss_lib\.missions\.maveric|import\s+mav_gss_lib\.missions\.maveric",
         )
-        # Platform preflight must not reference protocols.golay directly —
-        # that's a mission-owned radio concern.
-        self.assertNotRegex(text, r"mav_gss_lib\.protocols\.golay")
+        # Platform preflight must not reach into specific framers directly —
+        # ASM+Golay capability is a mission-owned radio concern.
+        self.assertNotRegex(text, r"mav_gss_lib\.platform\.framing\.asm_golay")
         # Platform preflight must not branch on uplink mode strings like
         # "ASM+Golay" (MAVERIC-specific).
         self.assertNotIn("ASM+Golay", text)

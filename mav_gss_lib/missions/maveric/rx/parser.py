@@ -12,8 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from mav_gss_lib.protocols.crc import verify_csp_crc32
-from mav_gss_lib.protocols.csp import try_parse_csp_v1
+from mav_gss_lib.platform.framing.crc import verify_csp_crc32
+from mav_gss_lib.platform.framing.csp_v1 import try_parse_csp_v1
 from mav_gss_lib.platform.rx.frame_detect import detect_frame_type, normalize_frame
 from mav_gss_lib.missions.maveric.wire_format import try_parse_command
 from mav_gss_lib.missions.maveric.schema import enrich_cmd_in_place
