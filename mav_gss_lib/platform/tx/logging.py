@@ -51,6 +51,12 @@ def tx_log_record(
     uplink_mode = log_fields.pop("uplink_mode", "")
     mission_block.update(log_fields)
 
+    # Declarative command-ops adapter emits dest/src/echo/ptype under the
+    # `header` sub-dict (alongside cmd_id at top-level). Missions without
+    # a header sub-dict (echo_v2, balloon_v2) fall through to "" — same
+    # behavior as before for those missions.
+    header = mission_payload.get("header") or {}
+
     return {
         "event_id": event_id or new_event_id(),
         "event_kind": "tx_command",
@@ -63,10 +69,10 @@ def tx_log_record(
         "operator": operator,
         "station": station,
         "cmd_id": str(mission_payload.get("cmd_id", "")),
-        "dest": str(mission_payload.get("dest", "")),
-        "src": str(mission_payload.get("src", "")),
-        "echo": str(mission_payload.get("echo", "")),
-        "ptype": str(mission_payload.get("ptype", "")),
+        "dest": str(header.get("dest", "")),
+        "src": str(header.get("src", "")),
+        "echo": str(header.get("echo", "")),
+        "ptype": str(header.get("ptype", "")),
         "frame_label": frame_label,
         "uplink_mode": uplink_mode,
         "inner_hex": raw_cmd.hex(),

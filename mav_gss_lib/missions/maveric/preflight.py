@@ -1,9 +1,9 @@
 """MAVERIC mission preflight checks.
 
-Mission-specific checks that used to live in `mav_gss_lib/preflight.py` — the
-command schema file check and the libfec (ASM+Golay RS encoder) capability
-check. These are MAVERIC concerns and the platform preflight driver now
-delegates to `MissionSpec.preflight()` for mission-specific results.
+Mission-specific checks that used to live in `mav_gss_lib/preflight.py` —
+the mission-database file check and the libfec (ASM+Golay RS encoder)
+capability check. The platform preflight driver delegates to
+`MissionSpec.preflight()` for mission-specific results.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Callable, Iterable
-
-from mav_gss_lib.missions.maveric.config_access import command_defs_name
 
 
 _GOLAY_FIX = (
@@ -35,36 +33,23 @@ def build_preflight(
         # at module load time.
         from mav_gss_lib.preflight import CheckResult
 
-        yield from _command_schema_checks(mission_config, mission_dir, CheckResult)
+        yield from _mission_yml_checks(mission_dir, CheckResult)
         yield from _uplink_capability_checks(platform_config, CheckResult)
 
     return _checks
 
 
-def _command_schema_checks(
-    mission_config: dict[str, Any],
-    mission_dir: Path,
-    CheckResult: type,
-) -> Iterable[Any]:
-    cmd_defs = command_defs_name(mission_config)
-    path = Path(cmd_defs)
-    cmd_schema = path if path.is_absolute() else mission_dir / cmd_defs
-    cmd_example = mission_dir / (path.stem + ".example" + path.suffix)
-    if cmd_schema.is_file():
-        yield CheckResult("config", f"Command schema: {cmd_schema.name}", "ok")
-    elif cmd_example.is_file():
-        yield CheckResult(
-            "config",
-            f"Command schema: {cmd_schema.name}",
-            "warn",
-            fix=f"Copy from example: cp {cmd_example} {cmd_schema}",
-        )
+def _mission_yml_checks(mission_dir: Path, CheckResult: type) -> Iterable[Any]:
+    mission_yml = mission_dir / "mission.yml"
+    if mission_yml.is_file():
+        yield CheckResult("config", f"Mission schema: {mission_yml.name}", "ok")
     else:
         yield CheckResult(
             "config",
-            f"Command schema: {cmd_schema.name}",
-            "warn",
-            fix="System starts but cannot validate or send commands",
+            "Mission schema: mission.yml",
+            "fail",
+            fix=f"Place mission.yml at {mission_yml} (gitignored — see CLAUDE.md).",
+            detail="System cannot decode telemetry or encode commands without mission.yml.",
         )
 
 

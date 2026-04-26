@@ -507,17 +507,31 @@ class TxService:
 
         tx_event_id = new_event_id()
 
-        # Reconstruct an EncodedCommand surface for the mission's verifier
-        # lookup. Mission methods (verifier_set, correlation_key) read from
-        # ``mission_payload["payload"]`` — preserve that shape.
-        encoded_for_verifier = EncodedCommand(
-            raw=raw_cmd,
-            guard=bool(item.get("guard", False)),
-            mission_payload={
-                "payload": item.get("payload", {}),
-                "display": item.get("display", {}),
-            },
-        )
+        # Re-encode the queue payload to recover the mission's canonical
+        # ``mission_payload`` (with header sub-dict, args, etc.) so the
+        # mission's verifier_set / correlation_key see the same shape
+        # the encode pipeline produced. Mission encode is deterministic;
+        # we keep the persisted raw bytes as the authoritative wire.
+        try:
+            replay = self.runtime.mission.commands.encode(
+                self.runtime.mission.commands.parse_input({**(item.get("payload") or {})})
+            )
+            encoded_for_verifier = EncodedCommand(
+                raw=raw_cmd,
+                guard=bool(item.get("guard", False)),
+                mission_payload=replay.mission_payload,
+            )
+        except Exception:
+            # Fall back to a legacy-shaped envelope so verifier lookup
+            # missions that ignore mission_payload still keep working.
+            encoded_for_verifier = EncodedCommand(
+                raw=raw_cmd,
+                guard=bool(item.get("guard", False)),
+                mission_payload={
+                    "payload": item.get("payload", {}),
+                    "display": item.get("display", {}),
+                },
+            )
         vset = self.runtime.mission.commands.verifier_set(encoded_for_verifier)
 
         instance: CommandInstance | None = None

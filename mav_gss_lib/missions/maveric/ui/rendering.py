@@ -1,7 +1,8 @@
-"""
-mav_gss_lib.missions.maveric.ui.rendering -- MAVERIC RX/TX Rendering Helpers
+"""MAVERIC RX/TX rendering helpers — declarative shape.
 
-MAVERIC packet-to-display transformations for MissionSpec UI operations.
+Reads MaverMissionPayload attributes (header, args_raw, valid_crc,
+csp_header, csp_plausible, csp_crc32, csp_crc32_valid, stripped_hdr) +
+envelope.telemetry directly. No mission_data dict, no NodeTable.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -9,22 +10,21 @@ Author:  Irfan Annuar - USC ISI SERC
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from mav_gss_lib.missions.maveric.nodes import NodeTable
-    from mav_gss_lib.missions.maveric.rx.packet import MavericRxPacket
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from mav_gss_lib.missions.maveric.ui.formatters import (
-    md as _md,
-    ptype_of as _ptype_of,
-    should_hide_args as _should_hide_args,
-    unwrap_typed_arg_for_display,
     compact_value as _compact_value,
-    detail_fields as _detail_fields,
+    display_kind,
     display_label as _display_label,
+    render_detail_fields,
+    render_value,
 )
+
+if TYPE_CHECKING:
+    from mav_gss_lib.missions.maveric.packets import MaverMissionPayload
+    from mav_gss_lib.platform import PacketEnvelope
+    from mav_gss_lib.platform.spec import Mission
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,32 +44,44 @@ class IntegrityBlock:
     computed: str | None = None
 
 
-def _frag_block(frags: list[dict[str, Any]], label: str) -> dict[str, Any]:
-    """Build one {kind:'args', label, fields} block from a fragment list,
-    applying friendly display labels."""
-    return {
-        "kind": "args",
-        "label": label,
-        "fields": [
-            {
-                "name": _display_label(f["key"]),
-                "value": _compact_value(f["value"], f.get("unit", "")),
-            }
-            for f in frags
-        ],
-    }
+# =============================================================================
+#  Time helpers
+# =============================================================================
 
 
-def _split_canonical_and_raw(
-    frags: list[dict[str, Any]],
-    domain: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Partition a fragment list by display_only flag."""
-    canonical = [f for f in frags
-                 if f["domain"] == domain and not f.get("display_only")]
-    raw = [f for f in frags
-           if f["domain"] == domain and f.get("display_only")]
-    return canonical, raw
+def _ts_result(envelope: "PacketEnvelope") -> tuple | None:
+    """Derive (utc_dt, local_dt, unix_ms) from a 'time' or 'sat_time'
+    fragment in envelope.telemetry.
+
+    Beacons emit 'time' (BCD-time entry in mission.yml). Commands
+    emit 'sat_time' iff mission.yml declares a sequence_container that
+    decodes a sat_time arg. When no such fragment is present this
+    returns None and the row falls through to envelope.received_at_short.
+    """
+    for f in envelope.telemetry:
+        if f.key not in ("time", "sat_time"):
+            continue
+        if not isinstance(f.value, dict):
+            continue
+        unix_ms = f.value.get("unix_ms")
+        if unix_ms is None:
+            continue
+        try:
+            dt_utc = datetime.fromtimestamp(unix_ms / 1000.0, tz=timezone.utc)
+            return (dt_utc, dt_utc.astimezone(), unix_ms)
+        except (OSError, OverflowError, ValueError):
+            return None
+    return None
+
+
+def _ts_for_row(envelope: "PacketEnvelope") -> str:
+    """Format the time column. Prefers ts_result (satellite time from
+    fragments); falls back to GS receive time."""
+    ts = _ts_result(envelope)
+    if ts is None:
+        return envelope.received_at_short
+    _, dt_local, _ = ts
+    return f"{dt_local.hour:02d}:{dt_local.minute:02d}:{dt_local.second:02d}"
 
 
 # =============================================================================
@@ -92,47 +104,49 @@ def packet_list_columns() -> list[dict]:
     ]
 
 
-def packet_list_row(pkt: "MavericRxPacket", nodes: "NodeTable") -> dict[str, Any]:
+def packet_list_row(payload: "MaverMissionPayload", envelope: "PacketEnvelope") -> dict[str, Any]:
     """Return row values keyed by column ID for one packet."""
-    md = _md(pkt)
-    cmd = md.get("cmd")
-    hide_args = _should_hide_args(cmd, pkt.fragments)
-
-    args_str = ""
-    if not hide_args:
-        if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
-            important = [ta for ta in cmd["typed_args"] if ta.get("important")]
-            show = important if important else cmd["typed_args"]
-            parts = [str(unwrap_typed_arg_for_display(ta)) for ta in show]
-            args_str = " ".join(parts)
-        elif cmd:
-            raw = cmd.get("args", [])
-            args_str = " ".join(str(a) for a in raw) if isinstance(raw, list) else str(raw)
-
+    h = payload.header or {}
     flags = []
-    if cmd and cmd.get("crc_valid") is False:
-        flags.append({"tag": "CRC", "tone": "danger"})
-    if pkt.is_uplink_echo:
-        flags.append({"tag": "UL", "tone": "info"})
-    if pkt.is_dup:
-        flags.append({"tag": "DUP", "tone": "warning"})
-    if pkt.is_unknown:
-        flags.append({"tag": "UNK", "tone": "danger"})
-
+    if not payload.valid_crc:                 flags.append({"tag": "CRC", "tone": "danger"})
+    if envelope.flags.is_uplink_echo:         flags.append({"tag": "UL", "tone": "info"})
+    if envelope.flags.is_duplicate:           flags.append({"tag": "DUP", "tone": "warning"})
+    if envelope.flags.is_unknown:             flags.append({"tag": "UNK", "tone": "danger"})
     return {
         "values": {
-            "num": pkt.pkt_num,
-            "time": pkt.gs_ts_short,
-            "frame": pkt.frame_type,
-            "src": nodes.node_name(cmd["src"]) if cmd else "",
-            "echo": nodes.node_name(cmd["echo"]) if cmd else "",
-            "ptype": nodes.ptype_name(_ptype_of(md)) if (cmd and _ptype_of(md) is not None) else "",
-            "cmd": ((cmd["cmd_id"] + " " + args_str).strip() if args_str else cmd["cmd_id"]) if cmd else "",
+            "num":   envelope.seq,
+            "time":  _ts_for_row(envelope),
+            "frame": envelope.frame_type,
+            "src":   str(h.get("src", "")),
+            "echo":  str(h.get("echo", "")),
+            "ptype": str(h.get("ptype", "")),
+            "cmd":   _cmd_summary(payload, envelope),
             "flags": flags,
-            "size": len(pkt.raw),
+            "size":  len(envelope.raw),
         },
-        "_meta": {"opacity": 0.5 if pkt.is_unknown else 1.0},
+        "_meta": {"opacity": 0.5 if envelope.flags.is_unknown else 1.0},
     }
+
+
+def _cmd_summary(payload: "MaverMissionPayload", envelope: "PacketEnvelope") -> str:
+    """Format the cmd column. Walker emits typed args as fragments — read
+    them when present; fall back to args_raw.hex() when mission.yml has
+    no container for this cmd_id."""
+    if payload.header is None:
+        return ""
+    cmd_id = payload.header.get("cmd_id", "")
+    if envelope.telemetry:
+        # Show up to first 3 emitted fragments compactly.
+        parts = []
+        for f in envelope.telemetry[:3]:
+            if f.display_only:
+                continue
+            parts.append(f"{f.key}={_compact_value(f.value, f.unit)}")
+        if parts:
+            return f"{cmd_id} {' '.join(parts)}".strip()
+    if payload.args_raw:
+        return f"{cmd_id} {payload.args_raw.hex()}".strip()
+    return str(cmd_id)
 
 
 # =============================================================================
@@ -140,22 +154,23 @@ def packet_list_row(pkt: "MavericRxPacket", nodes: "NodeTable") -> dict[str, Any
 # =============================================================================
 
 
-def protocol_blocks(pkt: "MavericRxPacket") -> list[ProtocolBlock]:
+def protocol_blocks(payload: "MaverMissionPayload", envelope: "PacketEnvelope") -> list[ProtocolBlock]:
     """Return protocol/wrapper blocks for the detail view."""
-    from mav_gss_lib.platform.framing.ax25 import ax25_decode_header
-    md = _md(pkt)
-    csp = md.get("csp")
-    blocks = []
-    if csp:
-        blocks.append(ProtocolBlock(
+    out: list[ProtocolBlock] = []
+    if payload.csp_header:
+        out.append(ProtocolBlock(
             kind="csp",
-            label="CSP V1",
-            fields=[{"name": k.capitalize(), "value": str(v)} for k, v in csp.items()],
+            label=("CSP V1" if payload.csp_plausible else "CSP V1 [?]"),
+            fields=[
+                {"name": k.capitalize(), "value": str(v)}
+                for k, v in payload.csp_header.items()
+            ],
         ))
-    if pkt.stripped_hdr:
-        ax25_fields = [{"name": "Header", "value": pkt.stripped_hdr}]
+    if payload.stripped_hdr:
+        ax25_fields = [{"name": "Header", "value": payload.stripped_hdr}]
         try:
-            decoded = ax25_decode_header(bytes.fromhex(pkt.stripped_hdr.replace(" ", "")))
+            from mav_gss_lib.platform.framing.ax25 import ax25_decode_header
+            decoded = ax25_decode_header(bytes.fromhex(payload.stripped_hdr.replace(" ", "")))
             ax25_fields = [
                 {"name": "Dest", "value": f"{decoded['dest']['callsign']}-{decoded['dest']['ssid']}"},
                 {"name": "Src", "value": f"{decoded['src']['callsign']}-{decoded['src']['ssid']}"},
@@ -164,141 +179,139 @@ def protocol_blocks(pkt: "MavericRxPacket") -> list[ProtocolBlock]:
             ]
         except Exception:
             pass
-        blocks.append(ProtocolBlock(
-            kind="ax25",
-            label="AX.25",
-            fields=ax25_fields,
-        ))
-    return blocks
+        out.append(ProtocolBlock(kind="ax25", label="AX.25", fields=ax25_fields))
+    return out
 
 
-def integrity_blocks(pkt: "MavericRxPacket") -> list[IntegrityBlock]:
+def integrity_blocks(payload: "MaverMissionPayload", envelope: "PacketEnvelope") -> list[IntegrityBlock]:
     """Return integrity check blocks for the detail view."""
-    md = _md(pkt)
-    blocks = []
-    cmd = md.get("cmd")
-    if cmd and cmd.get("crc") is not None:
-        blocks.append(IntegrityBlock(
-            kind="crc16",
-            label="CRC-16",
-            scope="command",
-            ok=cmd.get("crc_valid"),
-            received=f"0x{cmd['crc']:04X}" if cmd.get("crc") is not None else None,
-        ))
-    crc_status = md.get("crc_status", {})
-    if crc_status.get("csp_crc32_valid") is not None:
-        blocks.append(IntegrityBlock(
-            kind="crc32c",
-            label="CRC-32C",
+    out: list[IntegrityBlock] = [
+        IntegrityBlock(
+            kind="body_crc",
+            label="Body CRC-16",
+            scope="inner",
+            ok=payload.valid_crc,
+        ),
+    ]
+    if payload.csp_crc32 is not None:
+        out.append(IntegrityBlock(
+            kind="csp_crc32",
+            label="CSP CRC-32C",
             scope="csp",
-            ok=crc_status["csp_crc32_valid"],
-            received=f"0x{crc_status['csp_crc32_rx']:08X}" if crc_status.get("csp_crc32_rx") is not None else None,
-            computed=f"0x{crc_status['csp_crc32_comp']:08X}" if crc_status.get("csp_crc32_comp") is not None else None,
+            ok=payload.csp_crc32_valid,
+            received=f"0x{payload.csp_crc32:08X}",
         ))
-    return blocks
+    return out
 
 
-def packet_detail_blocks(pkt: "MavericRxPacket", nodes: "NodeTable") -> list[dict[str, Any]]:
+# =============================================================================
+#  Detail View — Mission Semantic Blocks
+# =============================================================================
+
+
+def packet_detail_blocks(
+    payload: "MaverMissionPayload",
+    envelope: "PacketEnvelope",
+    mission: "Mission",
+) -> list[dict[str, Any]]:
     """Return mission-specific semantic blocks for the detail view."""
-    md = _md(pkt)
-    cmd = md.get("cmd")
-    ts_result = md.get("ts_result")
-    blocks = []
+    blocks: list[dict[str, Any]] = []
+    h = payload.header or {}
 
+    # Time block
     time_block = {"kind": "time", "label": "Time", "fields": [
-        {"name": "GS Time", "value": pkt.gs_ts},
+        {"name": "GS Time", "value": envelope.received_at_short},
     ]}
-    if ts_result:
-        dt_utc, dt_local, ms = ts_result
-        if dt_utc:
+    ts = _ts_result(envelope)
+    if ts is not None:
+        dt_utc, dt_local, _ = ts
+        if dt_utc is not None:
             time_block["fields"].append({"name": "SAT UTC", "value": dt_utc.strftime("%H:%M:%S") + " UTC"})
-        if dt_local:
+        if dt_local is not None:
             time_block["fields"].append({"name": "SAT Local", "value": dt_local.strftime("%H:%M:%S %Z")})
     blocks.append(time_block)
 
-    if cmd:
+    # Routing block (when header is present)
+    if h:
         blocks.append({"kind": "routing", "label": "Routing", "fields": [
-            {"name": "Src", "value": nodes.node_name(cmd["src"])},
-            {"name": "Dest", "value": nodes.node_name(cmd["dest"])},
-            {"name": "Echo", "value": nodes.node_name(cmd["echo"])},
-            {"name": "Type", "value": nodes.ptype_name(_ptype_of(md))},
-            {"name": "Cmd", "value": cmd["cmd_id"]},
+            {"name": "Src",  "value": str(h.get("src", ""))},
+            {"name": "Dest", "value": str(h.get("dest", ""))},
+            {"name": "Echo", "value": str(h.get("echo", ""))},
+            {"name": "Type", "value": str(h.get("ptype", ""))},
+            {"name": "Cmd",  "value": str(h.get("cmd_id", ""))},
         ]})
 
-    hide_args = _should_hide_args(cmd, pkt.fragments)
+    # Telemetry blocks — partition by domain, render via display_kind dispatch.
+    cmd_id = h.get("cmd_id") if h else None
+    is_beacon = cmd_id == "tlm_beacon"
 
-    if not hide_args:
-        if cmd and cmd.get("schema_match") and cmd.get("typed_args"):
-            args_fields = [
-                {"name": ta["name"], "value": str(unwrap_typed_arg_for_display(ta))}
-                for ta in cmd["typed_args"]
-            ]
-            for i, extra in enumerate(cmd.get("extra_args", [])):
-                args_fields.append({"name": f"arg{len(cmd.get('typed_args', [])) + i}", "value": str(extra)})
-            if args_fields:
-                blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
-        elif cmd:
-            raw = cmd.get("args", [])
-            if raw:
-                args_fields = [{"name": f"arg{i}", "value": str(a)} for i, a in enumerate(raw)]
-                blocks.append({"kind": "args", "label": "Arguments", "fields": args_fields})
-
-    # Decoded telemetry fragments. Block order mirrors wire order:
-    # SPACECRAFT first (callsign + time + ops_stage + reboot counters
-    # + heartbeats + hn/ab states), then EPS, then GNC.
-    #
-    # For tlm_beacon we collapse GNC fragments into a SINGLE block
-    # because a beacon carries 7+ gnc registers in one snapshot and
-    # per-register blocks fragment the view. The compact formatter
-    # produces one name/value row per fragment, matching the dense
-    # wire representation. For RES packets (mtq_get_1, gnc_get_mode,
-    # nvg_get_1, …) we keep per-register blocks — those carry one
-    # register at a time and the detailed field breakdown is the whole
-    # point of opening the packet.
-    frags = list(pkt.fragments)
-    is_beacon = bool(cmd) and cmd.get("cmd_id") == "tlm_beacon"
-
-    # Route every field through compact_value so structured payloads
-    # (e.g. spacecraft.time = {unix_ms, display, iso_utc}) extract their
-    # display string via shape dispatch. f"{v}" on a dict would fall
-    # through to Python's repr.
-    #
-    # Each domain is emitted in two passes: canonical state first, then
-    # a dedicated "(raw)" sub-block for display_only fragments so
-    # operators can tell apart canonical telemetry from wire slots
-    # whose semantics are not yet settled.
-    sc_canon, sc_raw = _split_canonical_and_raw(frags, "spacecraft")
+    sc_canon, sc_raw = _split_canonical_and_raw(envelope.telemetry, "spacecraft")
     if sc_canon:
-        blocks.append(_frag_block(sc_canon, "SPACECRAFT"))
+        blocks.append(_frag_block(sc_canon, "SPACECRAFT", mission))
     if sc_raw:
-        blocks.append(_frag_block(sc_raw, "SPACECRAFT (raw)"))
+        blocks.append(_frag_block(sc_raw, "SPACECRAFT (raw)", mission))
 
-    eps_canon, eps_raw = _split_canonical_and_raw(frags, "eps")
+    eps_canon, eps_raw = _split_canonical_and_raw(envelope.telemetry, "eps")
     if eps_canon:
-        blocks.append(_frag_block(eps_canon, "EPS"))
+        blocks.append(_frag_block(eps_canon, "EPS", mission))
     if eps_raw:
-        blocks.append(_frag_block(eps_raw, "EPS (raw)"))
+        blocks.append(_frag_block(eps_raw, "EPS (raw)", mission))
 
-    gnc_canon, gnc_raw = _split_canonical_and_raw(frags, "gnc")
+    gnc_canon, gnc_raw = _split_canonical_and_raw(envelope.telemetry, "gnc")
     if gnc_canon:
         if is_beacon:
-            # Beacon snapshot: one GNC block with a compact row per register.
-            blocks.append(_frag_block(gnc_canon, "GNC"))
+            blocks.append(_frag_block(gnc_canon, "GNC", mission))
         else:
-            # RES packet: per-register detail block (existing behavior).
             for f in gnc_canon:
-                fields = _detail_fields(f["value"], f.get("unit", ""))
+                dispatch = display_kind(mission, f.key)
+                fields = render_detail_fields(f.value, dispatch, f.unit)
                 if not fields:
                     continue
                 blocks.append({
                     "kind": "args",
-                    "label": _display_label(f["key"]),
+                    "label": _display_label(f.key),
                     "fields": fields,
                 })
     if gnc_raw:
-        blocks.append(_frag_block(gnc_raw, "GNC (raw)"))
+        blocks.append(_frag_block(gnc_raw, "GNC (raw)", mission))
+
+    # Other domains (imaging, hk, etc.) — render as a single block per domain
+    seen_domains = {"spacecraft", "eps", "gnc"}
+    other_domains: dict[str, list] = {}
+    for f in envelope.telemetry:
+        if f.domain in seen_domains:
+            continue
+        other_domains.setdefault(f.domain, []).append(f)
+    for domain in sorted(other_domains.keys()):
+        blocks.append(_frag_block(other_domains[domain], domain.upper(), mission))
 
     return blocks
+
+
+def _split_canonical_and_raw(
+    fragments: list,
+    domain: str,
+) -> tuple[list, list]:
+    """Partition envelope.telemetry by domain + display_only flag."""
+    canonical = [f for f in fragments
+                 if f.domain == domain and not f.display_only]
+    raw = [f for f in fragments
+           if f.domain == domain and f.display_only]
+    return canonical, raw
+
+
+def _frag_block(fragments: list, label: str, mission: "Mission") -> dict[str, Any]:
+    """Build one {kind:'args', label, fields} block from a fragment list,
+    rendering each value via display_kind / render_value."""
+    rows = []
+    for f in fragments:
+        dispatch = display_kind(mission, f.key)
+        rendered = render_value(f.value, dispatch, f.unit)
+        rows.append({
+            "name":  _display_label(f.key),
+            "value": rendered,
+        })
+    return {"kind": "args", "label": label, "fields": rows}
 
 
 # =============================================================================

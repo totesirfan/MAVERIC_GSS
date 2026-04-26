@@ -146,9 +146,10 @@ class RxService:
 
                 # Verifier matching: mission-private logic; newest-instance-wins.
                 # `pkt` is a PacketEnvelope (not a MissionPacket) — the mission's
-                # match_verifiers reads envelope.mission_payload["cmd"]. The
-                # rx_event_id is pre-allocated here so it is shared by both the
-                # rx_packet log write and any verifier match-event back-pointer.
+                # match_verifiers reads envelope.mission_payload.header (canonical
+                # name-shape via codec). The rx_event_id is pre-allocated here so
+                # it is shared by both the rx_packet log write and any verifier
+                # match-event back-pointer.
                 from mav_gss_lib.platform._log_envelope import new_event_id
                 from mav_gss_lib.platform.tx.verifiers import (
                     write_instances as _write_instances,
