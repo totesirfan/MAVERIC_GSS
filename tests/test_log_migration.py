@@ -89,12 +89,12 @@ def test_migrate_rx_splits_telemetry_and_renames_fields():
     assert rx["mission"]["cmd"]["cmd_id"] == "eps_hk"
     assert "fragments" not in rx["mission"]
 
-    assert tel["event_kind"] == "telemetry"
+    assert tel["event_kind"] == "parameter"
     assert tel["rx_event_id"] == rx["event_id"]
-    assert tel["domain"] == "eps"
-    assert tel["key"] == "vbatt"
+    assert tel["name"] == "eps.vbatt"
     assert tel["value"] == 7.1
     assert tel["unit"] == "V"
+    assert "domain" not in tel and "key" not in tel
 
 
 def test_migrate_tx_folds_ax25_and_csp_under_mission():
@@ -133,13 +133,13 @@ def test_migrate_file_round_trip(tmp_path):
     assert out_path.is_file()
 
     lines = out_path.read_text().splitlines()
-    assert len(lines) == 3  # rx + telemetry + tx
+    assert len(lines) == 3  # rx + parameter + tx
     kinds = [json.loads(line)["event_kind"] for line in lines]
-    assert kinds == ["rx_packet", "telemetry", "tx_command"]
+    assert kinds == ["rx_packet", "parameter", "tx_command"]
 
 
 def test_migrate_passthrough_new_shape_records():
-    """Records that already carry event_kind pass through untouched."""
+    """Non-telemetry records that already carry event_kind pass through untouched."""
     mig = _load_migrate_module()
     new = {
         "event_id": "abc", "event_kind": "rx_packet",
@@ -149,3 +149,59 @@ def test_migrate_passthrough_new_shape_records():
     }
     out = list(mig.migrate_entry(new, session_id="s", mission_id="maveric"))
     assert out == [new]
+
+
+def test_migrate_telemetry_to_parameter():
+    """event_kind="telemetry" records in the v2 unified shape get renamed to "parameter"."""
+    mig = _load_migrate_module()
+    src = {
+        "event_id": "t1", "event_kind": "telemetry",
+        "session_id": "x", "ts_ms": 1, "ts_iso": "1970-01-01T00:00:00.001+00:00",
+        "seq": 1, "v": "1.0",
+        "mission_id": "maveric", "operator": "", "station": "",
+        "rx_event_id": "abc",
+        "domain": "gnc", "key": "RATE", "value": [1, 2, 3],
+        "unit": "rad/s", "display_only": False,
+    }
+    out = mig._migrate_telemetry_to_parameter(src)
+    assert out["event_kind"] == "parameter"
+    assert out["name"] == "gnc.RATE"
+    assert out["value"] == [1, 2, 3]
+    assert out["v"] == "1.0"          # version field unchanged
+    assert out["unit"] == "rad/s"
+    assert out["rx_event_id"] == "abc"
+    assert "domain" not in out and "key" not in out
+
+
+def test_migrate_telemetry_to_parameter_no_domain():
+    """When domain is absent, name is just the key."""
+    mig = _load_migrate_module()
+    src = {
+        "event_id": "t2", "event_kind": "telemetry",
+        "session_id": "x", "ts_ms": 1, "ts_iso": "x",
+        "seq": 1, "v": "1.0", "mission_id": "maveric",
+        "operator": "", "station": "",
+        "rx_event_id": "abc",
+        "domain": "", "key": "RATE", "value": 9.8,
+        "unit": "", "display_only": False,
+    }
+    out = mig._migrate_telemetry_to_parameter(src)
+    assert out["name"] == "RATE"
+
+
+def test_migrate_telemetry_passthrough_via_migrate_entry():
+    """migrate_entry routes v2-shape telemetry records through the rename."""
+    mig = _load_migrate_module()
+    src = {
+        "event_id": "t3", "event_kind": "telemetry",
+        "session_id": "x", "ts_ms": 1, "ts_iso": "x",
+        "seq": 1, "v": "1.0", "mission_id": "maveric",
+        "operator": "", "station": "",
+        "rx_event_id": "e1",
+        "domain": "eps", "key": "vbatt", "value": 7.1,
+        "unit": "V", "display_only": False,
+    }
+    out = list(mig.migrate_entry(src, session_id="x", mission_id="maveric"))
+    assert len(out) == 1
+    assert out[0]["event_kind"] == "parameter"
+    assert out[0]["name"] == "eps.vbatt"

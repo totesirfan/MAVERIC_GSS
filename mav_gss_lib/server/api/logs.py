@@ -4,7 +4,7 @@ mav_gss_lib.server.api.logs -- Log Browsing Routes
 Endpoints:
   GET /api/logs                          -- list sessions
   GET /api/logs/{session_id}             -- stream rx_packet / tx_command events
-  GET /api/logs/{session_id}/telemetry   -- stream telemetry events
+  GET /api/logs/{session_id}/parameters  -- stream parameter events
 
 Records on disk use the unified envelope described in
 ``mav_gss_lib/platform/rx/logging.py``; the API does no RX/TX forking —
@@ -235,18 +235,17 @@ async def api_log_entries(
     )
 
 
-@router.get("/api/logs/{session_id}/telemetry", response_model=None)
-async def api_log_telemetry(
+@router.get("/api/logs/{session_id}/parameters", response_model=None)
+async def api_log_parameters(
     session_id: str,
     request: Request,
-    domain: Optional[str] = None,
-    key: Optional[str] = None,
+    name: Optional[str] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(1000, ge=1, le=_MAX_LIMIT),
 ) -> dict[str, Any] | JSONResponse:
-    """Return flat telemetry rows from a session, optionally filtered.
+    """Return flat parameter rows from a session, optionally filtered by name.
 
-    Cheap because telemetry is already one-event-per-row on disk. Intended
+    Cheap because parameters are already one-event-per-row on disk. Intended
     for ad-hoc graph queries before the SQL archive is online.
     """
     runtime = get_runtime(request)
@@ -258,11 +257,9 @@ async def api_log_telemetry(
     has_more = False
     matched = 0
     for entry in _iter_entries(log_file):
-        if entry.get("event_kind") != "telemetry":
+        if entry.get("event_kind") != "parameter":
             continue
-        if domain and entry.get("domain") != domain:
-            continue
-        if key and entry.get("key") != key:
+        if name and entry.get("name") != name:
             continue
         if matched < offset:
             matched += 1

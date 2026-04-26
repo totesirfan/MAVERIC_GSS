@@ -33,13 +33,13 @@ def _build_fixture(log_dir: Path) -> str:
         "mission": {"cmd": {"cmd_id": "eps_hk"}},
     }
     tel = {
-        "event_id": "t1", "event_kind": "telemetry",
+        "event_id": "t1", "event_kind": "parameter",
         "session_id": stem, "ts_ms": 1714053603500,
         "ts_iso": "2026-04-23T14:00:03.500+00:00",
         "seq": 1, "v": "5.7.0", "mission_id": "maveric",
         "operator": "irfan", "station": "GS-0",
         "rx_event_id": "e1",
-        "domain": "eps", "key": "vbatt", "value": 7.42,
+        "name": "eps.vbatt", "value": 7.42,
         "unit": "V", "display_only": False,
     }
     rx2 = {**rx, "event_id": "e2", "seq": 2,
@@ -63,7 +63,7 @@ def test_list_sessions_enumerates_json_dir():
         assert any(s["session_id"] == stem for s in items)
 
 
-def test_entries_endpoint_defaults_exclude_telemetry():
+def test_entries_endpoint_defaults_exclude_parameters():
     with tempfile.TemporaryDirectory() as tmp:
         stem = _build_fixture(Path(tmp))
         app = create_app()
@@ -74,21 +74,21 @@ def test_entries_endpoint_defaults_exclude_telemetry():
         assert r.status_code == 200
         data = r.json()
         kinds = {e["event_kind"] for e in data["entries"]}
-        assert kinds == {"rx_packet"}  # telemetry filtered out by default
+        assert kinds == {"rx_packet"}  # parameter records filtered out by default
         assert len(data["entries"]) == 2
 
 
-def test_entries_endpoint_opt_in_telemetry():
+def test_entries_endpoint_opt_in_parameters():
     with tempfile.TemporaryDirectory() as tmp:
         stem = _build_fixture(Path(tmp))
         app = create_app()
         # `log_dir` is a read-only property over platform_cfg.general.log_dir
         app.state.runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
         with TestClient(app) as client:
-            r = client.get(f"/api/logs/{stem}?event_kind=rx_packet,telemetry")
+            r = client.get(f"/api/logs/{stem}?event_kind=rx_packet,parameter")
         assert r.status_code == 200
         kinds = [e["event_kind"] for e in r.json()["entries"]]
-        assert kinds.count("telemetry") == 1
+        assert kinds.count("parameter") == 1
         assert kinds.count("rx_packet") == 2
 
 
@@ -106,14 +106,14 @@ def test_cmd_filter_matches_mission_cmd_id():
         assert entries[0]["seq"] == 2
 
 
-def test_telemetry_endpoint_filters_by_domain_and_key():
+def test_parameters_endpoint_filters_by_name():
     with tempfile.TemporaryDirectory() as tmp:
         stem = _build_fixture(Path(tmp))
         app = create_app()
         # `log_dir` is a read-only property over platform_cfg.general.log_dir
         app.state.runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
         with TestClient(app) as client:
-            r = client.get(f"/api/logs/{stem}/telemetry?domain=eps&key=vbatt")
+            r = client.get(f"/api/logs/{stem}/parameters?name=eps.vbatt")
         assert r.status_code == 200
         entries = r.json()["entries"]
         assert len(entries) == 1

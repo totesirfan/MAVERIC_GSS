@@ -14,7 +14,7 @@ Shape changes:
       - Dropped keys:  _rendering, mission_name, telemetry (flattened out)
       - Added keys:    event_id, event_kind="rx_packet", session_id, mission_id
       - Each entry in the legacy ``telemetry`` array becomes its own
-        ``event_kind="telemetry"`` record with a ``rx_event_id`` back-pointer.
+        ``event_kind="parameter"`` record with a ``rx_event_id`` back-pointer.
 
   * TX records (identified by the legacy ``type == "mission_cmd"`` marker):
       - Renamed keys:  n -> seq, ts -> ts_iso (+ derived ts_ms),
@@ -154,13 +154,15 @@ def _migrate_rx(entry: dict, *, session_id: str, mission_id: str) -> list[dict]:
         if not isinstance(frag, dict):
             continue
         frag_ts = frag.get("ts_ms") or ts_ms
+        domain = frag.get("domain") or ""
+        key = frag.get("key") or ""
+        name = f"{domain}.{key}" if domain else key
         out.append({
             "event_id": _new_event_id(),
-            "event_kind": "telemetry",
+            "event_kind": "parameter",
             **{**envelope_common, "ts_ms": frag_ts, "ts_iso": _ts_iso(frag_ts)},
             "rx_event_id": event_id,
-            "domain": frag.get("domain", ""),
-            "key": frag.get("key", ""),
+            "name": name,
             "value": frag.get("value"),
             "unit": frag.get("unit", ""),
             "display_only": bool(frag.get("display_only", False)),
@@ -212,14 +214,37 @@ def _migrate_tx(entry: dict, *, session_id: str, mission_id: str) -> dict:
     }
 
 
+def _migrate_telemetry_to_parameter(record: dict) -> dict:
+    """Rename ``event_kind: "telemetry"`` → ``"parameter"`` and collapse fields.
+
+    Collapses ``domain`` + ``key`` into the qualified ``name`` field used by
+    the current writer.  Envelope fields (``event_id``, ``session_id``,
+    ``ts_ms``, ``ts_iso``, ``seq``, ``v``, ``mission_id``, ``operator``,
+    ``station``, ``rx_event_id``) and ``value`` / ``unit`` / ``display_only``
+    are unchanged.  Records that are not ``event_kind: "telemetry"`` are
+    returned as-is.
+    """
+    if record.get("event_kind") != "telemetry":
+        return record
+    domain = record.get("domain") or ""
+    key = record.get("key") or ""
+    name = f"{domain}.{key}" if domain else key
+    out = dict(record)
+    out["event_kind"] = "parameter"
+    out["name"] = name
+    out.pop("domain", None)
+    out.pop("key", None)
+    return out
+
+
 def migrate_entry(entry: dict, *, session_id: str, mission_id: str) -> Iterable[dict]:
     if _is_rx_record(entry):
         return _migrate_rx(entry, session_id=session_id, mission_id=mission_id)
     if _is_tx_record(entry):
         return [_migrate_tx(entry, session_id=session_id, mission_id=mission_id)]
-    # Already new-shape records pass through untouched.
+    # Already new-shape records: apply any pending renames then pass through.
     if "event_kind" in entry:
-        return [entry]
+        return [_migrate_telemetry_to_parameter(entry)]
     return []
 
 

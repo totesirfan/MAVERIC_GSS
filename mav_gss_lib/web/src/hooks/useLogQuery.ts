@@ -71,12 +71,12 @@ export function useLogQuery() {
         setLoading(false)
         setError(`Failed to load entries: ${String(e)}`)
       })
-    // Fetch telemetry events for this session once per selection, grouped
+    // Fetch parameter events for this session once per selection, grouped
     // by rx_event_id so the viewer can show fragments under each packet.
-    // Cheap — the `/telemetry` endpoint filters at the file level and
+    // Cheap — the `/parameters` endpoint filters at the file level and
     // caps at 10 000 rows (one session's worth).
     if (!append) {
-      fetch(`/api/logs/${sessionId}/telemetry?limit=10000`)
+      fetch(`/api/logs/${sessionId}/parameters?limit=10000`)
         .then((r) => r.ok ? r.json() : { entries: [] })
         .then((data: { entries: LogEntry[] }) => {
           const map = new Map<string, LogEntry[]>()
