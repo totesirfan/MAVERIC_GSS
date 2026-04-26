@@ -33,15 +33,6 @@ class TestMissionRoot(unittest.TestCase):
         self.assertEqual(m.id, "maveric")
         self.assertIs(m.parameter_types["V_volts"], self.types["V_volts"])
 
-    def test_declared_domains_returns_distinct_non_empty(self):
-        m = Mission(
-            id="maveric", name="MAVERIC CubeSat", header=self.header,
-            parameter_types=self.types, parameters=self.params,
-            bitfield_types={}, sequence_containers=self.containers,
-            meta_commands=self.cmds,
-        )
-        self.assertEqual(m.declared_domains(), frozenset({"eps", "gnc"}))
-
     def test_parse_warnings_default_empty(self):
         m = Mission(
             id="maveric", name="MAVERIC CubeSat", header=self.header,

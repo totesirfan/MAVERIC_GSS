@@ -82,11 +82,6 @@ class Mission:
     verifier_specs: Mapping[str, VerifierSpecDecl] = field(default_factory=dict)
     verifier_rules: VerifierRules | None = None
 
-    def declared_domains(self) -> frozenset[str]:
-        return frozenset(
-            c.domain for c in self.sequence_containers.values() if c.domain
-        )
-
 
 __all__ = [
     "MissionHeader",
