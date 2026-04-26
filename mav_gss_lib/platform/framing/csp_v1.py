@@ -124,3 +124,20 @@ class CSPv1Framer(Framer):
 
     def max_payload(self) -> int | None:
         return None
+
+    def log_fields(self) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {}
+        c = self.config
+        return {"csp": {
+            "prio": int(c.prio), "src": int(c.src), "dest": int(c.dest),
+            "dport": int(c.dport), "sport": int(c.sport),
+            "flags": int(c.flags), "csp_crc": bool(c.csp_crc),
+        }}
+
+    def log_line(self) -> str | None:
+        if not self.config.enabled:
+            return None
+        c = self.config
+        return (f"  CSP        Prio:{c.prio} Src:{c.src}({c.sport}) "
+                f"Dest:{c.dest}({c.dport}) Flags:0x{c.flags:02X}")

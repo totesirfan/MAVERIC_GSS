@@ -11,14 +11,16 @@ Each framer exposes:
     * `frame(payload)`  — wrap `payload` in this layer
     * `overhead()`      — bytes this layer adds to a payload (informational)
     * `max_payload()`   — max input size this layer accepts (None = unbounded)
+    * `log_fields()`    — JSONL-safe metadata about this layer's runtime state
+    * `log_line()`      — one-line human-readable banner for the text TX log
 
-The chain reduces these to a chain-level `frame()` and `max_payload()` so
-mission code stays a thin composer.
+The chain reduces these to chain-level `frame()`, `max_payload()`,
+`log_fields()`, and `log_lines()` so mission code stays a thin composer.
 """
 
 from __future__ import annotations
 
-from typing import Iterable, Protocol, runtime_checkable
+from typing import Any, Iterable, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -28,10 +30,10 @@ class Framer(Protocol):
     frame_label: str
 
     def frame(self, payload: bytes) -> bytes: ...
-
     def overhead(self) -> int: ...
-
     def max_payload(self) -> int | None: ...
+    def log_fields(self) -> dict[str, Any]: ...
+    def log_line(self) -> str | None: ...
 
 
 class FramerChain:
@@ -57,12 +59,6 @@ class FramerChain:
         return sum(f.overhead() for f in self.framers)
 
     def max_payload(self) -> int | None:
-        """Max raw-payload bytes the chain can accept, or None if unbounded.
-
-        Walks innermost-out, accumulating overhead added by inner layers.
-        Each capped layer constrains the raw payload via
-        `cap - sum(overhead of layers below)`.
-        """
         cap: int | None = None
         overhead_below = 0
         for f in self.framers:
@@ -73,3 +69,12 @@ class FramerChain:
                     cap = adjusted
             overhead_below += f.overhead()
         return cap
+
+    def log_fields(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for f in self.framers:
+            out.update(f.log_fields())
+        return out
+
+    def log_lines(self) -> list[str]:
+        return [line for f in self.framers if (line := f.log_line()) is not None]

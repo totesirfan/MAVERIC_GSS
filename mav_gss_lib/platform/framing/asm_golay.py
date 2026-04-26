@@ -307,3 +307,9 @@ class AsmGolayFramer(Framer):
 
     def max_payload(self) -> int | None:
         return MAX_PAYLOAD
+
+    def log_fields(self) -> dict[str, Any]:
+        return {}
+
+    def log_line(self) -> str | None:
+        return None

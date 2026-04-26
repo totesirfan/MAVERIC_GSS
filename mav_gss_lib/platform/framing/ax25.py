@@ -258,3 +258,18 @@ class Ax25Framer(Framer):
 
     def max_payload(self) -> int | None:
         return None
+
+    def log_fields(self) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {}
+        c = self.config
+        return {"ax25": {
+            "src_call": c.src_call, "src_ssid": int(c.src_ssid),
+            "dest_call": c.dest_call, "dest_ssid": int(c.dest_ssid),
+        }}
+
+    def log_line(self) -> str | None:
+        if not self.config.enabled:
+            return None
+        c = self.config
+        return f"  AX.25      Src:{c.src_call}-{c.src_ssid}  Dest:{c.dest_call}-{c.dest_ssid}"
