@@ -139,6 +139,8 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
                     operator="irfan", station="GS-0",
                     frame_label="AX.25",
                     log_fields={
+                        # Legacy `uplink_mode` key included on purpose — the
+                        # platform tx_log_record must drop it defensively.
                         "uplink_mode": "AX.25",
                         "ax25": {"src_call": "TEST", "src_ssid": 1},
                         "csp": {"prio": 2, "dest": 8},
@@ -155,7 +157,10 @@ class TestTxLogAcceptsMissionLogFields(unittest.TestCase):
                 rec = json.loads(f.readline())
 
         self.assertEqual(rec["frame_label"], "AX.25")
-        self.assertEqual(rec["uplink_mode"], "AX.25")
+        # Legacy `uplink_mode` alias must not surface — neither top-level
+        # nor under the nested mission block.
+        self.assertNotIn("uplink_mode", rec)
+        self.assertNotIn("uplink_mode", rec["mission"])
         # AX.25 / CSP headers now live under the nested `mission` dict —
         # the unified envelope keeps top-level keys stable across missions.
         self.assertEqual(rec["mission"]["ax25"]["src_call"], "TEST")

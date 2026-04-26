@@ -140,6 +140,9 @@ def test_tx_command_envelope_shape():
                 log_fields={"uplink_mode": "ASM+Golay",
                             "csp": {"prio": 2, "dest": 8}},
             )
+            # `uplink_mode` is a legacy alias; defensively cleaned out by
+            # tx_log_record so it cannot resurface as either a top-level
+            # field or a nested mission key.
             log.write_mission_command(record, raw_cmd=raw_cmd, wire=wire, log_text=[])
         finally:
             log.close()
@@ -153,8 +156,11 @@ def test_tx_command_envelope_shape():
     assert rec["cmd_id"] == "com_ping"
     assert rec["dest"] == "EPS"
     assert rec["ptype"] == "CMD"
-    assert rec["uplink_mode"] == "ASM+Golay"
     assert rec["frame_label"] == "ASM+Golay"
+    # Legacy `uplink_mode` alias must not surface — neither at top level nor
+    # under the nested mission block.
+    assert "uplink_mode" not in rec
+    assert "uplink_mode" not in rec["mission"]
     assert rec["inner_hex"] == "010203"
     assert rec["inner_len"] == 3
     assert rec["wire_hex"] == "0102030405"

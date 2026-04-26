@@ -2,10 +2,10 @@
 
 Mirrors ``platform/rx/logging.py``. Platform owns the envelope schema; the
 file writer (``mav_gss_lib.logging.TXLog``) is format-agnostic and simply
-persists whatever dict lands here. Mission-specific metadata from
-``FramedCommand.log_fields`` rides under the nested ``mission`` key, except
-for ``uplink_mode`` which is lifted to the top level so SQL ingest can
-filter on it without reaching into the nested dict.
+persists whatever dict lands here. ``frame_label`` is lifted to the top
+level so SQL ingest can filter on it without reaching into the nested
+``mission`` dict; mission-specific framer metadata (CSP headers etc.)
+rides under the nested ``mission`` key.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -38,8 +38,9 @@ def tx_log_record(
 
     *raw_cmd* is the inner mission command bytes (pre-framing); *wire* is the
     full on-air frame the platform publishes to ZMQ. *log_fields* carries
-    mission framer metadata (CSP headers, etc.) — everything except
-    ``uplink_mode`` is merged under the ``mission`` block.
+    mission framer metadata (CSP headers, etc.) and is merged in full under
+    the ``mission`` block. The legacy ``uplink_mode`` alias is dropped if a
+    framer still emits it — ``frame_label`` is the canonical top-level name.
     """
 
     log_fields = dict(log_fields or {})
@@ -48,7 +49,7 @@ def tx_log_record(
         "display": display,
         "payload": mission_payload,
     }
-    uplink_mode = log_fields.pop("uplink_mode", "")
+    log_fields.pop("uplink_mode", None)  # legacy alias; defensive cleanup
     mission_block.update(log_fields)
 
     # Declarative command-ops adapter emits dest/src/echo/ptype under the
@@ -74,7 +75,6 @@ def tx_log_record(
         "echo": str(header.get("echo", "")),
         "ptype": str(header.get("ptype", "")),
         "frame_label": frame_label,
-        "uplink_mode": uplink_mode,
         "inner_hex": raw_cmd.hex(),
         "inner_len": len(raw_cmd),
         "wire_hex": wire.hex(),

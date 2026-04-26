@@ -58,7 +58,7 @@ def test_tx_record_carries_identity(tmp_path):
             version="1.2.3",
             operator="irfan", station="GS-0",
             frame_label="RAW",
-            log_fields={"uplink_mode": "RAW"},
+            log_fields={},
         )
         log.write_mission_command(record, raw_cmd=b"\x01\x02", wire=b"\x01\x02", log_text=[])
     finally:
@@ -68,8 +68,8 @@ def test_tx_record_carries_identity(tmp_path):
         rec = json.loads(f.readline())
     assert rec["operator"] == "irfan"
     assert rec["station"] == "GS-0"
-    assert rec["uplink_mode"] == "RAW"
     assert rec["frame_label"] == "RAW"
+    assert "uplink_mode" not in rec
 
 
 import re

@@ -188,6 +188,10 @@ def _migrate_tx(entry: dict, *, session_id: str, mission_id: str) -> dict:
     mission_block: dict = {"display": display, "payload": mission_payload}
     mission_block.update(legacy_extras)
 
+    # Legacy v1 records carried both `frame_label` and `uplink_mode` with the
+    # same value. Canonicalize to `frame_label` and drop the alias entirely.
+    frame_label = entry.get("frame_label") or entry.get("uplink_mode", "")
+
     return {
         "event_id": _new_event_id(),
         "event_kind": "tx_command",
@@ -204,8 +208,7 @@ def _migrate_tx(entry: dict, *, session_id: str, mission_id: str) -> dict:
         "src": str(mission_payload.get("src", "")),
         "echo": str(mission_payload.get("echo", "")),
         "ptype": str(mission_payload.get("ptype", "")),
-        "frame_label": entry.get("frame_label", ""),
-        "uplink_mode": entry.get("uplink_mode", ""),
+        "frame_label": frame_label,
         "inner_hex": entry.get("raw_hex", ""),
         "inner_len": entry.get("raw_len", 0),
         "wire_hex": entry.get("hex", ""),
