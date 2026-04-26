@@ -374,6 +374,30 @@ parameter_types:
       python: "maveric.gnc_planner_mode"
     description: "u8 -> {mode, mode_name}; matches legacy gnc_get_mode response shape"
 
+  nvg_vec4_f32:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [4]
+    description: "4-float NVG sensor reading (X, Y, Z, Accuracy)"
+
+  nvg_vec5_f32:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [5]
+    description: "5-float NVG quaternion + accuracy"
+
+  nvg_vec7_f32:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [7]
+    description: "7-float NVG uncalibrated reading (raw + bias)"
+
+  nvg_vec3_f32_meta:
+    kind: array
+    array_type_ref: f32_le
+    dimension_list: [3]
+    description: "3-float NVG meta-event payload"
+
 parameters: {}
 
 bitfield_types:
@@ -1219,5 +1243,133 @@ sequence_containers:
     restriction_criteria: { parent_args: { module: 3, register: 86 } }
     entry_list:
       - { name: GIMBAL_RATE_LIMIT, type: f32_le }
+
+  nvg_get_1_res:
+    domain: gnc
+    layout: ascii_tokens
+    abstract: true
+    restriction_criteria:
+      packet:
+        cmd_id: nvg_get_1
+        ptype: RES
+    entry_list:
+      - { name: status,    type: NvgStatus }
+      - { name: sensor_id, type: NvgSensorId }
+      - { name: timestamp, type: f32_le }
+
+  nvg_sensor_ACCEL:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 1 } }
+    entry_list:
+      - { name: accelerometer, type: nvg_vec4_f32 }
+
+  nvg_sensor_MAG:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 2 } }
+    entry_list:
+      - { name: magnetometer, type: nvg_vec4_f32 }
+
+  nvg_sensor_ORIENT:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 3 } }
+    entry_list:
+      - { name: orientation, type: nvg_vec4_f32 }
+
+  nvg_sensor_GYRO:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 4 } }
+    entry_list:
+      - { name: gyroscope, type: nvg_vec4_f32 }
+
+  nvg_sensor_PRESSURE:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 6 } }
+    entry_list:
+      - { name: pressure, type: f32_le }
+
+  nvg_sensor_TEMP:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 7 } }
+    entry_list:
+      - { name: temperature, type: f32_le }
+
+  nvg_sensor_GRAVITY:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 9 } }
+    entry_list:
+      - { name: gravity, type: nvg_vec4_f32 }
+
+  nvg_sensor_LIN_ACCEL:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 10 } }
+    entry_list:
+      - { name: linear_accel, type: nvg_vec4_f32 }
+
+  nvg_sensor_ROT_VEC:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 11 } }
+    entry_list:
+      - { name: rotation_vector, type: nvg_vec5_f32 }
+
+  nvg_sensor_MAG_UNCAL:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 14 } }
+    entry_list:
+      - { name: mag_uncalibrated, type: nvg_vec7_f32 }
+
+  nvg_sensor_GAME_ROT:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 15 } }
+    entry_list:
+      - { name: game_rotation, type: nvg_vec5_f32 }
+
+  nvg_sensor_GYRO_UNCAL:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 16 } }
+    entry_list:
+      - { name: gyro_uncalibrated, type: nvg_vec7_f32 }
+
+  nvg_sensor_SIG_MOTION:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 17 } }
+    entry_list:
+      - { name: significant_motion, type: f32_le }
+
+  nvg_sensor_GEOMAG_ROT:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 20 } }
+    entry_list:
+      - { name: geomag_rotation, type: nvg_vec5_f32 }
+
+  nvg_sensor_META_EVENT:
+    domain: gnc
+    base_container_ref: nvg_get_1_res
+    restriction_criteria: { parent_args: { sensor_id: 254 } }
+    entry_list:
+      - { name: meta_event, type: nvg_vec3_f32_meta }
+
+  nvg_heartbeat_res:
+    domain: gnc
+    layout: ascii_tokens
+    restriction_criteria:
+      packet:
+        cmd_id: nvg_heartbeat
+        ptype: RES
+    entry_list:
+      - { name: nvg_status, type: NvgStatus }
 
 meta_commands: {}
