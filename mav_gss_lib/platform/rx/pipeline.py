@@ -24,6 +24,7 @@ class RxResult:
     packet_message: dict[str, Any]
     parameters_message: dict[str, Any] | None = None
     event_messages: list[dict[str, Any]] = field(default_factory=list)
+    container_id: str | None = None
 
 
 class RxPipeline:
@@ -51,7 +52,10 @@ class RxPipeline:
     def process(self, meta: dict[str, Any], raw: bytes) -> RxResult:
         packet = self.packet_pipeline.process(meta, raw)
         wp = getattr(packet.mission_payload, "walker_packet", None)
+        matched_container_id: str | None = None
         if self.walker is not None and wp is not None:
+            parent = self.walker.match_parent(wp)
+            matched_container_id = parent.name if parent is not None else None
             try:
                 packet.parameters = tuple(self.walker.extract(wp, packet.received_at_ms))
             except Exception:
@@ -89,4 +93,5 @@ class RxPipeline:
             packet_message=packet_message,
             parameters_message=parameters_message,
             event_messages=event_messages,
+            container_id=matched_container_id,
         )

@@ -52,6 +52,14 @@ class RxService:
         self.pipeline = runtime.platform.rx.packet_pipeline
         self.last_rx_at: float = 0.0
         self._was_traffic_active: bool = False
+        # Sliding windows for the platform alarm evaluator. Each entry is a
+        # wall-clock millisecond timestamp; the evaluator filters by 60s window.
+        self.crc_window: deque[int] = deque(maxlen=200)
+        self.dup_window: deque[int] = deque(maxlen=200)
+        # Per-container last-arrival timestamps in ms. Single source of truth
+        # for "time since last received" — feeds both the container alarm
+        # evaluator and the UI's freshness displays.
+        self.last_arrival_ms: dict[str, int] = {}
 
     def _should_drop_rx(self, now: float) -> bool:
         """Return True if *now* is inside the TX→RX blackout window.
@@ -143,6 +151,18 @@ class RxService:
                     continue  # gr-satellites noise — behave as if never received
                 result = self.runtime.platform.process_rx(meta, raw)
                 pkt = result.packet
+
+                # Alarm signal bookkeeping: stamp arrival map and sliding windows.
+                container_id = result.container_id
+                if container_id:
+                    now_ms = int(time.time() * 1000)
+                    self.last_arrival_ms[container_id] = now_ms
+
+                flags = pkt.flags
+                if flags.integrity_ok is False:        # explicit fail (None == not checked)
+                    self.crc_window.append(int(time.time() * 1000))
+                if flags.is_duplicate:
+                    self.dup_window.append(int(time.time() * 1000))
 
                 # Verifier matching: mission-private logic; newest-instance-wins.
                 # `pkt` is a PacketEnvelope (not a MissionPacket) — the mission's
