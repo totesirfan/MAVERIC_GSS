@@ -223,6 +223,7 @@ class MissionDocument(_Strict):
     meta_commands: dict[str, _MetaCommand] = Field(default_factory=dict)
     verifier_specs: dict[str, _VerifierSpecDecl] = Field(default_factory=dict)
     verifier_rules: _VerifierRules | None = None
+    framing: dict[str, Any] | None = None
 
     @field_validator("schema_version")
     @classmethod

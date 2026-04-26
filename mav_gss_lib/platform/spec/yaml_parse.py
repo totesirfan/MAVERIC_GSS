@@ -133,6 +133,8 @@ def _parse(
         date=doc.header.date,
         description=doc.header.description,
     )
+    from .framing import parse_framing_section
+    framing = parse_framing_section(doc.framing)
     return Mission(
         id=doc.id, name=doc.name, header=header,
         parameter_types=parameter_types,
@@ -144,6 +146,7 @@ def _parse(
         parse_warnings=tuple(warnings),
         verifier_specs=verifier_specs,
         verifier_rules=verifier_rules,
+        framing=framing,
     )
 
 

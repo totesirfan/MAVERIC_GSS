@@ -84,6 +84,12 @@ from .verifier_runtime import derive_verifier_set
 from .yaml_parse import parse_yaml, parse_yaml_for_tooling
 from .yaml_schema import MissionDocument
 
+from mav_gss_lib.platform.spec.framing import (
+    FramerSpec,
+    FramingSpec,
+    parse_framing_section,
+)
+
 
 __all__ = [
     # Types
@@ -124,6 +130,8 @@ __all__ = [
     "derive_verifier_set",
     # YAML
     "MissionDocument", "parse_yaml", "parse_yaml_for_tooling",
+    # Framing spec
+    "FramerSpec", "FramingSpec", "parse_framing_section",
     # Errors
     "SpecError", "ParseError", "SpecRuntimeError",
     "UnknownTypeRef", "DuplicateTypeName", "ContainerConflict",

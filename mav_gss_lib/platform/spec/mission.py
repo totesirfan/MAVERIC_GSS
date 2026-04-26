@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from .bitfield import BitfieldType
 from .commands import MetaCommand
@@ -11,6 +11,9 @@ from .containers import SequenceContainer
 from .parameters import Parameter
 from .parameter_types import ParameterType
 from .verifier_decls import VerifierRules, VerifierSpecDecl
+
+if TYPE_CHECKING:
+    from .framing import FramingSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +84,7 @@ class Mission:
     parse_warnings: tuple[ParseWarning, ...] = ()
     verifier_specs: Mapping[str, VerifierSpecDecl] = field(default_factory=dict)
     verifier_rules: VerifierRules | None = None
+    framing: "FramingSpec | None" = None
 
 
 __all__ = [
