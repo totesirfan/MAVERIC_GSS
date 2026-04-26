@@ -50,8 +50,25 @@ def _apply_config(target: Any, config: dict[str, Any]) -> Any:
     return target
 
 
+# Operator-facing keys (used in gss.yml + mission_cfg + mission.yml config_ref)
+# differ from the framer's internal CSPConfig attribute names. Translation
+# lives here at the registry boundary so every caller of build_chain (...)
+# benefits — DeclarativeFramer doesn't need to know about it.
+_CSP_OPERATOR_KEY_ALIASES = {
+    "priority":    "prio",
+    "source":      "src",
+    "destination": "dest",
+    "dest_port":   "dport",
+    "src_port":    "sport",
+}
+
+
+def _normalize_csp_keys(config: dict[str, Any]) -> dict[str, Any]:
+    return {_CSP_OPERATOR_KEY_ALIASES.get(k, k): v for k, v in config.items()}
+
+
 def _make_csp_v1(config: dict[str, Any]) -> CSPv1Framer:
-    return CSPv1Framer(_apply_config(CSPConfig(), config))
+    return CSPv1Framer(_apply_config(CSPConfig(), _normalize_csp_keys(config)))
 
 
 def _make_ax25(config: dict[str, Any]) -> Ax25Framer:
@@ -95,3 +112,6 @@ def build_chain(spec: list[dict[str, Any]]) -> FramerChain:
             )
         framers.append(FRAMERS[name](entry.get("config", {})))
     return FramerChain(framers)
+
+
+from mav_gss_lib.platform.framing.declarative import DeclarativeFramer  # noqa: E402
