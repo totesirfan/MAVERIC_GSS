@@ -16,7 +16,6 @@ from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
 from mav_gss_lib.platform import (
     MissionPacket,
     NormalizedPacket,
-    PacketEnvelope,
     PacketFlags,
     PacketOps,
 )

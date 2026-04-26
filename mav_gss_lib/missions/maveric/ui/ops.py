@@ -41,9 +41,6 @@ class MavericUiOps:
     def packet_columns(self) -> list[ColumnDef]:
         return [ColumnDef.from_dict(col) for col in rendering.packet_list_columns()]
 
-    def tx_columns(self) -> list[ColumnDef]:
-        return [ColumnDef.from_dict(col) for col in rendering.tx_queue_columns()]
-
     def render_packet(self, packet: PacketEnvelope) -> PacketRendering:
         payload = packet.mission_payload
         row = rendering.packet_list_row(payload, packet)

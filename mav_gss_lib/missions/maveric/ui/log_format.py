@@ -15,7 +15,7 @@ from mav_gss_lib.missions.maveric.ui.formatters import (
     display_kind,
     render_value,
 )
-from mav_gss_lib.missions.maveric.ui.rendering import _ts_result
+from mav_gss_lib.missions.maveric.ui.rendering import ts_result
 
 if TYPE_CHECKING:
     from mav_gss_lib.missions.maveric.packets import MaverMissionPayload
@@ -103,7 +103,7 @@ def format_log_lines(
         ))
 
     # Satellite time
-    ts = _ts_result(envelope)
+    ts = ts_result(envelope)
     if ts is not None:
         dt_utc, dt_local, raw_ms = ts
         lines.append(_field_line(

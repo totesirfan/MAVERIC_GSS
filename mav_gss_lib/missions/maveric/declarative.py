@@ -30,11 +30,10 @@ from typing import Any, Mapping
 from mav_gss_lib.platform.contract import CommandOps
 from mav_gss_lib.platform.contract.commands import (
     CommandDraft,
-    CommandRendering,
     EncodedCommand,
     FramedCommand,
-    ValidationIssue,
 )
+from mav_gss_lib.platform.contract.rendering import ColumnDef
 from mav_gss_lib.platform.contract.telemetry import TelemetryOps
 from mav_gss_lib.platform.spec import (
     Mission,
@@ -44,15 +43,25 @@ from mav_gss_lib.platform.spec import (
     parse_yaml,
 )
 
-from mav_gss_lib.platform.contract.rendering import ColumnDef
-
 from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
 from mav_gss_lib.missions.maveric.framing import MavericFramer
 from mav_gss_lib.missions.maveric.plugins import PLUGINS
-from mav_gss_lib.missions.maveric.ui.rendering import tx_queue_columns
 
 
 _HEADER_FIELDS = ("dest", "echo", "ptype", "src")
+
+
+# Column definitions for the TX queue/history list. The `verifiers` column
+# is rendered client-side from the verification WS stream — its row value
+# stays empty, so it's declared without `hide_if_all` so the tick strip is
+# visible on every row whether or not a registered instance currently maps.
+_TX_QUEUE_COLUMNS: tuple[dict, ...] = (
+    {"id": "dest",      "label": "dest",      "width": "w-[52px]"},
+    {"id": "echo",      "label": "echo",      "width": "w-[52px]", "hide_if_all": ["NONE"]},
+    {"id": "ptype",     "label": "type",      "width": "w-[52px]", "badge": True},
+    {"id": "cmd",       "label": "id / args", "flex": True},
+    {"id": "verifiers", "label": "verify",    "width": "w-[78px]", "align": "right"},
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +114,7 @@ class _MaverCommandOpsWrapper:
         return self.inner.parse_input(value)
 
     def tx_columns(self) -> list[ColumnDef]:
-        return [ColumnDef.from_dict(col) for col in tx_queue_columns()]
+        return [ColumnDef.from_dict(col) for col in _TX_QUEUE_COLUMNS]
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)

@@ -49,7 +49,7 @@ class IntegrityBlock:
 # =============================================================================
 
 
-def _ts_result(envelope: "PacketEnvelope") -> tuple | None:
+def ts_result(envelope: "PacketEnvelope") -> tuple | None:
     """Derive (utc_dt, local_dt, unix_ms) from a 'time' or 'sat_time'
     fragment in envelope.telemetry.
 
@@ -77,7 +77,7 @@ def _ts_result(envelope: "PacketEnvelope") -> tuple | None:
 def _ts_for_row(envelope: "PacketEnvelope") -> str:
     """Format the time column. Prefers ts_result (satellite time from
     fragments); falls back to GS receive time."""
-    ts = _ts_result(envelope)
+    ts = ts_result(envelope)
     if ts is None:
         return envelope.received_at_short
     _, dt_local, _ = ts
@@ -222,7 +222,7 @@ def packet_detail_blocks(
     time_block = {"kind": "time", "label": "Time", "fields": [
         {"name": "GS Time", "value": envelope.received_at_short},
     ]}
-    ts = _ts_result(envelope)
+    ts = ts_result(envelope)
     if ts is not None:
         dt_utc, dt_local, _ = ts
         if dt_utc is not None:
@@ -314,25 +314,3 @@ def _frag_block(fragments: list, label: str, mission: "Mission") -> dict[str, An
     return {"kind": "args", "label": label, "fields": rows}
 
 
-# =============================================================================
-#  TX Queue / History
-# =============================================================================
-
-
-def tx_queue_columns() -> list[dict]:
-    """Return column definitions for the TX queue/history list.
-
-    The `verifiers` column is rendered client-side from the verification
-    WS stream (see components/tx/VerifierTickStrip.tsx). The backend's
-    per-row string value for this column stays empty, so hide_if_all
-    would always fire — the column is declared without hide_if_all so
-    the tick strip is visible on every row whether or not a registered
-    instance currently maps to it.
-    """
-    return [
-        {"id": "dest",      "label": "dest",      "width": "w-[52px]"},
-        {"id": "echo",      "label": "echo",      "width": "w-[52px]", "hide_if_all": ["NONE"]},
-        {"id": "ptype",     "label": "type",      "width": "w-[52px]", "badge": True},
-        {"id": "cmd",       "label": "id / args", "flex": True},
-        {"id": "verifiers", "label": "verify",    "width": "w-[78px]", "align": "right"},
-    ]

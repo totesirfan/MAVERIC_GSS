@@ -10,12 +10,13 @@ consume.
 Modules
 -------
 - `ops.py`        — `MavericUiOps`, the platform boundary. Exposes
-  `packet_columns`, `tx_columns`, `render_packet`, `render_log_data`,
-  and `format_text_log`.
-- `rendering.py`  — per-packet layout: column definitions and
+  `packet_columns`, `render_packet`, `render_log_data`, and
+  `format_text_log`. (TX-queue columns live with command-ops in
+  `../declarative.py` — `CommandOps.tx_columns()`.)
+- `rendering.py`  — per-packet layout: `packet_list_columns`,
   `packet_list_row`, `packet_detail_blocks`, `protocol_blocks` (CSP /
   AX.25 header views), `integrity_blocks` (CRC-16 / CRC-32C /
-  Golay/RS status), and `tx_queue_columns`.
+  Golay/RS status), and the shared `ts_result` time helper.
 - `formatters.py` — atom-level formatting helpers shared by both
   `rendering.py` and `log_format.py` (ptype resolution, hex dumps,
   argument formatters, timestamp shaping).
