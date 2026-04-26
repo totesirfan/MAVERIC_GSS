@@ -79,3 +79,47 @@ class SessionLog(_BaseLog):
             lines.append(self._field("ASCII", text))
 
         self._write_entry(lines)
+
+    def write_alarm(self, change: Any, ts_ms: int) -> None:
+        """Append one alarm-transition record using the unified envelope.
+
+        Alarm events are out-of-band with respect to the RX packet stream, so
+        ``seq`` is 0 by convention.  SQL ingest must not join on
+        ``(session_id, seq)`` for ``event_kind="alarm"``; use
+        ``(session_id, alarm.id, ts_ms)`` instead.
+        """
+        from mav_gss_lib.platform._log_envelope import new_event_id, ts_iso
+        ev = change.event
+        record = {
+            "event_id": new_event_id(),
+            "event_kind": "alarm",
+            "session_id": self.session_id,
+            "ts_ms": ts_ms,
+            "ts_iso": ts_iso(ts_ms),
+            "seq": 0,
+            "v": self._version,
+            "mission_id": self._mission_id,
+            "operator": self._operator,
+            "station": self._station,
+            "alarm": {
+                "id": ev.id,
+                "source": str(ev.source),
+                "label": ev.label,
+                "detail": ev.detail,
+                "severity": ev.severity.name.lower(),
+                "state": str(ev.state),
+                "prev_state": (
+                    str(change.prev_state) if change.prev_state is not None else None
+                ),
+                "prev_severity": (
+                    change.prev_severity.name.lower()
+                    if change.prev_severity is not None else None
+                ),
+                "removed": change.removed,
+                "first_seen_ms": ev.first_seen_ms,
+                "last_transition_ms": ev.last_transition_ms,
+                "context": ev.context,
+                "operator": change.operator,
+            },
+        }
+        self.write_jsonl(record)
