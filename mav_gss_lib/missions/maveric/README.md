@@ -20,7 +20,6 @@ maveric/
 ├── declarative.py         build_declarative_capabilities — Plan A/B wire-up
 ├── codec.py               MaverPacketCodec (PacketCodec) — owns node/ptype tables
 ├── packets.py             DeclarativePacketsAdapter + MaverMissionPayload
-├── framing.py             MavericFramer — composes platform/framing/ primitives
 ├── plugins.py             Calibrator plugin registry (PLUGINS)
 ├── errors.py              Declarative-pipeline error types
 ├── preflight.py           Mission preflight-check factory (mission.yml + libfec)
@@ -49,10 +48,9 @@ maveric/
   `PacketOps` (normalize → parse → classify → match_verifiers). Owns CSP V1
   4-byte strip, body CRC and CSP CRC32 verification, duplicate fingerprinting,
   and uplink-echo detection. Returns `MaverMissionPayload` instances.
-- **`MavericFramer`** (`framing.py`) — composes a `FramerChain` from the
-  platform `FRAMERS` registry: `csp_v1` + (`asm_golay` | `ax25`) per
-  `tx.uplink_mode`. Mission code chooses the chain; bytes-on-wire logic lives
-  in `mav_gss_lib/platform/framing/`.
+- **Wire framing** (declared in `mission.yml` under `framing:`) — composed
+  by the platform-side `DeclarativeFramer` from a CSP v1 layer + ASM+Golay
+  outer framing. No mission-side framer class; the chain is data, not code.
 - **Calibrator plugins** (`plugins.py`) — Python implementations of
   parameter-type calibrators referenced by name in `mission.yml`
   (`maveric.bcd_time`, `maveric.adcs_tmp`, `maveric.gnc_planner_mode`, …).
@@ -70,16 +68,18 @@ maveric/
 
 ## MAVERIC-specific behavior (not platform-level)
 
-- **AX.25 + CSP v1 + Command Wire Format** — MAVERIC's three-layer framing.
-  The chain is composed in `framing.py` from generic platform primitives.
+- **CSP v1 + Command Wire Format** — MAVERIC's inner framing layers, wrapped
+  by an ASM+Golay outer chain. The full chain is declared in `mission.yml`
+  under `framing:` and assembled by the platform `DeclarativeFramer`.
 - **CRC-16 per command + CRC-32C over CSP** — dual integrity scheme is
   MAVERIC's wire format, not a platform requirement. Verified in
   `packets.py::parse`.
 - **Node / ptype integer IDs** — MAVERIC maps integers (LPPM=1, EPS=2, …) to
   names. The codec is the runtime owner of these tables.
-- **Uplink modes — Mode 5 (ASM+Golay) and Mode 6 (AX.25)** — MAVERIC radio
-  parameters. The platform surfaces `tx.uplink_mode`; the modes themselves
-  are mission-specific framers.
+- **Uplink mode** — MAVERIC uses ASM+Golay (Mode 5) exclusively. The
+  `framing:` block in `mission.yml` declares the chain; AX.25 is no longer
+  a MAVERIC option (the platform `FRAMERS` registry still ships AX.25 for
+  other missions).
 - **Satellite time decoding** — beacons emit a `time` fragment from a BCD-time
   parameter; commands with a `sat_time` arg emit a `sat_time` fragment. The
   renderer derives `ts_result` on demand from `envelope.telemetry`.
@@ -91,13 +91,13 @@ At runtime MAVERIC's `mission_cfg` carries these operator-editable keys under
 
 | Key | Source | Operator-editable? |
 |-----|--------|---------------------|
-| `ax25.*`, `csp.*`, `imaging.thumb_prefix` | `mission.py::_seed()` placeholders overlaid by `gss.yml:mission.config.*` | Yes — `MissionConfigSpec.editable_paths` |
+| `csp.*`, `imaging.thumb_prefix` | `mission.py::_seed()` placeholders overlaid by `gss.yml:mission.config.*` | Yes — `MissionConfigSpec.editable_paths` |
 
 Identity-shape keys (mission name, nodes, ptypes, …) live in `mission.yml`
 extensions. The codec is the runtime protection — there is no separate
 `MissionConfigSpec.protected_paths` set.
 
-Mission-declared TX defaults (`tx.frequency`, `tx.uplink_mode`) are seeded on
+Mission-declared TX defaults (`tx.frequency`) are seeded on
 `platform_cfg["tx"]` at build time and can be overridden in `gss.yml`.
 
 ## Warning: do not copy as-is

@@ -14,10 +14,9 @@ platform:
   tx:
     zmq_addr: tcp://127.0.0.1:52002
     delay_ms: 500
-    # Mission-declared defaults (frequency, uplink_mode) are seeded by the
-    # active mission at startup; override them here if needed.
+    # Mission-declared defaults (frequency) are seeded by the active mission
+    # at startup; override here if needed.
     # frequency: 437.25 MHz
-    # uplink_mode: ASM+Golay
   rx:
     zmq_addr: tcp://127.0.0.1:52001
     tx_blackout_ms: 0
@@ -37,13 +36,8 @@ platform:
 mission:
   id: maveric
   # mission.config overrides mission-declared editable paths. For MAVERIC:
-  # ax25.*, csp.*, and imaging.thumb_prefix.
+  # csp.* and imaging.thumb_prefix.
   config: {}
-    # ax25:
-    #   src_call: NOCALL    # Replace with ground-station callsign
-    #   src_ssid: 0         # Replace with operational SSID
-    #   dest_call: NOCALL   # Replace with spacecraft callsign
-    #   dest_ssid: 0        # Replace with operational SSID
     # csp:
     #   priority: 2
     #   source: 0
