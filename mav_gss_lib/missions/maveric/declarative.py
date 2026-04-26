@@ -119,6 +119,14 @@ class _MaverCommandOpsWrapper:
     def schema(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for cmd_id, meta in self.mission.meta_commands.items():
+            allowed_dest = meta.allowed_packet.get("dest")
+            fixed_dest = meta.packet.get("dest")
+            if allowed_dest:
+                nodes = list(allowed_dest)
+            elif fixed_dest:
+                nodes = [fixed_dest]
+            else:
+                nodes = []
             out[cmd_id] = {
                 "tx_args": [
                     {
@@ -130,10 +138,10 @@ class _MaverCommandOpsWrapper:
                     for a in meta.argument_list
                 ],
                 "rx_args": [],
-                "dest":  meta.packet.get("dest"),
+                "dest":  fixed_dest,
                 "echo":  meta.packet.get("echo"),
                 "ptype": meta.packet.get("ptype"),
-                "nodes": list(meta.allowed_packet.get("dest", ())),
+                "nodes": nodes,
                 "guard": meta.guard,
                 "rx_only": meta.rx_only,
                 "deprecated": meta.deprecated,
