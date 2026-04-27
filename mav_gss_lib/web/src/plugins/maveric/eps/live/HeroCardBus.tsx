@@ -81,8 +81,9 @@ function HeroCardBusInner({ V_BUS, I_BUS, prev_V_BUS, alarm }: Props) {
                aria-label={`V_BUS ${fmt(V_BUS, 3)} V`}>
             <div className="fill" style={{ width: `${fill}%`, background: 'var(--state-info)' }} />
             <div className="lim" style={{ left: `${limLo}%` }} />
-            <div className="lim" style={{ left: `${limNom}%`, background: 'var(--state-success)', opacity: 0.85 }} />
-            <div className="lim" style={{ left: `${limHi}%`,  background: 'var(--state-danger)',  opacity: 0.85 }} />
+            <div className="lim" style={{ left: `${limNom}%` }} />
+            <div className="lim" style={{ left: `${limHi}%` }} />
+            {Number.isFinite(V_BUS) && <div className="marker" style={{ left: `${fill}%` }} />}
           </div>
           <div className="soc-axis">
             <span className="mk edge-l" style={{ left: '0%' }}>6.0</span>

@@ -85,7 +85,8 @@ function HeroCardBatInner({ V_BAT, I_BAT, prev_V_BAT, chargeDir, soc, alarm }: P
                aria-label={soc !== null ? `Battery SoC ~${Math.round(soc)}%` : 'Battery voltage'}>
             <div className="fill" style={{ width: `${fill}%` }} />
             <div className="lim" style={{ left: `${limLo}%` }} />
-            <div className="lim" style={{ left: `${limNom}%`, background: 'var(--state-success)', opacity: 0.85 }} />
+            <div className="lim" style={{ left: `${limNom}%` }} />
+            {Number.isFinite(V_BAT) && <div className="marker" style={{ left: `${fill}%` }} />}
           </div>
           <div className="soc-axis">
             <span className="mk edge-l" style={{ left: '0%' }}>6.0</span>

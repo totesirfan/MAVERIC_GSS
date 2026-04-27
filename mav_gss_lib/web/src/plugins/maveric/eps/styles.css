@@ -124,9 +124,9 @@
    the last row. Ratios match the preview's 180 / 200 / 170 budget. */
 .eps-page #pane-live > .status-strip,
 .eps-page #pane-live > .cadence { flex: 0 0 auto; }
-.eps-page #pane-live > .hero-row   { flex: 1.05 1 0; min-height: 180px; }
+.eps-page #pane-live > .hero-row   { flex: 0.85 1 0; min-height: 148px; }
 .eps-page #pane-live > .output-row { flex: 1.20 1 0; min-height: 200px; }
-.eps-page #pane-live > [data-component="PowerBalance"] { flex: 1.00 1 0; min-height: 170px; }
+.eps-page #pane-live > [data-component="PowerBalance"] { flex: 1.00 1 0; min-height: 200px; }
 .eps-page #pane-live .card { display: flex; flex-direction: column; min-height: 0; }
 .eps-page #pane-fields.active > .card {
   flex: 1; min-height: 0; overflow: hidden;
@@ -230,8 +230,8 @@
 }
 .eps-page .hero-row .card { min-height: 0; }
 .eps-page .hero-card-body {
-  display: flex; flex-direction: column; padding: 14px 16px;
-  gap: 12px; flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; padding: 10px 14px;
+  gap: 8px; flex: 1 1 auto; min-height: 0;
 }
 /* Gauge wrapper (unclassed <div> holding .soc-gauge + .soc-axis).
    flex-grow absorbs any remaining vertical slack; justify-content:flex-end
@@ -244,11 +244,11 @@
 }
 .eps-page .hero-reading { display: flex; align-items: baseline; gap: 6px; line-height: 1; }
 .eps-page .hero-reading .big {
-  /* Fluid: ~54 px on MBP (1512), ~72 px on 1920+ viewports. Hero cards
+  /* Fluid: ~42 px on MBP (1512), ~56 px on 1920+ viewports. Hero cards
      flex-grow to fill vertical slack; the number is the focal point so
      it absorbs most of that slack directly instead of leaving halos
      around a tiny gauge. */
-  font: 500 clamp(52px, 3.8vw, 72px)/1 'JetBrains Mono', monospace;
+  font: 500 clamp(40px, 2.8vw, 56px)/1 'JetBrains Mono', monospace;
   color: var(--text-primary); font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
@@ -257,7 +257,7 @@
 .eps-page .hero-reading .big.danger  { color: var(--state-danger); }
 .eps-page .hero-reading .big.muted   { color: var(--text-disabled); }
 .eps-page .hero-reading .unit {
-  font-family: 'JetBrains Mono', monospace; font-size: 22px;
+  font-family: 'JetBrains Mono', monospace; font-size: 18px;
   color: var(--text-muted); font-weight: 400;
 }
 .eps-page .hero-sub {
@@ -295,11 +295,13 @@
 }
 .eps-page .mini-stats .v .u { font-size: 11px; color: var(--text-disabled); margin-left: 3px; }
 
-/* ── SoC + thermal gauges ────────────────────────────────── */
+/* ── SoC gauge ───────────────────────────────────────────────
+   Homogenized with GNC TempGauge / MtqBars: 10 px bar, 1 px neutral
+   lim ticks, 2 px white precision marker at the fill edge. */
 .eps-page .soc-gauge {
-  position: relative; height: 22px;
+  position: relative; height: 10px;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-subtle); border-radius: 2px;
+  border: 1px solid var(--border-subtle); border-radius: 1px;
 }
 .eps-page .soc-gauge .fill {
   position: absolute; top: 0; bottom: 0; left: 0;
@@ -307,46 +309,26 @@
   max-width: 100%;
 }
 .eps-page .soc-gauge .lim {
-  position: absolute; top: -3px; bottom: -3px; width: 2px;
-  background: var(--state-warning); opacity: 0.85; transform: translateX(-50%);
+  position: absolute; top: -2px; bottom: -2px; width: 1px;
+  background: var(--text-muted); opacity: 0.7; transform: translateX(-50%);
+}
+.eps-page .soc-gauge .marker {
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  transform: translateX(-50%);
+  background: var(--text-primary); box-shadow: 0 0 4px rgba(229, 229, 229, 0.6);
 }
 .eps-page .soc-axis {
-  position: relative; height: 18px; margin-top: 8px;
-  font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  position: relative; height: 14px; margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
   color: var(--text-disabled); letter-spacing: 0.04em;
 }
 .eps-page .soc-axis .mk {
   position: absolute; top: 0;
   transform: translateX(-50%);
-  white-space: nowrap;
+  white-space: nowrap; line-height: 1;
 }
 .eps-page .soc-axis .mk.edge-l { transform: none; }
 .eps-page .soc-axis .mk.edge-r { transform: translateX(-100%); }
-.eps-page .therm-gauge {
-  position: relative; height: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-subtle); border-radius: 1px;
-}
-.eps-page .therm-gauge .band-ok {
-  position: absolute; top: 0; bottom: 0;
-  background: rgba(60, 201, 142, 0.12);
-}
-.eps-page .therm-gauge .lim {
-  position: absolute; top: -2px; bottom: -2px; width: 1px;
-  transform: translateX(-50%);
-}
-.eps-page .therm-gauge .lim.warn { background: var(--state-warning); opacity: 0.7; }
-.eps-page .therm-gauge .lim.crit { background: var(--state-danger); opacity: 0.75; }
-.eps-page .therm-gauge .marker {
-  position: absolute; top: -3px; bottom: -3px; width: 2px;
-  transform: translateX(-50%);
-  background: var(--text-primary); box-shadow: 0 0 4px rgba(229, 229, 229, 0.6);
-}
-.eps-page .therm-axis {
-  display: flex; justify-content: space-between;
-  font-family: 'JetBrains Mono', monospace; font-size: 11px;
-  color: var(--text-disabled); margin-top: 2px;
-}
 
 /* ── Δ-since-previous + ETA rows ─────────────────────────── */
 .eps-page .delta-row {
@@ -468,12 +450,12 @@
   .eps-page .hero-row { max-height: 440px; }
 }
 @media (min-height: 1300px) {
-  .eps-page .hero-row { max-height: 560px; }
-  .eps-page .hero-reading .big { font-size: 34px; }
+  .eps-page .hero-row { max-height: 460px; }
+  .eps-page .hero-reading .big { font-size: 30px; }
 }
 @media (min-height: 1600px) {
-  .eps-page .hero-row { max-height: 640px; }
-  .eps-page .hero-reading .big { font-size: 40px; }
+  .eps-page .hero-row { max-height: 540px; }
+  .eps-page .hero-reading .big { font-size: 36px; }
   .eps-page .card-title { font-size: 13px; }
 }
 
@@ -578,7 +560,7 @@
    Power Balance proportional bars
    ═══════════════════════════════════════════════════════════════════ */
 .eps-page .pb-body {
-  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 14px;
   flex: 1 1 auto; min-height: 0;
 }
 .eps-page .pb-row {
@@ -607,7 +589,7 @@
    is predictable across every kind. Never wraps — sub-label
    auto-hides via container query on segments too narrow to fit it. */
 .eps-page .pb-track {
-  height: 68px; display: flex; gap: 4px;
+  height: 52px; display: flex; gap: 4px;
   background: transparent; border: 0; padding: 0;
 }
 .eps-page .pb-seg {
@@ -714,10 +696,10 @@
   letter-spacing: 0.1em; color: var(--state-active); opacity: 0.6;
 }
 .eps-page .pb-status {
-  display: flex; gap: 16px; flex-wrap: wrap;
-  margin-top: 2px; padding-top: 10px;
+  display: flex; gap: 14px; flex-wrap: wrap;
+  margin-top: 0; padding-top: 6px;
   border-top: 1px solid var(--border-subtle);
-  font: 500 13px/1 'JetBrains Mono', monospace;
+  font: 500 12px/1 'JetBrains Mono', monospace;
   color: var(--text-muted); letter-spacing: 0.04em;
 }
 .eps-page .pb-status .kv  { display: inline-flex; align-items: baseline; gap: 6px; }
@@ -799,33 +781,44 @@
 }
 .eps-page .solar-row {
   display: grid;
-  grid-template-columns: 60px 56px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  align-items: center; gap: 10px;
-  padding: 8px 12px;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  align-items: center; column-gap: 8px; row-gap: 2px;
+  padding: 6px 10px;
   border: 1px solid var(--border-subtle); border-radius: 3px;
   background: #0a0a0a;
-  font: 500 clamp(13px, 1vw, 15px)/1 'JetBrains Mono', monospace;
+  font: 500 12px/1.15 'JetBrains Mono', monospace;
   font-variant-numeric: tabular-nums;
 }
+.eps-page .solar-row .s-name  { grid-column: 1; grid-row: 1 / -1; align-self: center; }
+.eps-page .solar-row .s-badge { grid-column: 2; grid-row: 1 / -1; align-self: center; }
+.eps-page .solar-row .s-v { grid-column: 3; grid-row: 1; }
+.eps-page .solar-row .s-i { grid-column: 3; grid-row: 2; }
+.eps-page .solar-row .s-p { grid-column: 3; grid-row: 3; }
 .eps-page .solar-row.gen  { border-color: rgba(60, 201, 142, 0.4); background: rgba(60, 201, 142, 0.05); }
 .eps-page .solar-row.dead { border-color: rgba(255, 56, 56, 0.55); background: rgba(255, 56, 56, 0.07); }
 .eps-page .solar-row .s-name {
-  font: 700 14px/1 'Inter', sans-serif;
+  font: 700 12px/1 'Inter', sans-serif;
   color: var(--text-primary); letter-spacing: 0.02em;
 }
 .eps-page .solar-row.idle .s-name { color: var(--text-secondary); }
 .eps-page .solar-row .s-badge {
-  font: 500 12px/1 'JetBrains Mono', monospace;
-  padding: 2px 6px; border: 1px solid var(--border-strong); border-radius: 1px;
-  color: var(--text-disabled); letter-spacing: 0.08em; text-align: center;
+  font: 500 10px/1 'JetBrains Mono', monospace;
+  padding: 2px 4px; border: 1px solid var(--border-strong); border-radius: 1px;
+  color: var(--text-disabled); letter-spacing: 0.06em; text-align: center;
 }
 .eps-page .solar-row.gen  .s-badge { color: var(--state-success); border-color: rgba(60, 201, 142, 0.4); }
 .eps-page .solar-row.dead .s-badge { color: var(--state-danger);  border-color: rgba(255, 56, 56, 0.55); }
+.eps-page .solar-row .s-v,
+.eps-page .solar-row .s-i,
+.eps-page .solar-row .s-p {
+  white-space: nowrap; text-align: right;
+}
 .eps-page .solar-row .s-v { color: var(--text-primary); }
 .eps-page .solar-row.idle .s-v { color: var(--text-disabled); }
 .eps-page .solar-row.dead .s-v { color: var(--state-danger); }
 .eps-page .solar-row .s-i { color: var(--text-muted); }
-.eps-page .solar-row .s-p { color: var(--text-muted); text-align: right; }
+.eps-page .solar-row .s-p { color: var(--text-muted); }
 .eps-page .solar-row.gen  .s-p { color: var(--text-primary); }
 
 /* ═══════════════════════════════════════════════════════════════════
