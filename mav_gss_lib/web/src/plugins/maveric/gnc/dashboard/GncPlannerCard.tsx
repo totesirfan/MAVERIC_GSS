@@ -1,7 +1,7 @@
 import { Card } from './Card'
 import { FieldDisplay } from '../shared/FieldDisplay'
 import { ModeStrip } from '../shared/ModeStrip'
-import type { GncState, GncMode, GncCounters } from '../types'
+import type { GncState, GncMode } from '../types'
 import { colors } from '@/lib/colors'
 
 interface GncPlannerCardProps {
@@ -11,22 +11,29 @@ interface GncPlannerCardProps {
 
 const PLANNER_MODES = ['Safe', 'Auto', 'Manual']
 
+const numOrNull = (snap: { value?: unknown } | undefined): number | null =>
+  typeof snap?.value === 'number' ? snap.value : null
+
 /** GNC Planner panel.
  *  Mode:     gnc_get_mode RES (0=Safe, 1=Auto, 2=Manual)
- *  Counters: gnc_get_cnts RES (Unexpected Safe / Detumble / Sunspin)
- *  Sources:  GYRO_RATE_SRC / MAG_SRC from tlm_beacon (raw int source
+ *  Counters: tlm_beacon (unexpected_safe / unexpected_detumble / sunspin)
+ *  Sources:  RATE_SRC / MAG_SRC from tlm_beacon (raw int source
  *            selector; no enum in repo, display verbatim).
  */
 export function GncPlannerCard({ state, nowMs }: GncPlannerCardProps) {
-  const mode     = state.GNC_MODE
-  const counters = state.GNC_COUNTERS
-  const gyroSrc  = state.GYRO_RATE_SRC
-  const magSrc   = state.MAG_SRC
+  const mode        = state.GNC_MODE
+  const safeCnt     = state.unexpected_safe
+  const detumbleCnt = state.unexpected_detumble
+  const sunspinCnt  = state.sunspin
+  const gyroSrc     = state.RATE_SRC
+  const magSrc      = state.MAG_SRC
 
   const modeV = mode?.value as GncMode | undefined
-  const cntV  = counters?.value as GncCounters | undefined
-  const gyroSrcV = typeof gyroSrc?.value === 'number' ? gyroSrc.value : null
-  const magSrcV  = typeof magSrc?.value === 'number' ? magSrc.value : null
+  const safeV     = numOrNull(safeCnt)
+  const detumbleV = numOrNull(detumbleCnt)
+  const sunspinV  = numOrNull(sunspinCnt)
+  const gyroSrcV  = numOrNull(gyroSrc)
+  const magSrcV   = numOrNull(magSrc)
 
   const modeChip = modeV ? (
     <div
@@ -45,21 +52,21 @@ export function GncPlannerCard({ state, nowMs }: GncPlannerCardProps) {
       <ModeStrip labels={PLANNER_MODES} activeIndex={modeV?.mode} />
 
       <FieldDisplay
-        label="Reboot"
-        value={cntV != null ? String(cntV.reboot) : '—'}
-        receivedAt={counters?.t}
+        label="Unexpected Safe"
+        value={safeV != null ? String(safeV) : '—'}
+        receivedAt={safeCnt?.t}
         nowMs={nowMs}
       />
       <FieldDisplay
-        label="De-Tumble"
-        value={cntV != null ? String(cntV.detumble) : '—'}
-        receivedAt={counters?.t}
+        label="Unexpected Detumble"
+        value={detumbleV != null ? String(detumbleV) : '—'}
+        receivedAt={detumbleCnt?.t}
         nowMs={nowMs}
       />
       <FieldDisplay
         label="Sunspin"
-        value={cntV != null ? String(cntV.sunspin) : '—'}
-        receivedAt={counters?.t}
+        value={sunspinV != null ? String(sunspinV) : '—'}
+        receivedAt={sunspinCnt?.t}
         nowMs={nowMs}
       />
       <FieldDisplay

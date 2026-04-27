@@ -92,7 +92,7 @@ export function AdcsMtqCard({ state, nowMs }: AdcsMtqCardProps) {
         border: `1px solid ${colors.active}4D`,
       }}
     >
-      {statV.MODE_NAME}
+      {statV.MODE_name}
     </div>
   ) : null
 

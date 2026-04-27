@@ -3,7 +3,7 @@
 
 export interface StatBitfield {
   MODE: number
-  MODE_NAME: string
+  MODE_name: string
   HERR: boolean
   SERR: boolean
   WDT: boolean

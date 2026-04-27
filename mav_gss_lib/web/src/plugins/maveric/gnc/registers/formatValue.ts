@@ -63,7 +63,7 @@ export function formatRegisterValue(snap: RegisterSnapshot | undefined): string 
   // Bitfield (STAT/ACT_ERR/SEN_ERR/CONF)
   if ('MODE' in obj || Object.values(obj).some((x) => typeof x === 'boolean')) {
     const parts: string[] = []
-    if ('MODE_NAME' in obj) parts.push(`mode=${obj.MODE_NAME}`)
+    if ('MODE_name' in obj) parts.push(`mode=${obj.MODE_name}`)
     if ('TARGET_ELEV' in obj) parts.push(`elev=${obj.TARGET_ELEV}°`)
     const truthy = Object.entries(obj)
       .filter(([_, val]) => val === true)

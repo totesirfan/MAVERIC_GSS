@@ -23,7 +23,15 @@ export function isAdcsTmp(v: unknown): v is AdcsTmp {
 }
 
 export function adcsTmpFrom(snap: RegisterSnapshot | undefined): AdcsTmp | null {
-  return isAdcsTmp(snap?.value) ? (snap!.value as AdcsTmp) : null
+  const v = snap?.value
+  if (isAdcsTmp(v)) return v as AdcsTmp
+  // tlm_beacon emits ADCS_TMP as a plain f32 (degrees C); int16[2] from
+  // mtq_get_1 reg 148 still arrives as the structured AdcsTmp object via
+  // its calibrator. Accept the bare number for the beacon path.
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return { celsius: v, comm_fault: false, brdtmp: 0 } as AdcsTmp
+  }
+  return null
 }
 
 export function isNvgSensor(v: unknown): v is NvgSensor {

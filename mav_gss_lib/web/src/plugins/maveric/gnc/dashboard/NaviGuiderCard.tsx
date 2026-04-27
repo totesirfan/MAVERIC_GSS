@@ -57,10 +57,10 @@ function gyroBarValue(value: number | null): { text: string; kind: BarKind } {
 }
 
 export function NaviGuiderCard({ state, nowMs }: NaviGuiderCardProps) {
-  const status = state.NVG_STATUS
-  const gyro = state.NVG_GYROSCOPE
-  const mag = state.NVG_MAGNETOMETER
-  const temp = state.NVG_TEMPERATURE
+  const status = state.nvg_status
+  const gyro = state.gyroscope
+  const mag = state.magnetometer
+  const temp = state.temperature
 
   const statusV = status?.value as NvgStatus | undefined
 
