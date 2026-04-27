@@ -46,6 +46,8 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Callable, NamedTuple
 
+from mav_gss_lib.platform.spec import SpecError
+
 from ..state import MAX_QUEUE
 from .queue import QueueItem, make_delay, validate_mission_cmd
 from .service import AdmitResult
@@ -180,7 +182,7 @@ async def handle_queue(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> Non
             await send_admit_error(ws, err, info)
             return
         await runtime.tx.send_queue_update()
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError, SpecError) as exc:
         await send_error(ws, str(exc))
 
 
@@ -197,7 +199,7 @@ async def handle_queue_mission_cmd(runtime: "WebRuntime", msg: dict, ws: "WebSoc
             await send_admit_error(ws, err, info)
             return
         await runtime.tx.send_queue_update()
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError, SpecError) as exc:
         await send_error(ws, str(exc))
 
 

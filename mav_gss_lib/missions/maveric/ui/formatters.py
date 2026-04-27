@@ -37,6 +37,8 @@ _DISPLAY_LABELS: dict[str, str] = {
     "lppm_rbt_cause":  "LPPM Reboot Cause",
     "uppm_rbt_cnt":    "UPPM Reboots",
     "uppm_rbt_cause":  "UPPM Reboot Cause",
+    "lppm_time_to_rst": "LPPM Reset Counter",
+    "uppm_time_to_rst": "UPPM Reset Counter",
     "ertc_heartbeat":  "ERTC Heartbeat",
     "hn_state":        "HoloNav State",
     "ab_state":        "AstroBoard State",
