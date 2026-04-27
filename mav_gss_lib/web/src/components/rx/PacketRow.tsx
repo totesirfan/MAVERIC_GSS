@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge'
 import { ChevronRight, ClipboardCopy, Braces, Binary } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import { CellValue, extractFromRendering } from '@/components/shared/rendering/RenderingBlocks'
+import { CellValue, extractFromRendering } from '@/components/shared/rendering'
 import {
   ContextMenuRoot,
   ContextMenuTrigger,
