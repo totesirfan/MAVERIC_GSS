@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
-import maveric3DModelUrl from '../assets/maveric.stl?url'
+import maveric3DModelUrl from '@/assets/maveric.stl?url'
 
 interface Maveric3DViewerProps {
   /** Scalar-first attitude quaternion [q0, q1, q2, q3]. null → identity. */
