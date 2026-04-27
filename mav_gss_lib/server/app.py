@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterator
@@ -40,6 +41,13 @@ from .ws.tx import router as tx_router
 from .ws.alarms import router as alarms_router
 from .api.parameters import router as parameters_router
 from mav_gss_lib.transport import PUB_STATUS, zmq_cleanup
+from mav_gss_lib.platform.alarms.dispatch import make_dispatch
+from mav_gss_lib.platform.alarms.evaluators.container import evaluate_containers
+from mav_gss_lib.platform.alarms.evaluators.platform import (
+    PlatformAlarmInputs, evaluate_platform,
+)
+from mav_gss_lib.platform.alarms.setup import build_alarm_environment
+from mav_gss_lib.server.ws.alarms import WebRuntimeBroadcastTarget
 from .state import WEB_DIR, create_runtime, get_runtime
 from ._task_utils import log_task_exception
 
@@ -79,6 +87,36 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
     )
     print(f"RX logging → {runtime.rx.log.jsonl_path}")
     print(f"TX logging → {runtime.tx.log.jsonl_path}")
+
+    env = build_alarm_environment(
+        runtime.mission.spec_root, runtime.alarm_registry,
+        runtime.rx.last_arrival_ms,
+        now_ms=int(time.time() * 1000),
+        mission_alarm_plugins=getattr(runtime.mission, "alarm_plugins", {}),
+    )
+    loop = asyncio.get_running_loop()
+
+    # Audit-sink adapter: write_alarm on the RX session log.
+    class _RxLogAuditSink:
+        def __init__(self, runtime): self._runtime = runtime
+        def write_alarm(self, change, ts_ms):
+            log = getattr(self._runtime.rx, "log", None)
+            if log is None:
+                return
+            try:
+                log.write_alarm(change, ts_ms=ts_ms)
+            except Exception:
+                logging.exception("write_alarm")
+
+    dispatch = make_dispatch(
+        audit_sink=_RxLogAuditSink(runtime),
+        broadcast_target=WebRuntimeBroadcastTarget(runtime),
+        loop=loop,
+    )
+    runtime.bind_alarm_dispatch(dispatch, env.parameter_rules, env.plugins)
+    runtime._alarm_tick_task = asyncio.create_task(
+        _alarm_tick_loop(runtime, env.container_specs)
+    )
 
     runtime.rx.start_receiver()
     runtime.rx.broadcast_task = asyncio.create_task(runtime.rx.broadcast_loop())
@@ -131,6 +169,13 @@ async def _shutdown_runtime(runtime: "WebRuntime") -> None:
             await asyncio.wait_for(sweep_task, timeout=1.0)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             pass
+    tick = getattr(runtime, "_alarm_tick_task", None)
+    if tick is not None:
+        tick.cancel()
+        try:
+            await tick
+        except (asyncio.CancelledError, Exception):
+            pass
     if runtime.rx.log:
         try:
             runtime.rx.log.close()
@@ -168,6 +213,44 @@ async def _verifier_sweep_loop(runtime: "WebRuntime") -> None:
             raise
         except Exception as exc:
             logging.warning("verifier sweep tick failed: %s", exc)
+
+
+# =============================================================================
+#  ALARM TICK
+# =============================================================================
+
+def _tick_once(runtime, container_specs, now_ms):
+    """One tick of the platform + container evaluators. Pure-ish: takes
+    the runtime as a state container, returns nothing, side-effects
+    through ``runtime._alarm_dispatch``."""
+    dispatch = runtime._alarm_dispatch
+    if dispatch is None:
+        return
+    silence_s = (
+        max(0.0, time.time() - runtime.rx.last_rx_at)
+        if runtime.rx.last_rx_at > 0 else 0.0
+    )
+    inputs = PlatformAlarmInputs(
+        silence_s=silence_s,
+        zmq_state=runtime.rx.status.get(),
+        crc_event_ms=tuple(runtime.rx.crc_window),
+        dup_event_ms=tuple(runtime.rx.dup_window),
+    )
+    for v in evaluate_platform(inputs, now_ms):
+        dispatch.emit(runtime.alarm_registry.observe(v, now_ms), now_ms)
+    for v in evaluate_containers(
+        container_specs, runtime.rx.last_arrival_ms, now_ms,
+    ):
+        dispatch.emit(runtime.alarm_registry.observe(v, now_ms), now_ms)
+
+
+async def _alarm_tick_loop(runtime, container_specs):
+    while True:
+        await asyncio.sleep(1.0)
+        try:
+            _tick_once(runtime, container_specs, int(time.time() * 1000))
+        except Exception:
+            logging.exception("alarm tick loop")
 
 
 # =============================================================================
