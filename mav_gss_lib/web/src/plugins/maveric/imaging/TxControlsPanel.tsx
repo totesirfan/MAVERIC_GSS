@@ -128,6 +128,7 @@ export function TxControlsPanel({
   const [capFocus, setCapFocus] = useState('');
   const [capExposure, setCapExposure] = useState('');
   const [capK, setCapK] = useState('');
+  const [capThumbK, setCapThumbK] = useState('');
   const [capQuality, setCapQuality] = useState('');
 
   // Delete (moved into Download tab)
@@ -241,8 +242,8 @@ export function TxControlsPanel({
                 onClick={() => {
                   const fn = withJpg(cntFn.trim());
                   stage('img_cnt_chunks', {
-                    Filename: fn,
-                    Destination: destFromFilename(fn, thumbPrefix),
+                    filename: fn,
+                    destination: destFromFilename(fn, thumbPrefix),
                   });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
@@ -280,10 +281,10 @@ export function TxControlsPanel({
                 onClick={() => {
                   const fn = withJpg(getFn.trim());
                   stage('img_get_chunks', {
-                    Filename: fn,
-                    'Start Chunk': getStart.trim(),
-                    'Num Chunks': getCount.trim(),
-                    Destination: destFromFilename(fn, thumbPrefix),
+                    filename: fn,
+                    start_chunk: getStart.trim(),
+                    num_chunks: getCount.trim(),
+                    destination: destFromFilename(fn, thumbPrefix),
                   });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
@@ -312,7 +313,7 @@ export function TxControlsPanel({
                     showToast('Filename required', 'error', 'tx');
                     return;
                   }
-                  stage('img_delete', { Filename: withJpg(fn) });
+                  stage('img_delete', { filename: withJpg(fn) });
                 }}
                 style={{ backgroundColor: colors.danger, color: colors.bgApp }}
               >
@@ -373,6 +374,13 @@ export function TxControlsPanel({
                   onChange={e => setCapK(e.target.value)}
                 />
               </LabeledField>
+              <LabeledField label="Thumb K" width={64}>
+                <GssInput
+                  className="w-[64px] font-mono"
+                  value={capThumbK}
+                  onChange={e => setCapThumbK(e.target.value)}
+                />
+              </LabeledField>
               <LabeledField label="Quality" width={64}>
                 <GssInput
                   className="w-[64px] font-mono"
@@ -390,6 +398,7 @@ export function TxControlsPanel({
                   const focus = capFocus.trim();
                   const exposure = capExposure.trim();
                   const k = capK.trim();
+                  const thumbK = capThumbK.trim();
                   const quality = capQuality.trim();
                   if (!fn) { showToast('Filename required', 'error', 'tx'); return; }
                   if (!qty) { showToast('Quantity required', 'error', 'tx'); return; }
@@ -397,15 +406,17 @@ export function TxControlsPanel({
                   if (!focus) { showToast('Focus required', 'error', 'tx'); return; }
                   if (!exposure) { showToast('Exposure Time required', 'error', 'tx'); return; }
                   if (!k) { showToast('K required', 'error', 'tx'); return; }
+                  if (!thumbK) { showToast('Thumb K required', 'error', 'tx'); return; }
                   if (!quality) { showToast('Quality required', 'error', 'tx'); return; }
                   stage('cam_capture', {
-                    Filename: withJpg(fn),
-                    Quantity: qty,
-                    'Delay (s)': delay,
-                    Focus: focus,
-                    'Exposure Time': exposure,
-                    K: k,
-                    Quality: quality,
+                    filename: withJpg(fn),
+                    quantity: qty,
+                    delay_s: delay,
+                    focus,
+                    exposure_us: exposure,
+                    k,
+                    thumb_k: thumbK,
+                    quality,
                   });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}
@@ -453,8 +464,8 @@ export function TxControlsPanel({
                   }
                   const wrapped = withJpg(fn);
                   stage('lcd_display', {
-                    Filename: wrapped,
-                    Destination: destFromFilename(wrapped, thumbPrefix),
+                    filename: wrapped,
+                    destination: destFromFilename(wrapped, thumbPrefix),
                   });
                 }}
                 style={{ backgroundColor: colors.active, color: colors.bgApp }}

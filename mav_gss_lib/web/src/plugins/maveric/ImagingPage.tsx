@@ -90,20 +90,13 @@ export default function ImagingPage() {
     (config?.mission.config.imaging as { thumb_prefix?: string } | undefined)?.thumb_prefix ?? '';
 
   useEffect(() => {
-    if (!config || !schema) return;
+    if (!schema) return;
     const imgCmd = schema?.img_get_chunks ?? schema?.img_cnt_chunks;
-    const allowedNodes: string[] = ((imgCmd as { nodes?: string[] } | undefined)?.nodes) ?? [];
-    const nodeMap: Record<string, string> = config?.mission.config.nodes ?? {};
-    let nodeNames: string[];
-    if (allowedNodes.length > 0) {
-      nodeNames = allowedNodes.filter((n) => Object.values(nodeMap).includes(n));
-    } else {
-      const gsNode = config?.mission.config.gs_node ?? '';
-      nodeNames = Object.values(nodeMap).filter((n): n is string => n !== gsNode);
-    }
+    const allowedNodes = ((imgCmd as { nodes?: string[] } | undefined)?.nodes) ?? [];
+    const nodeNames = allowedNodes.length > 0 ? allowedNodes : Array.from(FALLBACK_IMAGING_NODES);
     setNodes(nodeNames);
     if (nodeNames.length > 0 && !destNode) setDestNode(nodeNames[0]);
-  }, [config, schema, destNode, setDestNode]);
+  }, [schema, destNode, setDestNode]);
 
   useEffect(() => {
     return () => {
@@ -150,10 +143,10 @@ export default function ImagingPage() {
         queueCommand({
           cmd_id: 'img_get_chunks',
           args: {
-            Filename: leaf.filename,
-            'Start Chunk': String(r.start),
-            'Num Chunks': String(r.count),
-            Destination: forcedTarget,
+            filename: leaf.filename,
+            start_chunk: String(r.start),
+            num_chunks: String(r.count),
+            destination: forcedTarget,
           },
           dest: destNode,
           echo: ((schema?.img_get_chunks as Record<string, unknown>)?.echo as string) ?? 'NONE',

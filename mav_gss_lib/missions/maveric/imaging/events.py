@@ -14,7 +14,7 @@ Reads from the declarative pipeline:
     declarations in mission.yml.
   - `chunk_data` is declared `emit: false`, so it does not appear in
     envelope.parameters. We slice it directly from `payload.args_raw`
-    using chunk_len + the trailing-binary layout of img_get_chunks_res.
+    using chunk_len + the trailing-binary layout of img_get_chunks_file.
 
 Author:  Irfan Annuar - USC ISI SERC
 """
@@ -115,7 +115,7 @@ class MavericImagingEvents:
         except (ValueError, TypeError):
             return []
 
-        # chunk_len gates the trailing binary slice. img_get_chunks_res
+        # chunk_len gates the trailing binary slice. img_get_chunks_file
         # layout: ascii tokens then binary tail of length chunk_len. We
         # locate the binary tail by walking past three ascii tokens
         # (filename, chunk_idx, chunk_len), each followed by a single
@@ -140,7 +140,7 @@ class MavericImagingEvents:
 
 
 def _slice_chunk_data(payload: Any, chunk_len: int) -> bytes:
-    """Return the trailing chunk_data bytes from an img_get_chunks_res
+    """Return the trailing chunk_data bytes from an img_get_chunks_file
     args_raw blob. Layout: `<filename> <chunk_idx> <chunk_len> <bytes…>`
     where the first three tokens are ASCII separated by a single space.
 

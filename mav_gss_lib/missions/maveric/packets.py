@@ -161,6 +161,8 @@ def match_verifiers(envelope, open_instances, *, now_ms: int, rx_event_id: str =
         expected = f"{src_lower}_ack"
     elif ptype_name == "RES":
         expected = f"res_from_{src_lower}"
+    elif ptype_name == "FILE":
+        expected = f"file_from_{src_lower}"
     elif ptype_name == "NACK":
         expected = f"nack_{src_lower}"
     elif ptype_name == "TLM":
