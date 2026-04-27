@@ -13,7 +13,7 @@ import { TxQueue } from './TxQueue'
 import { CommandInput } from './CommandInput'
 import { ImportDialog } from './ImportDialog'
 import { getMissionBuilder } from '@/plugins/registry'
-import { useColumnDefs } from '@/state/session'
+import { useColumnDefs } from '@/state/sessionHooks'
 import type {
   TxQueueItem, TxQueueSummary,
   SendProgress, GuardConfirm, GssConfig, TxColumnDef,

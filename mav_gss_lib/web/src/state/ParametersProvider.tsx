@@ -9,36 +9,21 @@
  * useParameterGroup still re-runs (context changed) — only memoized
  * children benefit.
  *
- * Hooks:
- *   useParameter(name)              — single-parameter lookup with spec
- *   useParameterGroup(group)        — namespace slice, byKey-keyed
- *   clearParameterGroup(group)      — DELETE /api/parameters/group/{group}
+ * Consumer hooks (useParameter, useParameterGroup, clearParameterGroup)
+ * live in `./parametersHooks`. Type + context surface lives in
+ * `./parametersContexts`.
  *
  * Author: Irfan Annuar - USC ISI SERC
  */
-import {
-  createContext, useContext, useEffect, useMemo, useState,
-  type PropsWithChildren,
-} from 'react'
-import { authFetch } from '@/lib/auth'
+import { useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import { usePluginRxCustomSubscription } from '@/hooks/usePluginServices'
-
-export interface ParameterSpec {
-  name: string                  // "<group>.<key>"
-  group: string | null
-  key: string
-  type: string
-  unit: string
-  description: string
-  enum: Record<string, number> | null
-  tags: Record<string, unknown>
-}
-
-export interface ParameterEntry {
-  v: unknown
-  t: number
-  display_only?: boolean
-}
+import {
+  ParametersContext,
+  type ParametersContextValue,
+  type ParameterEntry,
+  type ParameterSpec,
+  type ContainerFreshness,
+} from './parametersContexts'
 
 type GroupedState = Record<string, Record<string, ParameterEntry>>
 
@@ -47,31 +32,12 @@ interface LiveState {
   timestamps: Record<string, number>
 }
 
-export interface ContainerFreshness {
-  last_ms: number | null
-  expected_period_ms: number | null
-}
-
 interface FreshnessMsg {
   type: 'parameters_freshness'
   container: string
   last_ms: number
   expected_period_ms: number
 }
-
-interface ParametersContextValue {
-  grouped: GroupedState
-  specByName: Map<string, ParameterSpec>
-  specsByGroup: Record<string, ParameterSpec[]>
-  timestamps: Record<string, number>
-  freshness: Record<string, ContainerFreshness>
-}
-
-const EMPTY_LIVE: LiveState = { grouped: {}, timestamps: {} }
-const EMPTY_BUCKET: Record<string, ParameterEntry> = {}
-const EMPTY_LIST: ParameterSpec[] = []
-
-export const ParametersContext = createContext<ParametersContextValue | null>(null)
 
 interface ParameterUpdateMsg {
   type: 'parameters'
@@ -83,6 +49,8 @@ interface ParametersClearedMsg {
   type: 'parameters_cleared'
   group: string
 }
+
+const EMPTY_LIVE: LiveState = { grouped: {}, timestamps: {} }
 
 function splitName(name: string): [string, string] {
   const dot = name.indexOf('.')
@@ -196,32 +164,4 @@ export function ParametersProvider({ children }: PropsWithChildren) {
     [live, specByName, specsByGroup, freshness],
   )
   return <ParametersContext.Provider value={value}>{children}</ParametersContext.Provider>
-}
-
-export function useParameter(name: string): { entry?: ParameterEntry; spec?: ParameterSpec } {
-  const ctx = useContext(ParametersContext)
-  if (!ctx) throw new Error('useParameter outside ParametersProvider')
-  const [group, key] = splitName(name)
-  return {
-    entry: ctx.grouped[group]?.[key],
-    spec: ctx.specByName.get(name),
-  }
-}
-
-export function useParameterGroup(group: string): {
-  byKey: Record<string, ParameterEntry>
-  specs: ParameterSpec[]
-  lastUpdateAt: number | null
-} {
-  const ctx = useContext(ParametersContext)
-  if (!ctx) throw new Error('useParameterGroup outside ParametersProvider')
-  return {
-    byKey: ctx.grouped[group] ?? EMPTY_BUCKET,
-    specs: ctx.specsByGroup[group] ?? EMPTY_LIST,
-    lastUpdateAt: ctx.timestamps[group] ?? null,
-  }
-}
-
-export async function clearParameterGroup(group: string): Promise<void> {
-  await authFetch(`/api/parameters/group/${group}`, { method: 'DELETE' })
 }

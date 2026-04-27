@@ -15,7 +15,7 @@ import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
 } from '@/components/shared/ContextMenu'
-import { useTx } from '@/state/tx'
+import { useTx } from '@/state/txHooks'
 import { VerifierTickStrip } from './VerifierTickStrip'
 import { VerifierDetailBlock } from './VerifierDetailBlock'
 import type { TxQueueCmd, TxHistoryItem, TxColumnDef, TxRowStatus } from '@/lib/types'

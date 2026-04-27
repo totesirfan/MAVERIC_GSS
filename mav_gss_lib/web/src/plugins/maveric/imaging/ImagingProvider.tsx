@@ -29,7 +29,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import { useRxStatus } from '@/state/rx';
+import { useRxStatus } from '@/state/rxHooks';
 import { fetchImagingStatus } from './helpers';
 import type { PairedFile, ImagingTab } from './types';
 

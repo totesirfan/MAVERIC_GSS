@@ -7,7 +7,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { TabStrip } from '@/components/layout/TabStrip'
-import { useRxStatus } from '@/state/rx'
+import { useRxStatus } from '@/state/rxHooks'
 import { colors } from '@/lib/colors'
 import type { NavigationTabDef } from '@/components/layout/navigation'
 import type { SessionState } from '@/hooks/useSession'

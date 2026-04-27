@@ -25,7 +25,7 @@ import { NoteItem } from './NoteItem'
 import { colors } from '@/lib/colors'
 import { cellText } from '@/lib/rendering'
 import { col } from '@/lib/columns'
-import { useTx } from '@/state/tx'
+import { useTx } from '@/state/txHooks'
 import type {
   TxQueueSummary, SendProgress, TxColumnDef, TxHistoryItem, TxQueueCmd,
 } from '@/lib/types'

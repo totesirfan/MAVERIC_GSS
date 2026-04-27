@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParameterGroup } from '@/state/ParametersProvider'
+import { useParameterGroup } from '@/state/parametersHooks'
 import { GncPlannerCard } from './dashboard/GncPlannerCard'
 import { AdcsMtqCard } from './dashboard/AdcsMtqCard'
 import { NaviGuiderCard } from './dashboard/NaviGuiderCard'

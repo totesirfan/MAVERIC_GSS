@@ -18,8 +18,8 @@
  * field change will rerender the whole subtree.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { clearParameterGroup, useParameterGroup } from '@/state/ParametersProvider'
-import { useRxStatus } from '@/state/rx'
+import { clearParameterGroup, useParameterGroup } from '@/state/parametersHooks'
+import { useRxStatus } from '@/state/rxHooks'
 import { chargeDirection } from './derive'
 import type { EpsFieldName, EpsFieldMap, ChargeDir } from './types'
 import { FIELD_DEFS } from './types'

@@ -7,7 +7,7 @@ import {
   ResizableHandle,
 } from '@/components/ui/resizable';
 import { usePluginServices } from '@/hooks/usePluginServices';
-import { useColumnDefs } from '@/state/session';
+import { useColumnDefs } from '@/state/sessionHooks';
 import { renderingText } from '@/lib/rendering';
 import type { ColumnDef, RxPacket, TxColumnDef } from '@/lib/types';
 

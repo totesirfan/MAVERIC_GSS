@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
-import { useRx, useRxStatus } from '@/state/rx'
-import { useTx } from '@/state/tx'
-import { useSessionContext, useConfig } from '@/state/session'
+import { useRx, useRxStatus } from '@/state/rxHooks'
+import { useTx } from '@/state/txHooks'
+import { useSessionContext, useConfig } from '@/state/sessionHooks'
 import type { RxPacket, RxStatus, GssConfig, SendProgress, GuardConfirm, TxQueueItem } from '@/lib/types'
 
 export type CommandSchema = Record<string, Record<string, unknown>>
