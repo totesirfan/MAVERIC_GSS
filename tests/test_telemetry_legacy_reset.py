@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mav_gss_lib.server.telemetry import reset_legacy_snapshots
+from mav_gss_lib.server.telemetry_reset import reset_legacy_snapshots
 
 
 def test_removes_both_legacy_files(tmp_path):

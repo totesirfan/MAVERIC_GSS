@@ -7,7 +7,7 @@ Layout:
     tx/               — outbound command flow: prepare_command, frame_command,
                         tx_log_record (JSONL envelope)
     config/           — platform-config update spec + appliers
-    parameters/       — flat ParameterCache (single source of live state)
+    parameter_cache.py — flat ParameterCache (single source of live state)
     runtime.py        — PlatformRuntime container
     loader.py         — MissionSpec loading
     _log_envelope.py  — shared new_event_id + ts_iso helpers (RX/TX)
@@ -61,11 +61,11 @@ from .loader import (
     load_mission_spec_from_split,
     validate_mission_spec,
 )
-from .parameters import ParameterCache
+from .parameter_cache import ParameterCache
 from .runtime import PlatformRuntime
 from .rx.events import collect_connect_events, collect_packet_events
 from .rx.logging import parameter_log_records, rx_log_record, rx_log_text
-from .rx.packets import PacketPipeline
+from .rx.packet_pipeline import PacketPipeline
 from .rx.pipeline import RxPipeline, RxResult
 from .rx.rendering import fallback_packet_rendering, render_packet
 from .tx.commands import CommandRejected, PreparedCommand, frame_command, prepare_command

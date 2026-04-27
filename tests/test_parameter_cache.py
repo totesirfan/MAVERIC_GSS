@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from mav_gss_lib.platform.contract.parameters import ParamUpdate
-from mav_gss_lib.platform.parameters import ParameterCache
+from mav_gss_lib.platform.parameter_cache import ParameterCache
 
 
 class ParameterCacheTests(unittest.TestCase):

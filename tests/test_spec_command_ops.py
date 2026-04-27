@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from mav_gss_lib.platform.contract.commands import EncodedCommand, FramedCommand
-from mav_gss_lib.platform.spec.command_ops import build_declarative_command_ops
+from mav_gss_lib.platform.spec.command_codec import build_declarative_command_ops
 from mav_gss_lib.platform.spec.errors import (
     HeaderFieldNotOverridable,
     HeaderValueNotAllowed,
@@ -80,12 +80,12 @@ class TestCommandOps(unittest.TestCase):
         self.assertEqual(framed.frame_label, "STUB")
 
     def test_bytes_arg_normalised_to_hex_dict(self):
-        from mav_gss_lib.platform.spec.command_ops import _json_normalize
+        from mav_gss_lib.platform.spec.command_codec import _json_normalize
         out = _json_normalize({"blob": b"\x01\x02\x03"})
         self.assertEqual(out["blob"], {"hex": "010203", "len": 3})
 
     def test_unsupported_arg_type_raises(self):
-        from mav_gss_lib.platform.spec.command_ops import _json_normalize
+        from mav_gss_lib.platform.spec.command_codec import _json_normalize
         with self.assertRaises(NonJsonSafeArg):
             _json_normalize({"x": object()}, cmd_id="cmd")
 

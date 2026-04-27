@@ -61,7 +61,7 @@ import os as _os
 import sys as _sys
 from typing import Any
 
-from mav_gss_lib.platform.framing.contract import Framer
+from mav_gss_lib.platform.framing.protocol import Framer
 
 
 def _find_libfec():

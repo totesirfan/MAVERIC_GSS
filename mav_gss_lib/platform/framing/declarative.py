@@ -18,7 +18,7 @@ from typing import Any, Mapping
 
 from mav_gss_lib.platform.contract.commands import EncodedCommand, FramedCommand
 from mav_gss_lib.platform.framing import build_chain
-from mav_gss_lib.platform.framing.contract import FramerChain
+from mav_gss_lib.platform.framing.protocol import FramerChain
 from mav_gss_lib.platform.spec.framing import FramerSpec, FramingSpec
 
 

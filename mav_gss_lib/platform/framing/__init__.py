@@ -2,7 +2,7 @@
 
 Generic wire primitives consumed by missions to compose an uplink stack:
 
-    contract    Framer Protocol + FramerChain composer
+    protocol    Framer Protocol + FramerChain composer
     crc         CRC-16 XMODEM, CRC-32C Castagnoli (open standards)
     csp_v1      CSP v1 header + KISS framing + CSPv1Framer
     ax25        AX.25 UI header + HDLC/G3RUH/NRZI bitstream + Ax25Framer
@@ -21,7 +21,7 @@ they inspect gr-satellites metadata strings).
 
 from typing import Any, Callable
 
-from mav_gss_lib.platform.framing.contract import Framer, FramerChain
+from mav_gss_lib.platform.framing.protocol import Framer, FramerChain
 from mav_gss_lib.platform.framing.crc import crc16, crc32c, verify_csp_crc32
 from mav_gss_lib.platform.framing.csp_v1 import (
     FEND, FESC, TFEND, TFESC, kiss_wrap,

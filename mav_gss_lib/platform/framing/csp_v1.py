@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mav_gss_lib.platform.framing.contract import Framer
+from mav_gss_lib.platform.framing.protocol import Framer
 from mav_gss_lib.platform.framing.crc import crc32c
 
 

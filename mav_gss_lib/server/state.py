@@ -42,7 +42,7 @@ from mav_gss_lib.platform.alarms.evaluators.parameter import (
 )
 from mav_gss_lib.platform.alarms.registry import AlarmRegistry
 from mav_gss_lib.platform.alarms.schema import AlarmRule
-from mav_gss_lib.platform.parameters import ParameterCache
+from mav_gss_lib.platform.parameter_cache import ParameterCache
 from ._atomics import AtomicStatus
 from .rx.service import RxService
 from .tx.service import TxService

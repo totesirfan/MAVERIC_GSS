@@ -3,7 +3,7 @@ from typing import Any
 
 from mav_gss_lib.platform import MissionConfigSpec, MissionPacket, MissionSpec, NormalizedPacket, PacketFlags, PacketOps
 from mav_gss_lib.platform.loader import load_mission_spec
-from mav_gss_lib.platform.rx.packets import PacketPipeline
+from mav_gss_lib.platform.rx.packet_pipeline import PacketPipeline
 from mav_gss_lib.missions.echo_v2.mission import EchoUiOps
 
 

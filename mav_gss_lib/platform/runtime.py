@@ -17,7 +17,7 @@ from typing import Any
 from .contract.commands import EncodedCommand, FramedCommand
 from .contract.mission import MissionSpec
 from .loader import load_mission_spec_from_split
-from .parameters import ParameterCache
+from .parameter_cache import ParameterCache
 from .rx.pipeline import RxPipeline, RxResult
 from .spec.runtime import DeclarativeWalker
 from .tx.commands import PreparedCommand, frame_command, prepare_command

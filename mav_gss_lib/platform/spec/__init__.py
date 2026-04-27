@@ -8,7 +8,7 @@ Author:  Irfan Annuar - USC ISI SERC
 from .bitfield import BitfieldEntry, BitfieldType
 from .calibrators import Calibrator, PolynomialCalibrator, PythonCalibrator
 from .calibrator_runtime import CalibratorRuntime, PluginCallable
-from .command_ops import (
+from .command_codec import (
     DeclarativeCommandOpsAdapter,
     build_declarative_command_ops,
 )

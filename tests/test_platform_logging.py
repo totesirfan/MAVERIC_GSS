@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from mav_gss_lib.platform.loader import load_mission_spec
-from mav_gss_lib.platform.parameters import ParameterCache
+from mav_gss_lib.platform.parameter_cache import ParameterCache
 from mav_gss_lib.platform.rx.logging import (
     parameter_log_records,
     rx_log_record,

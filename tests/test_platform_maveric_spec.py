@@ -3,7 +3,7 @@ from pathlib import Path
 from mav_gss_lib.config import load_split_config
 from mav_gss_lib.platform.tx.commands import prepare_command
 from mav_gss_lib.platform.loader import load_mission_spec_from_split
-from mav_gss_lib.platform.parameters import ParameterCache
+from mav_gss_lib.platform.parameter_cache import ParameterCache
 from mav_gss_lib.platform.rx.pipeline import RxPipeline
 from mav_gss_lib.platform.spec.runtime import DeclarativeWalker
 

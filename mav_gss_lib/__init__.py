@@ -21,5 +21,13 @@ Layout:
     identity.py  — operator/host/station capture
     constants.py, textutil.py — small shared helpers
 
+Module-naming convention:
+    name.py     — public to the package (importable by siblings or external code)
+    _name.py    — private helper (sibling-only); not part of the package's public surface
+
+Examples of private helpers in this codebase: server/_atomics.py, server/_broadcast.py,
+platform/_log_envelope.py, server/ws/_utils.py, logging/_base.py, updater/_helpers.py.
+New private helpers should follow the underscore prefix.
+
 Author: Irfan Annuar — USC ISI SERC
 """

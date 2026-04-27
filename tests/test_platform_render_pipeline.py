@@ -3,7 +3,7 @@ from typing import Any
 
 from mav_gss_lib.platform import MissionConfigSpec, MissionSpec
 from mav_gss_lib.platform.loader import load_mission_spec
-from mav_gss_lib.platform.rx.packets import PacketPipeline
+from mav_gss_lib.platform.rx.packet_pipeline import PacketPipeline
 from mav_gss_lib.platform.rx.rendering import (
     fallback_packet_rendering,
     format_text_log_safe,
