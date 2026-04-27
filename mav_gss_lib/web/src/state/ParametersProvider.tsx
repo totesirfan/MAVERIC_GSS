@@ -47,18 +47,31 @@ interface LiveState {
   timestamps: Record<string, number>
 }
 
+export interface ContainerFreshness {
+  last_ms: number | null
+  expected_period_ms: number | null
+}
+
+interface FreshnessMsg {
+  type: 'parameters_freshness'
+  container: string
+  last_ms: number
+  expected_period_ms: number
+}
+
 interface ParametersContextValue {
   grouped: GroupedState
   specByName: Map<string, ParameterSpec>
   specsByGroup: Record<string, ParameterSpec[]>
   timestamps: Record<string, number>
+  freshness: Record<string, ContainerFreshness>
 }
 
 const EMPTY_LIVE: LiveState = { grouped: {}, timestamps: {} }
 const EMPTY_BUCKET: Record<string, ParameterEntry> = {}
 const EMPTY_LIST: ParameterSpec[] = []
 
-const ParametersContext = createContext<ParametersContextValue | null>(null)
+export const ParametersContext = createContext<ParametersContextValue | null>(null)
 
 interface ParameterUpdateMsg {
   type: 'parameters'
@@ -86,12 +99,13 @@ export function ParametersProvider({ children }: PropsWithChildren) {
   const [live, setLive] = useState<LiveState>(EMPTY_LIVE)
   const [specByName, setSpecByName] = useState<Map<string, ParameterSpec>>(new Map())
   const [specsByGroup, setSpecsByGroup] = useState<Record<string, ParameterSpec[]>>({})
+  const [freshness, setFreshness] = useState<Record<string, ContainerFreshness>>({})
 
   // Spec fetch (once)
   useEffect(() => {
     fetch('/api/parameters')
       .then((r) => r.json())
-      .then((body: { parameters: ParameterSpec[] }) => {
+      .then((body: { parameters: ParameterSpec[]; freshness?: Record<string, ContainerFreshness> }) => {
         const byName = new Map<string, ParameterSpec>()
         const byGroup: Record<string, ParameterSpec[]> = {}
         for (const p of body.parameters) {
@@ -101,6 +115,7 @@ export function ParametersProvider({ children }: PropsWithChildren) {
         }
         setSpecByName(byName)
         setSpecsByGroup(byGroup)
+        if (body.freshness) setFreshness(body.freshness)
       })
       .catch(() => {})
   }, [])
@@ -122,6 +137,15 @@ export function ParametersProvider({ children }: PropsWithChildren) {
           delete timestamps[cleared.group]
           return { grouped, timestamps }
         })
+        return
+      }
+
+      if (msg.type === 'parameters_freshness') {
+        const f = msg as FreshnessMsg
+        setFreshness(prev => ({
+          ...prev,
+          [f.container]: { last_ms: f.last_ms, expected_period_ms: f.expected_period_ms || null },
+        }))
         return
       }
 
@@ -167,8 +191,9 @@ export function ParametersProvider({ children }: PropsWithChildren) {
       specByName,
       specsByGroup,
       timestamps: live.timestamps,
+      freshness,
     }),
-    [live, specByName, specsByGroup],
+    [live, specByName, specsByGroup, freshness],
   )
   return <ParametersContext.Provider value={value}>{children}</ParametersContext.Provider>
 }

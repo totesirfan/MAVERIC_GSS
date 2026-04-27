@@ -17,12 +17,12 @@ import { Toaster } from '@/components/ui/sonner'
 import {
   MainDashboard,
   RxCrcToastSentinel,
-  AlarmStripWithPackets,
   ConfigSidebarSkeleton,
   LogViewerSkeleton,
   HelpModalSkeleton,
   CommandPaletteSkeleton,
 } from '@/components/MainDashboard'
+import { AlarmStrip } from '@/components/shared/AlarmStrip'
 import { getPluginPages, type PluginPageDef } from '@/plugins/registry'
 import { MissionProviders } from '@/plugins/missionRuntime'
 import { usePreflight } from '@/hooks/usePreflight'
@@ -210,7 +210,7 @@ function AppShell() {
       />
       <RenameSessionDialog session={session} />
       <RxCrcToastSentinel />
-      <AlarmStripWithPackets status={rx.status} replayMode={rx.replayMode} sessionGeneration={rx.sessionGeneration} />
+      <AlarmStrip />
       <TabViewport
         plugins={plugins}
         activeId={activeTabId}

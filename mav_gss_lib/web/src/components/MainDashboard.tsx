@@ -8,7 +8,6 @@ import { useTabActive } from '@/components/layout/TabActiveContext'
 import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
 import { showToast } from '@/components/shared/StatusToast'
-import { AlarmStrip } from '@/components/shared/AlarmStrip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { renderingFlags, renderingText } from '@/lib/rendering'
 import type { GssConfig } from '@/lib/types'
@@ -28,16 +27,6 @@ export function RxCrcToastSentinel() {
     if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
   }, [packets])
   return null
-}
-
-/** Wraps AlarmStrip with a packets subscription so MainDashboard doesn't need one. */
-export function AlarmStripWithPackets({ status, replayMode, sessionGeneration }: {
-  status: ReturnType<typeof useRxStatus>['status']
-  replayMode: boolean
-  sessionGeneration?: number
-}) {
-  const packets = useRxPackets()
-  return <AlarmStrip status={status} packets={packets} replayMode={replayMode} sessionGeneration={sessionGeneration} />
 }
 
 /** Wraps RxPanel with packets + stats subscriptions, keeping RxPanel's API unchanged. */

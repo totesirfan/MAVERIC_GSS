@@ -1,248 +1,113 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { renderingFlags } from '@/lib/rendering'
-import type { RxPacket, RxStatus } from '@/lib/types'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+export type AlarmSeverity = 'watch' | 'warning' | 'critical'
+export type AlarmState = 'unacked_active' | 'acked_active' | 'unacked_cleared'
+export type AlarmSourceKind = 'platform' | 'container' | 'parameter'
 
 export interface Alarm {
   id: string
+  source: AlarmSourceKind
   label: string
   detail: string
-  severity: 'danger' | 'warning' | 'advisory'
-  firstSeen: number
-  lingering: boolean
-  acked: boolean
+  severity: AlarmSeverity
+  state: AlarmState
+  firstSeenMs: number
+  lastTransitionMs: number
 }
 
-const STALE_THRESHOLD_S = 210
-const CRC_THRESHOLD = 3
-const DUP_THRESHOLD = 5
-const WINDOW_MS = 60_000
-const LINGER_MS = 10_000
+interface ServerAlarm {
+  id: string; source: AlarmSourceKind; label: string; detail: string
+  severity: AlarmSeverity; state: AlarmState
+  first_seen_ms: number; last_eval_ms: number; last_transition_ms: number
+  context: Record<string, unknown>
+}
 
-type AlarmSeverity = Alarm['severity']
+interface SnapshotMsg { type: 'alarm_snapshot'; alarms: ServerAlarm[] }
+interface ChangeMsg {
+  type: 'alarm_change'
+  event: ServerAlarm
+  prev_state: string | null
+  prev_severity: AlarmSeverity | null
+  removed: boolean
+  operator: string
+}
 
-const ALARM_META = {
-  stale: { label: 'STALE', severity: 'danger' },
-  zmq_down: { label: 'ZMQ DOWN', severity: 'danger' },
-  zmq_retry: { label: 'ZMQ RETRY', severity: 'warning' },
-  crc: { label: 'CRC', severity: 'warning' },
-  dup: { label: 'DUP', severity: 'advisory' },
-} as const satisfies Record<string, { label: string; severity: AlarmSeverity }>
+function _toAlarm(a: ServerAlarm): Alarm {
+  return {
+    id: a.id, source: a.source, label: a.label, detail: a.detail,
+    severity: a.severity, state: a.state,
+    firstSeenMs: a.first_seen_ms, lastTransitionMs: a.last_transition_ms,
+  }
+}
 
-export function useAlarms(
-  status: RxStatus,
-  packets: RxPacket[],
-  replayMode: boolean,
-  sessionGeneration: number = 0,
-): {
+export function useAlarms(): {
   alarms: Alarm[]
   ackAll: () => void
   ackOne: (id: string) => void
 } {
-  const [ackedSet, setAckedSet] = useState<Set<string>>(new Set())
-  const clearedSinceAck = useRef<Set<string>>(new Set())
+  const [byId, setById] = useState<Map<string, Alarm>>(new Map())
+  const wsRef = useRef<WebSocket | null>(null)
 
-  // First-seen timestamps — persists as long as the alarm stays active or is lingering
-  const firstSeenMap = useRef<Map<string, number>>(new Map())
-  // When an alarm's condition clears, record the clear time for linger
-  const clearedAtMap = useRef<Map<string, number>>(new Map())
-
-  // Sliding window timestamps for packet-based alarms
-  const crcTimes = useRef<number[]>([])
-  const dupTimes = useRef<number[]>([])
-  const prevLen = useRef(0)
-
-  // Reset all alarm state on session change
   useEffect(() => {
-    if (sessionGeneration === 0) return // skip initial mount
-    prevLen.current = 0
-    crcTimes.current = []
-    dupTimes.current = []
-    firstSeenMap.current = new Map()
-    clearedAtMap.current = new Map()
-    setAckedSet(new Set())
-    clearedSinceAck.current = new Set()
-  }, [sessionGeneration])
+    let cancelled = false
+    let attempt = 0
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
 
-  // Force re-eval for linger expiry
-  const [tick, setTick] = useState(0)
-  const lingerTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+    const connect = () => {
+      if (cancelled) return
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const ws = new WebSocket(`${proto}//${window.location.host}/ws/alarms`)
+      wsRef.current = ws
 
-  // Update sliding windows when new packets arrive
-  useEffect(() => {
-    if (packets.length > prevLen.current) {
-      const newPkts = packets.slice(prevLen.current)
-      const now = Date.now()
-      for (const p of newPkts) {
-        const hasCrcFlag = renderingFlags(p._rendering).some(f => f.tag === 'CRC')
-        if (hasCrcFlag) crcTimes.current.push(now)
-        if (p.is_dup) dupTimes.current.push(now)
+      ws.onopen = () => { attempt = 0 }
+      ws.onmessage = (ev) => {
+        let msg: SnapshotMsg | ChangeMsg
+        try { msg = JSON.parse(ev.data) } catch { return }
+        if (msg.type === 'alarm_snapshot') {
+          setById(new Map(msg.alarms.map(a => [a.id, _toAlarm(a)])))
+        } else if (msg.type === 'alarm_change') {
+          setById(prev => {
+            const next = new Map(prev)
+            if (msg.removed) {
+              next.delete(msg.event.id)
+            } else {
+              next.set(msg.event.id, _toAlarm(msg.event))
+            }
+            return next
+          })
+        }
       }
-      prevLen.current = packets.length
+      const reconnect = () => {
+        wsRef.current = null
+        if (cancelled) return
+        attempt += 1
+        const delayMs = Math.min(30_000, 500 * 2 ** Math.min(attempt, 6))
+        retryTimer = setTimeout(connect, delayMs)
+      }
+      ws.onclose = reconnect
+      ws.onerror = () => { try { ws.close() } catch { /* swallow */ } }
     }
-  }, [packets])
 
-  // Tick every 2s to expire lingering alarms and update relative times
-  useEffect(() => {
-    lingerTimer.current = setInterval(() => setTick(t => t + 1), 2000)
-    return () => { if (lingerTimer.current) clearInterval(lingerTimer.current) }
+    connect()
+    return () => {
+      cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
+      wsRef.current?.close()
+    }
   }, [])
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   const alarms = useMemo<Alarm[]>(() => {
-    if (replayMode) return []
-
-    const now = Date.now()
-    const cutoff = now - WINDOW_MS
-
-    crcTimes.current = crcTimes.current.filter(t => t > cutoff)
-    dupTimes.current = dupTimes.current.filter(t => t > cutoff)
-
-    // Build active candidates (condition currently true)
-    type ActiveAlarm = Omit<Alarm, 'firstSeen' | 'lingering' | 'acked'>
-    const active: ActiveAlarm[] = []
-
-    if (status.silence_s >= STALE_THRESHOLD_S) {
-      active.push({
-        id: 'stale', label: ALARM_META.stale.label,
-        detail: `no packet for ${status.silence_s.toFixed(0)}s`,
-        severity: ALARM_META.stale.severity,
-      })
-    }
-
-    if (status.zmq === 'DOWN') {
-      active.push({
-        id: 'zmq_down', label: ALARM_META.zmq_down.label,
-        detail: 'ZMQ socket disconnected',
-        severity: ALARM_META.zmq_down.severity,
-      })
-    }
-
-    if (status.zmq === 'RETRY') {
-      active.push({
-        id: 'zmq_retry', label: ALARM_META.zmq_retry.label,
-        detail: 'ZMQ socket reconnecting',
-        severity: ALARM_META.zmq_retry.severity,
-      })
-    }
-
-    const crcCount = crcTimes.current.length
-    if (crcCount >= CRC_THRESHOLD) {
-      active.push({
-        id: 'crc', label: ALARM_META.crc.label,
-        detail: `${crcCount} errors in 60s`,
-        severity: ALARM_META.crc.severity,
-      })
-    }
-
-    const dupCount = dupTimes.current.length
-    if (dupCount >= DUP_THRESHOLD) {
-      active.push({
-        id: 'dup', label: ALARM_META.dup.label,
-        detail: `${dupCount} duplicates in 60s`,
-        severity: ALARM_META.dup.severity,
-      })
-    }
-
-    const activeIds = new Set(active.map(a => a.id))
-
-    // Update firstSeen — set on first appearance, never overwritten while active/lingering
-    for (const a of active) {
-      if (!firstSeenMap.current.has(a.id)) {
-        firstSeenMap.current.set(a.id, now)
-      }
-      // Condition is active again — remove any pending clear
-      clearedAtMap.current.delete(a.id)
-    }
-
-    // Track cleared alarms for linger
-    for (const [id] of firstSeenMap.current) {
-      if (!activeIds.has(id) && !clearedAtMap.current.has(id)) {
-        clearedAtMap.current.set(id, now)
-      }
-    }
-
-    // Build final alarm list: active + lingering
-    const result: Alarm[] = []
-
-    // Active alarms
-    for (const a of active) {
-      result.push({
-        ...a,
-        firstSeen: firstSeenMap.current.get(a.id) ?? now,
-        lingering: false,
-        acked: ackedSet.has(a.id) && !clearedSinceAck.current.has(a.id),
-      })
-    }
-
-    // Lingering alarms (condition cleared but within linger window)
-    for (const [id, clearedAt] of clearedAtMap.current) {
-      if (activeIds.has(id)) continue
-      if (now - clearedAt > LINGER_MS) {
-        // Linger expired — clean up
-        clearedAtMap.current.delete(id)
-        firstSeenMap.current.delete(id)
-        continue
-      }
-      // Don't show if acked
-      if (ackedSet.has(id)) {
-        clearedAtMap.current.delete(id)
-        firstSeenMap.current.delete(id)
-        continue
-      }
-      const meta = ALARM_META[id as keyof typeof ALARM_META]
-      const firstSeen = firstSeenMap.current.get(id) ?? clearedAt
-      result.push({
-        id,
-        label: meta?.label ?? id.toUpperCase().replace('_', ' '),
-        detail: 'cleared',
-        severity: meta?.severity ?? 'advisory',
-        firstSeen,
-        lingering: true,
-        acked: false,
-      })
-    }
-
-    const order: Record<string, number> = { danger: 0, warning: 1, advisory: 2 }
-    result.sort((a, b) => order[a.severity] - order[b.severity])
-
-    return result
-  }, [status.silence_s, status.zmq, packets.length, replayMode, ackedSet, tick])
-  /* eslint-enable react-hooks/exhaustive-deps */
-
-  // Track which acked alarms have cleared (side-effect outside useMemo)
-  useEffect(() => {
-    if (replayMode) return
-    const activeIds = new Set(alarms.map(a => a.id))
-    for (const id of ackedSet) {
-      if (!activeIds.has(id)) {
-        clearedSinceAck.current.add(id)
-      }
-    }
-  }, [alarms, ackedSet, replayMode])
-
-  const ackAll = useCallback(() => {
-    const ids = alarms.map(a => a.id)
-    setAckedSet(prev => {
-      const next = new Set(prev)
-      ids.forEach(id => next.add(id))
-      return next
-    })
-    for (const id of ids) {
-      clearedSinceAck.current.delete(id)
-      clearedAtMap.current.delete(id)
-      firstSeenMap.current.delete(id)
-    }
-  }, [alarms])
+    const order: Record<AlarmSeverity, number> = { critical: 0, warning: 1, watch: 2 }
+    return Array.from(byId.values()).sort((a, b) =>
+      order[a.severity] - order[b.severity]
+    )
+  }, [byId])
 
   const ackOne = useCallback((id: string) => {
-    setAckedSet(prev => {
-      const next = new Set(prev)
-      next.add(id)
-      return next
-    })
-    clearedSinceAck.current.delete(id)
-    clearedAtMap.current.delete(id)
-    firstSeenMap.current.delete(id)
+    wsRef.current?.send(JSON.stringify({ type: 'ack', id }))
+  }, [])
+  const ackAll = useCallback(() => {
+    wsRef.current?.send(JSON.stringify({ type: 'ack_all' }))
   }, [])
 
   return { alarms, ackAll, ackOne }
