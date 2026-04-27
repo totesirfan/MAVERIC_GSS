@@ -61,35 +61,41 @@ src/
   vite-env.d.ts          Vite ambient types
   components/
     MainDashboard.tsx    Split-pane RX/TX layout; reads RX/TX state via provider hooks
-    rx/                  RxPanel, PacketList/Row/Detail, SessionBanner, BlackoutPill
+    ConfigSidebar.tsx    Runtime config editor sidebar (top-level — single-file)
+    rx/                  RxPanel, RxPanelHeader, RxDetailPane, PacketList/Row/Detail,
+                         SessionBanner, BlackoutPill
     tx/                  TxPanel, TxQueue, QueueItem, CommandInput, ImportDialog, SentHistory,
                          DelayItem, NoteItem
-    shared/              PtypeBadge, StatusDot, TogglePill, ContextMenu, CommandPalette, HelpModal,
-                         StatusToast, AlarmStrip, ConfirmBar/Dialog, PromptDialog, PreflightScreen,
-                         RenderingBlocks, PlanetGlobe
-    config/              Runtime config editor + sidebar
+    shared/
+      atoms/             StatusDot, TogglePill, ValueBadge
+      dialogs/           ConfirmDialog, PromptDialog, HelpModal
+      overlays/          AlarmStrip, CommandPalette, ConfirmBar, ContextMenu, StatusToast
+      preflight/         PreflightScreen + .constants + .updater
+      rendering/         CellValue, Blocks, extractFromRendering (+ index barrel)
+      visualization/     PlanetGlobe
     logs/                Log session browser + replay controls
-    layout/              GlobalHeader, SplitPane, KeyboardHintBar, TabStrip, TabViewport,
-                         TabActiveContext, navigation (tab builder)
+    layout/              GlobalHeader, SplitPane, KeyboardHintBar, TabStrip, TabViewport
     ui/                  shadcn/ui primitives
   state/                 Providers and store modules (context lives here, not in hooks/)
     SessionProvider.tsx  Session context provider
     sessionContexts.ts   Session context objects
-    session.ts           Session hooks and selectors
+    sessionHooks.ts      Session hooks and selectors
     TxProvider.tsx       TX WebSocket + queue provider
     txContexts.ts        TX context objects
-    tx.ts                TX hooks and selectors
+    txHooks.ts           TX hooks and selectors
+    txItems.ts           TX queue-item derivation
     RxProvider.tsx       RX WebSocket provider
     rxContexts.ts        RX context objects
-    rx.ts                RX hooks and selectors
-    TelemetryProvider.tsx Platform telemetry-domain provider and catalog cache
-    telemetry.ts         Telemetry message/domain types
+    rxHooks.ts           RX hooks and selectors
+    ParametersProvider.tsx Provider component (creates the parameter cache value)
+    parametersContexts.ts Parameter context + spec/entry/freshness types
+    parametersHooks.ts   useParameter, useParameterGroup, clearParameterGroup
+    TabActiveContext.ts  Tab visibility context (was layout/, moved Phase 6)
   hooks/                 Pure hooks (no providers)
     useRxSocket.ts       RX socket hook
     useTxSocket.ts       TX socket hook
     useSession.ts        Session operations
     useLogQuery.ts       Paginated log fetching
-    useRxToggles.ts      RX panel toggle state
     useReceivingDetection.ts  Silence/burst detection
     useShortcuts.ts      Global keyboard shortcuts
     useAlarms.ts         Alarm strip state

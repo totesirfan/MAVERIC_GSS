@@ -7,6 +7,7 @@ import { useTx } from '@/state/txHooks'
 import { RxProvider } from '@/state/RxProvider'
 import { ParametersProvider } from '@/state/ParametersProvider'
 import { useRxStatus, useRxDisplayToggles } from '@/state/rxHooks'
+import { RxDisplayTogglesContext, type RxDisplayToggles } from '@/state/rxContexts'
 import { colors } from '@/lib/colors'
 import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
 import { useRxSocket } from '@/hooks/useRxSocket'
@@ -350,28 +351,49 @@ function PopOutTxInner() {
   )
 }
 
-/** Pop-out RX panel — standalone window */
+/** Pop-out RX panel — standalone window.
+ *
+ *  Mounts its own RxDisplayTogglesContext so RxPanel/RxPanelHeader/RxDetailPane
+ *  (which read toggles from context) work outside the main RxProvider tree.
+ *  Uses local toggle state — pop-out windows manage their own UI state per
+ *  the App-level "panel mode" rule (App.tsx:60).
+ */
 function PopOutRx() {
   const { config } = usePopOutBootstrap()
   const rx = useRxSocket()
 
+  const [showHex, setShowHex] = useState(false)
+  const [showFrame, setShowFrame] = useState(false)
+  const [showWrapper, setShowWrapper] = useState(false)
+  const [hideUplink, setHideUplink] = useState(true)
+
+  const toggles = useMemo<RxDisplayToggles>(() => ({
+    showHex, showFrame, showWrapper, hideUplink,
+    toggleHex: () => setShowHex(v => !v),
+    toggleFrame: () => setShowFrame(v => !v),
+    toggleWrapper: () => setShowWrapper(v => !v),
+    toggleUplink: () => setHideUplink(v => !v),
+  }), [showHex, showFrame, showWrapper, hideUplink])
+
   return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
-      <div className="flex-1 p-2">
-        <RxPanel
-          config={config}
-          packets={rx.packets} status={rx.status}
-          packetStats={rx.stats}
-          columns={rx.columns}
-          replayMode={rx.replayMode}
-          replaySession={null}
-          replacePackets={rx.replacePackets}
-          onStopReplay={() => {}}
-          sessionGeneration={rx.sessionGeneration}
-          sessionTag={rx.sessionTag || ''}
-          blackoutUntil={rx.blackoutUntil}
-        />
+    <RxDisplayTogglesContext.Provider value={toggles}>
+      <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
+        <div className="flex-1 p-2">
+          <RxPanel
+            config={config}
+            packets={rx.packets} status={rx.status}
+            packetStats={rx.stats}
+            columns={rx.columns}
+            replayMode={rx.replayMode}
+            replaySession={null}
+            replacePackets={rx.replacePackets}
+            onStopReplay={() => {}}
+            sessionGeneration={rx.sessionGeneration}
+            sessionTag={rx.sessionTag || ''}
+            blackoutUntil={rx.blackoutUntil}
+          />
+        </div>
       </div>
-    </div>
+    </RxDisplayTogglesContext.Provider>
   )
 }
