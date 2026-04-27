@@ -318,18 +318,22 @@
   transform: translateX(-50%);
   background: var(--text-primary); box-shadow: 0 0 4px rgba(229, 229, 229, 0.6);
 }
+/* Two-row axis: edge labels (.edge-l / .edge-r) own row 1 so the bar's
+   ends always read clean; inner threshold labels (lo / nom / hi) drop
+   to row 2 below, where they get the full bar width without colliding
+   with the edges. */
 .eps-page .soc-axis {
-  position: relative; height: 16px; margin-top: 6px;
+  position: relative; height: 30px; margin-top: 6px;
   font-family: 'JetBrains Mono', monospace; font-size: 12px;
   color: var(--text-disabled); letter-spacing: 0.04em;
 }
 .eps-page .soc-axis .mk {
-  position: absolute; top: 0;
+  position: absolute; top: 14px;
   transform: translateX(-50%);
   white-space: nowrap; line-height: 1;
 }
-.eps-page .soc-axis .mk.edge-l { transform: none; }
-.eps-page .soc-axis .mk.edge-r { transform: translateX(-100%); }
+.eps-page .soc-axis .mk.edge-l { top: 0; transform: none; }
+.eps-page .soc-axis .mk.edge-r { top: 0; transform: translateX(-100%); }
 
 /* ── Δ-since-previous + ETA rows ─────────────────────────── */
 .eps-page .delta-row {
@@ -627,12 +631,7 @@
   font-size: 11px; color: var(--text-muted); font-weight: 400;
   letter-spacing: 0.04em;
   white-space: normal; overflow-wrap: anywhere; word-break: break-word;
-  display: none;
-}
-/* Sub-label only appears on segments wide enough for the full two-line
-   label. Narrow segments gracefully drop it to the main line alone. */
-@container (min-width: 148px) {
-  .eps-page .pb-seg-lines .sub { display: block; }
+  display: block;
 }
 .eps-page .pb-seg.solar      {
   --seg-accent: var(--state-success);
