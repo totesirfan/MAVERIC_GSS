@@ -14,6 +14,7 @@ from mav_gss_lib.missions.maveric.identity_router import get_identity_router
 from mav_gss_lib.missions.maveric.imaging.events import MavericImagingEvents
 from mav_gss_lib.missions.maveric.imaging import ImageAssembler, get_imaging_router
 from mav_gss_lib.missions.maveric.packets import DeclarativePacketsAdapter
+from mav_gss_lib.missions.maveric.alarm_predicates import PLUGINS as ALARM_PLUGINS
 from mav_gss_lib.missions.maveric.plugins import PLUGINS
 from mav_gss_lib.missions.maveric.preflight import build_preflight
 from mav_gss_lib.missions.maveric.ui.formatters import _assert_dispatch_plugins_registered
@@ -97,6 +98,7 @@ def build(ctx: MissionContext) -> MissionSpec:
         ),
         spec_root=capabilities.mission,
         spec_plugins=capabilities.plugins,
+        alarm_plugins=ALARM_PLUGINS,
         events=EventOps(sources=[MavericImagingEvents(
             codec=capabilities.packet_codec,
             image_assembler=image_assembler,
