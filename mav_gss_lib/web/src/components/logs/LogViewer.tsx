@@ -225,7 +225,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
         >
           <motion.div
             className="absolute inset-0 frosted-backdrop"
-            style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+            style={{ backgroundColor: colors.modalBackdrop }}
           />
 
           <motion.div

@@ -126,7 +126,7 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
       {open && (
         <motion.div
           className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+          style={{ backgroundColor: colors.modalBackdrop }}
           initial={animateOnMount ? { opacity: 0 } : false}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

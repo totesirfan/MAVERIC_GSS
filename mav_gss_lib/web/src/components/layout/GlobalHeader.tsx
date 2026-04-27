@@ -219,7 +219,7 @@ export function GlobalHeader({
       {/* Row 2: Mission bar — frosted glass */}
       <div
         className="flex items-center h-[30px] px-4 backdrop-blur-sm"
-        style={{ backgroundColor: 'rgba(8,8,8,0.8)' }}
+        style={{ backgroundColor: colors.modalBackdropHeavy }}
       >
         {/* Tab strip */}
         <TabStrip tabs={tabs} activeId={activeTabId} onTabClick={onTabClick} />

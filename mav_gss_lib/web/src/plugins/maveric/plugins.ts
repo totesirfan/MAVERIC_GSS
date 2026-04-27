@@ -20,6 +20,7 @@ const plugins: PluginPageDef[] = [
     category: 'mission',
     order: 20,
     keepAlive: true,   // keep hook state across tab switches
+    subroutes: ['registers'],
     component: lazy(() => import('./gnc/GNCPage')),
   },
   {

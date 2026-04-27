@@ -50,6 +50,7 @@ export interface PluginPageDef {
   category: 'mission' | 'platform'
   keepAlive?: boolean
   order?: number
+  subroutes?: string[]
 }
 
 const pluginModules = import.meta.glob<{ default: PluginPageDef[] }>(

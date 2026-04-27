@@ -9,7 +9,9 @@ import { GssInput } from '@/components/ui/gss-input'
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
 let hasLoadedConfigSidebar = false
 
-function diffConfig(current: any, base: any): any {
+function diffConfig(current: GssConfig, base: GssConfig): Partial<GssConfig> | undefined
+function diffConfig(current: unknown, base: unknown): unknown
+function diffConfig(current: unknown, base: unknown): unknown {
   if (current === base) return undefined
   if (current === null || base === null || typeof current !== 'object' || typeof base !== 'object') {
     return current
@@ -17,9 +19,11 @@ function diffConfig(current: any, base: any): any {
   if (Array.isArray(current) || Array.isArray(base)) {
     return JSON.stringify(current) === JSON.stringify(base) ? undefined : current
   }
+  const cur = current as Record<string, unknown>
+  const bas = base as Record<string, unknown>
   const out: Record<string, unknown> = {}
-  for (const key of Object.keys(current)) {
-    const sub = diffConfig(current[key], base[key])
+  for (const key of Object.keys(cur)) {
+    const sub = diffConfig(cur[key], bas[key])
     if (sub !== undefined) out[key] = sub
   }
   return Object.keys(out).length === 0 ? undefined : out
@@ -254,7 +258,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
           {/* Backdrop */}
           <motion.div
             className="flex-1"
-            style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+            style={{ backgroundColor: colors.modalBackdrop }}
             initial={animateOnMount ? { opacity: 0 } : false}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

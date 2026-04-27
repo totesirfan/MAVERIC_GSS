@@ -71,7 +71,7 @@ export function CommandPalette({ open, onOpenChange, navigationTabs, onNavigate,
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]" onClick={() => onOpenChange(false)}>
           <motion.div
             className="absolute inset-0 frosted-backdrop"
-            style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+            style={{ backgroundColor: colors.modalBackdrop }}
             initial={animateOnMount ? { opacity: 0 } : false}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -182,15 +182,20 @@ export function CommandPalette({ open, onOpenChange, navigationTabs, onNavigate,
                       <span>Go to {t.name}</span>
                     </CommandItem>
                   ))}
-                  {navigationTabs.some(t => t.id === 'gnc') && (
-                    <CommandItem
-                      value="GNC Registers"
-                      keywords={['go to', 'gnc', 'registers']}
-                      onSelect={() => run(() => onNavigate('gnc', 'registers'))}
-                    >
-                      <Database className="size-4" />
-                      <span>Go to GNC Registers</span>
-                    </CommandItem>
+                  {navigationTabs.flatMap(t =>
+                    t.kind === 'plugin' && t.plugin.subroutes
+                      ? t.plugin.subroutes.map(sub => (
+                          <CommandItem
+                            key={`${t.id}:${sub}`}
+                            value={`${t.name} ${sub}`}
+                            keywords={['go to', t.id, sub]}
+                            onSelect={() => run(() => onNavigate(t.id, sub))}
+                          >
+                            <Database className="size-4" />
+                            <span>Go to {t.name} {sub.charAt(0).toUpperCase() + sub.slice(1)}</span>
+                          </CommandItem>
+                        ))
+                      : []
                   )}
                 </CommandGroup>
               </CommandList>

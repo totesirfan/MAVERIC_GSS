@@ -51,6 +51,10 @@ export const colors = {
   bgPanel: '#0E0E0E',   // bg-panel
   bgCard:  'rgba(255,255,255,0.02)',
 
+  // Modal / dialog backdrop overlays
+  modalBackdrop:      'rgba(0, 0, 0, 0.7)',
+  modalBackdropHeavy: 'rgba(8, 8, 8, 0.8)',
+
   // Frame type colors (muted)
   frameAx25:  '#6690B8',
   frameGolay: '#50A898',

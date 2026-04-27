@@ -107,7 +107,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns, disabled }:
     <>
       <motion.div
         className="fixed inset-0 z-40 frosted-backdrop"
-        style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+        style={{ backgroundColor: colors.modalBackdrop }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
