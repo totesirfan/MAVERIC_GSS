@@ -344,7 +344,7 @@ class TestTxEventsAreAsyncio(unittest.TestCase):
         runtime = create_runtime()
 
         async def _run():
-            task = _asyncio.create_task(runtime.tx._wait_ms(5000))
+            task = _asyncio.create_task(runtime.tx._send_coord._wait_ms(5000))
             await _asyncio.sleep(0.02)
             t0 = _time.monotonic()
             runtime.tx.abort.set()

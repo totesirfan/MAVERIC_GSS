@@ -34,7 +34,7 @@ class TestRxBlackoutDrop(unittest.TestCase):
 import asyncio
 import tempfile
 
-import mav_gss_lib.server.tx.service as tx_service
+import mav_gss_lib.server.tx._send_coordinator as tx_service
 from mav_gss_lib.server.tx.queue import validate_mission_cmd
 
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type ComponentProps } from 'react'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { SplitPane } from '@/components/layout/SplitPane'
-import { useRxStatus, useRxPackets, useRxStats, useRxDisplayToggles } from '@/state/rxHooks'
+import { useRxStatus, useRxPackets, useRxStats } from '@/state/rxHooks'
 import { useTx } from '@/state/txHooks'
 import { useSessionContext } from '@/state/sessionHooks'
 import { useTabActive } from '@/state/TabActiveContext'
@@ -129,7 +129,6 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, r
   const tx = useTx()
   const session = useSessionContext()
   const tabActive = useTabActive()
-  const rxToggles = useRxDisplayToggles()
 
   const shortcuts = useMemo<Shortcut[]>(() => [
     { key: 's', ctrl: true, action: () => { if (tx.queue.length > 0 && !tx.sendProgress) tx.sendAll() } },
@@ -178,14 +177,6 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, r
             sessionGeneration={rx.sessionGeneration}
             sessionTag={rx.sessionTag || session.sessionTag}
             blackoutUntil={rx.blackoutUntil}
-            externalShowHex={rxToggles.showHex}
-            externalShowFrame={rxToggles.showFrame}
-            externalShowWrapper={rxToggles.showWrapper}
-            externalHideUplink={rxToggles.hideUplink}
-            onToggleHex={rxToggles.toggleHex}
-            onToggleFrame={rxToggles.toggleFrame}
-            onToggleWrapper={rxToggles.toggleWrapper}
-            onToggleUplink={rxToggles.toggleUplink}
           />
         }
       />
