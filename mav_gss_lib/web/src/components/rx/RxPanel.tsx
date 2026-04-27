@@ -5,8 +5,8 @@ import { SessionBanner } from './SessionBanner'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ExternalLink, SlidersHorizontal, ArrowDownToLine, Download, X, ClipboardCopy, Binary } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { TogglePill } from '@/components/shared/TogglePill'
-import { StatusDot } from '@/components/shared/StatusDot'
+import { TogglePill } from '@/components/shared/atoms/TogglePill'
+import { StatusDot } from '@/components/shared/atoms/StatusDot'
 import { PacketList } from './PacketList'
 import { PacketDetail } from './PacketDetail'
 import { BlackoutPill } from './BlackoutPill'
@@ -16,7 +16,7 @@ import { renderingText } from '@/lib/rendering'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem,
-} from '@/components/shared/ContextMenu'
+} from '@/components/shared/overlays/ContextMenu'
 import type { ColumnDef, GssConfig, RxPacket, RxStatus } from '@/lib/types'
 
 function f(label: string, value: string): string {

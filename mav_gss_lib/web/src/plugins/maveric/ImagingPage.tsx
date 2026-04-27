@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { showToast } from '@/components/shared/StatusToast';
+import { ConfirmDialog } from '@/components/shared/dialogs/ConfirmDialog';
+import { showToast } from '@/components/shared/overlays/StatusToast';
 import {
   ResizablePanelGroup,
   ResizablePanel,

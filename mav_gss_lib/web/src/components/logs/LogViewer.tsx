@@ -13,7 +13,7 @@ import { useLogQuery, type LogEntry } from '@/hooks/useLogQuery'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
-} from '@/components/shared/ContextMenu'
+} from '@/components/shared/overlays/ContextMenu'
 import { LogFilterBar } from './LogFilterBar'
 
 interface LogViewerProps {

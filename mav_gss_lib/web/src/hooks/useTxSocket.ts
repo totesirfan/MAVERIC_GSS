@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createSocket } from '@/lib/ws'
-import { showToast } from '@/components/shared/StatusToast'
+import { showToast } from '@/components/shared/overlays/StatusToast'
 import type {
   TxQueueItem, TxQueueSummary, TxHistoryItem,
   SendProgress, GuardConfirm, CmdDisplay,

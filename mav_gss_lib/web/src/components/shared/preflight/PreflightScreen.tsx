@@ -10,7 +10,7 @@ import type {
   UpdatesCheckMeta,
   UpdateUIState,
 } from '@/lib/types'
-import { PlanetGlobe } from './PlanetGlobe'
+import { PlanetGlobe } from '@/components/shared/visualization/PlanetGlobe'
 import { SLATE_ACCENT, USC_GOLD } from './PreflightScreen.constants'
 import { UpdaterStage } from './PreflightScreen.updater'
 

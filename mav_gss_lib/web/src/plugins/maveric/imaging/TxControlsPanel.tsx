@@ -12,7 +12,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { GssInput } from '@/components/ui/gss-input';
-import { showToast } from '@/components/shared/StatusToast';
+import { showToast } from '@/components/shared/overlays/StatusToast';
 import { colors } from '@/lib/colors';
 import { withJpg } from './helpers';
 import { FilenameInput } from './FilenameInput';

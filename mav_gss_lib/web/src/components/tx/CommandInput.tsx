@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, forwardRef } from 'react'
 import { CornerDownLeft } from 'lucide-react'
 import { Kbd } from '@/components/ui/kbd'
 import { colors } from '@/lib/colors'
-import { showToast } from '@/components/shared/StatusToast'
+import { showToast } from '@/components/shared/overlays/StatusToast'
 import type { CommandSchemaItem } from '@/lib/types'
 
 interface CommandInputProps {

@@ -4,7 +4,7 @@ import { FileUp, FileText, Check, ChevronRight, Shield, Timer, MessageSquareText
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
 import { cellText } from '@/lib/rendering'
-import { ValueBadge } from '@/components/shared/ValueBadge'
+import { ValueBadge } from '@/components/shared/atoms/ValueBadge'
 import { authFetch } from '@/lib/auth'
 import type { TxColumnDef, DetailBlock, RenderCell } from '@/lib/types'
 

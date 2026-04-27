@@ -2,13 +2,13 @@ import { Badge } from '@/components/ui/badge'
 import { ChevronRight, ClipboardCopy, Braces, Binary } from 'lucide-react'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
-import { CellValue, extractFromRendering } from '@/components/shared/RenderingBlocks'
+import { CellValue, extractFromRendering } from '@/components/shared/rendering/RenderingBlocks'
 import {
   ContextMenuRoot,
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
-} from '@/components/shared/ContextMenu'
+} from '@/components/shared/overlays/ContextMenu'
 import type { ColumnDef, RxPacket } from '@/lib/types'
 
 interface PacketRowProps {

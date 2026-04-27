@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { Shield } from 'lucide-react'
 import { colors, frameColor } from '@/lib/colors'
-import { ValueBadge } from '@/components/shared/ValueBadge'
+import { ValueBadge } from '@/components/shared/atoms/ValueBadge'
 import type { ColumnDef, DetailBlock, IntegrityBlock as IntegrityBlockType, RenderCell, RenderingData, RenderingFlag } from '@/lib/types'
 
 // --- Row cell rendering (shared by PacketRow and LogViewer) ---

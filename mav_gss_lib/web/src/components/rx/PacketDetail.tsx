@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Clock, Radio, AlertTriangle, Binary } from 'lucide-react'
 import { colors, frameColor } from '@/lib/colors'
-import { SemanticBlocks, ProtocolBlocks, IntegritySection } from '@/components/shared/RenderingBlocks'
+import { SemanticBlocks, ProtocolBlocks, IntegritySection } from '@/components/shared/rendering/RenderingBlocks'
 import type { RxPacket } from '@/lib/types'
 
 interface PacketDetailProps {

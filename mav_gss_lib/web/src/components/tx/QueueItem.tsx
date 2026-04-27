@@ -10,11 +10,11 @@ import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
 import { col } from '@/lib/columns'
 import { cellText } from '@/lib/rendering'
-import { ValueBadge } from '@/components/shared/ValueBadge'
+import { ValueBadge } from '@/components/shared/atoms/ValueBadge'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
-} from '@/components/shared/ContextMenu'
+} from '@/components/shared/overlays/ContextMenu'
 import { useTx } from '@/state/txHooks'
 import { VerifierTickStrip } from './VerifierTickStrip'
 import { VerifierDetailBlock } from './VerifierDetailBlock'

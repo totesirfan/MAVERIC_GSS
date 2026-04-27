@@ -22,22 +22,22 @@ import {
   HelpModalSkeleton,
   CommandPaletteSkeleton,
 } from '@/components/MainDashboard'
-import { AlarmStrip } from '@/components/shared/AlarmStrip'
+import { AlarmStrip } from '@/components/shared/overlays/AlarmStrip'
 import { getPluginPages, type PluginPageDef } from '@/plugins/registry'
 import { MissionProviders } from '@/plugins/missionRuntime'
 import { usePreflight } from '@/hooks/usePreflight'
-import { PreflightScreen } from '@/components/shared/PreflightScreen'
+import { PreflightScreen } from '@/components/shared/preflight/PreflightScreen'
 import { TabViewport } from '@/components/layout/TabViewport'
 import { buildNavigationTabs } from '@/lib/navigation'
 import { KeyboardHintBar } from '@/components/layout/KeyboardHintBar'
 import { isInputFocused } from '@/lib/utils'
 import { authFetch } from '@/lib/auth'
-import type { CommandPaletteActions } from '@/components/shared/CommandPalette'
+import type { CommandPaletteActions } from '@/components/shared/overlays/CommandPalette'
 
 const ConfigSidebar = lazy(() => import('@/components/config/ConfigSidebar').then((m) => ({ default: m.ConfigSidebar })))
 const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => ({ default: m.LogViewer })))
-const HelpModal = lazy(() => import('@/components/shared/HelpModal').then((m) => ({ default: m.HelpModal })))
-const CommandPalette = lazy(() => import('@/components/shared/CommandPalette').then((m) => ({ default: m.CommandPalette })))
+const HelpModal = lazy(() => import('@/components/shared/dialogs/HelpModal').then((m) => ({ default: m.HelpModal })))
+const CommandPalette = lazy(() => import('@/components/shared/overlays/CommandPalette').then((m) => ({ default: m.CommandPalette })))
 
 /** Check if app is running in a pop-out panel mode */
 function getPanelMode(): 'tx' | 'rx' | null {

@@ -7,7 +7,7 @@ import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink, Wre
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Kbd } from '@/components/ui/kbd'
-import { StatusDot } from '@/components/shared/StatusDot'
+import { StatusDot } from '@/components/shared/atoms/StatusDot'
 import { colors, frameColor } from '@/lib/colors'
 import { TxQueue } from './TxQueue'
 import { CommandInput } from './CommandInput'
