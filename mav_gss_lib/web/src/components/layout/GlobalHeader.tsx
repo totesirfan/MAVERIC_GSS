@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { TabStrip } from '@/components/layout/TabStrip'
 import { useRxStatus } from '@/state/rxHooks'
 import { colors } from '@/lib/colors'
-import type { NavigationTabDef } from '@/components/layout/navigation'
+import type { NavigationTabDef } from '@/lib/navigation'
 import type { SessionState } from '@/hooks/useSession'
 
 interface GlobalHeaderProps {

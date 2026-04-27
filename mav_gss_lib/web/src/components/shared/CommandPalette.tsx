@@ -12,7 +12,7 @@ import {
   Settings, FileText, HelpCircle, Eye, Plus, Tag,
   Database,
 } from 'lucide-react'
-import type { NavigationTabDef } from '@/components/layout/navigation'
+import type { NavigationTabDef } from '@/lib/navigation'
 
 export interface CommandPaletteActions {
   toggleHex: () => void

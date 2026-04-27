@@ -1,6 +1,6 @@
 import { useReducedMotion, motion } from 'framer-motion'
 import { colors } from '@/lib/colors'
-import type { NavigationTabDef } from '@/components/layout/navigation'
+import type { NavigationTabDef } from '@/lib/navigation'
 
 interface TabStripProps {
   tabs: NavigationTabDef[]
