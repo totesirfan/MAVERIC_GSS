@@ -44,11 +44,11 @@ function extractCmdArgs(p: RxPacket): string {
 
 function formatPacketText(p: RxPacket): string {
   const lines: string[] = []
-  const sep = '─'
+  const sep = '\u2500'
   const extras = [p.frame || '', `${p.size}B`, p.is_dup ? '[DUP]' : '', p.is_echo ? '[UL]' : ''].filter(Boolean).join('  ')
   lines.push(`${sep.repeat(4)} #${p.num}  ${p.time_utc || p.time}  ${extras} ${sep.repeat(20)}`)
-  if (p.is_echo) lines.push('  ▲▲▲ UPLINK ECHO ▲▲▲')
-  for (const w of p.warnings) lines.push(f('⚠ WARNING', w))
+  if (p.is_echo) lines.push('  \u25B2\u25B2\u25B2 UPLINK ECHO \u25B2\u25B2\u25B2')
+  for (const w of p.warnings) lines.push(f('\u26A0 WARNING', w))
 
   const r = p._rendering
   if (r?.detail_blocks) {
