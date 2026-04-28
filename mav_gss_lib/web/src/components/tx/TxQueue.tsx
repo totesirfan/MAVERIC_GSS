@@ -89,6 +89,16 @@ export function TxQueue({
 
   const pendingItems = useMemo(() => items.filter(i => i.source === 'queue'), [items])
 
+  const prevPendingCountRef = useRef(pendingItems.length)
+  useEffect(() => {
+    const prev = prevPendingCountRef.current
+    prevPendingCountRef.current = pendingItems.length
+    if (pendingItems.length > prev) {
+      const c = scrollRef.current
+      if (c) c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' })
+    }
+  }, [pendingItems.length])
+
   const queueShortcuts = useMemo<Shortcut[]>(() => [
     {
       key: 'ArrowUp',
