@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mav_gss_lib.server.tx._send_coordinator as tx_service
+from mav_gss_lib.platform.spec import HeaderFieldNotOverridable
 from mav_gss_lib.server.tx.queue import make_checkpoint, make_mission_cmd, sanitize_queue_items, validate_mission_cmd
 from mav_gss_lib.server.state import create_runtime
 
@@ -82,9 +83,18 @@ class TestTxRuntime(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown command"):
             validate_mission_cmd(_make_payload("definitely_not_real", "REQ"), runtime=self.runtime)
 
-    def test_rx_only_command_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "receive-only"):
-            validate_mission_cmd(_make_payload("tlm_beacon", "1 1767230528021 0 0"), runtime=self.runtime)
+    def test_tlm_beacon_is_commandable_with_fixed_dest(self):
+        item = validate_mission_cmd(
+            {"cmd_id": "tlm_beacon", "args": {}, "guard": False},
+            runtime=self.runtime,
+        )
+
+        self.assertEqual(item["cmd_id"], "tlm_beacon")
+        self.assertEqual(item["mission"]["facts"]["header"]["dest"], "UPPM")
+
+    def test_fixed_dest_command_rejects_dest_override(self):
+        with self.assertRaisesRegex(HeaderFieldNotOverridable, "does not allow operator override"):
+            validate_mission_cmd(_make_payload("tlm_beacon"), runtime=self.runtime)
 
     def test_missing_required_args_are_rejected(self):
         with self.assertRaises(ValueError):
