@@ -1,39 +1,36 @@
 # MAVERIC GSS Web Console
 
-This directory contains the React/Vite operator console for MAVERIC GSS.
-
-It is not a standalone app. It is the frontend for the FastAPI runtime under `mav_gss_lib/server/`. The current built frontend lives in `dist/` (committed) and is served directly by the Python backend — no separate deploy step.
+This directory contains the React/Vite operator console served by the FastAPI
+runtime in `mav_gss_lib/server/`. It is not deployed as a standalone app:
+`dist/` is committed and mounted directly by `python3 MAV_WEB.py`, while Vite
+development proxies `/api` and `/ws` to the backend on port 8080.
 
 ## What lives here
 
-- RX monitoring views
-- TX queue and command-builder views
-- Config sidebar and runtime config editor
-- Log browser and replay controls
-- Preflight/updater bootstrap screens
-- Shared layout, keyboard shortcuts, and operator feedback components
-- Mission-scoped plugin pages (imaging, GNC, EPS)
+- RX packet monitoring, detail inspection, packet replay, and live parameter cache views.
+- TX command builder, drag-to-reorder queue, delays, notes, checkpoints, guard prompts, sent history, and verifier status.
+- GNU Radio process-control tab for `platform.radio.script`, including start/stop/restart and stdout/stderr tailing.
+- Runtime config editor, log browser, command palette, help modal, alarm strip, status toasts, and session controls.
+- Preflight and updater screens shown before the operator launches into the console.
+- Mission plugin pages and providers, currently MAVERIC Imaging, GNC, and EPS.
 
 ## Tech stack
 
 Verified against `package.json`:
 
-- **React 19** + **Vite 8** + **TypeScript 5.9**
-- **Tailwind CSS v4** (via `@tailwindcss/vite`) + **shadcn/ui**
-- **@base-ui/react**, **@radix-ui/react-context-menu** — unstyled UI primitives
-- **framer-motion** — animation
-- **@dnd-kit/core**, **@dnd-kit/sortable**, **@dnd-kit/utilities** — drag-and-drop for TX queue reorder
-- **react-resizable-panels** — split-pane layout
-- **react-virtuoso** — virtualized packet/history lists
-- **cmdk** — Ctrl+K command palette (filter in `src/lib/cmdkFilter.ts`)
-- **sonner** — toast notifications
-- **lucide-react** — iconography
-- **react-day-picker** — date picker used in log filters
-- **d3-geo**, **topojson-client**, **satellite.js** — globe and orbit visualization
-- **class-variance-authority**, **clsx**, **tailwind-merge**, **tw-animate-css** — class composition / motion utilities
-- **Fonts:** `@fontsource-variable/inter` (UI), `@fontsource-variable/jetbrains-mono` (data rows). Declared in `src/index.css`.
+- React 19, Vite 8, TypeScript 5.9
+- Tailwind CSS v4 through `@tailwindcss/vite`, with shadcn/ui primitives in `src/components/ui`
+- `@base-ui/react` and `@radix-ui/react-context-menu` for unstyled primitives
+- `@dnd-kit/*` for TX queue drag-and-drop
+- `react-resizable-panels` for split panes and `react-virtuoso` for virtualized lists
+- `cmdk` for the Ctrl+K command palette
+- `sonner` for toasts and `lucide-react` for iconography
+- `react-day-picker` for log filters
+- `three`, `d3-geo`, `topojson-client`, and `satellite.js` for visualization surfaces
+- `@fontsource-variable/inter` for UI text and `@fontsource-variable/jetbrains-mono` for data rows
 
-The frontend version in `package.json` is the single source of truth and is read by the backend via `mav_gss_lib/config.py::_read_version()`. Do not hardcode the version anywhere else.
+The frontend version in `package.json` is the repository's single source of
+truth. The backend reads it through `mav_gss_lib/config.py::_read_version()`.
 
 ## Build
 
@@ -41,179 +38,165 @@ The frontend version in `package.json` is the single source of truth and is read
 cd mav_gss_lib/web
 npm install
 npm run dev            # Vite HMR, proxies /api and /ws to :8080
-npm run build          # tsc -b && vite build → emits dist/
+npm run build          # tsc -b && vite build -> emits dist/
 npm run lint
 ```
 
-`npm run build` runs `tsc -b` first to catch type errors, then bundles with Vite. Built assets land in `mav_gss_lib/web/dist/` and are served by the FastAPI backend. `dist/` is committed to the repo; `node_modules/` is untracked.
+`npm run build` runs TypeScript first and then emits `dist/`. Because the
+Python server serves `dist/`, every UI source change under `src/` should be
+paired with a refreshed production build. `node_modules/` is untracked.
 
-After any UI source change, run `npm run build` and commit the refreshed `dist/` alongside the source changes. The baked build SHA is refreshed only during `vite build`, so every commit that touches `src/` needs a matching `dist/` update.
-
-The backend (`python3 MAV_WEB.py`) must be running alongside `npm run dev` for API and WebSocket proxying to work.
+The backend must be running during `npm run dev`; otherwise API and WebSocket
+proxy calls have nowhere to land.
 
 ## Directory layout
 
-```
+```text
 src/
-  App.tsx                Top-level router (?panel= pop-out, ?page= plugins, else AppShell → MainDashboard)
-  main.tsx               React root; mounts <App /> and imports index.css
-  index.css              Tailwind directives, token definitions, and @font-face declarations
-  vite-env.d.ts          Vite ambient types
+  App.tsx                  Provider tree, shell routing, lazy modals, preflight overlay
+  main.tsx                 React root and CSS import
+  index.css                Tailwind directives, tokens, fonts, global console styling
   components/
-    MainDashboard.tsx    Split-pane RX/TX layout; reads RX/TX state via provider hooks
-    ConfigSidebar.tsx    Runtime config editor sidebar (top-level — single-file)
-    rx/                  RxPanel, RxPanelHeader, RxDetailPane, PacketList/Row/Detail,
-                         SessionBanner, BlackoutPill
-    tx/                  TxPanel, TxQueue, QueueItem, CommandInput, ImportDialog,
-                         DelayItem, NoteItem, VerifierDetailBlock, VerifierTickStrip
-    shared/
-      atoms/             StatusDot, TogglePill, ValueBadge
-      dialogs/           ConfirmDialog, PromptDialog, HelpModal
-      overlays/          AlarmStrip, CommandPalette, ConfirmBar, ContextMenu, StatusToast
-      preflight/         PreflightScreen + .constants + .updater
-      rendering/         CellValue, Blocks (+ index barrel)
-      visualization/     PlanetGlobe
-    logs/                Log session browser
-    layout/              GlobalHeader, SplitPane, KeyboardHintBar, TabStrip, TabViewport
-    ui/                  shadcn/ui primitives
-  state/                 Providers and store modules (context lives here, not in hooks/)
-    SessionProvider.tsx  Session context provider
-    sessionContexts.ts   Session context objects
-    sessionHooks.ts      Session hooks and selectors
-    TxProvider.tsx       TX WebSocket + queue provider
-    txContexts.ts        TX context objects
-    txHooks.ts           TX hooks and selectors
-    txItems.ts           TX queue-item derivation
-    RxProvider.tsx       RX WebSocket provider
-    rxContexts.ts        RX context objects
-    rxHooks.ts           RX hooks and selectors
-    ParametersProvider.tsx Provider component (creates the parameter cache value)
-    parametersContexts.ts Parameter context + spec/entry/freshness types
-    parametersHooks.ts   useParameter, useParameterGroup, clearParameterGroup
-    TabActiveContext.ts  Tab visibility context (was layout/, moved Phase 6)
-  hooks/                 Pure hooks (no providers)
-    useRxSocket.ts       RX socket hook
-    useTxSocket.ts       TX socket hook
-    useSession.ts        Session operations
-    useLogQuery.ts       Paginated log fetching
-    useReceivingDetection.ts  Silence/burst detection
-    useShortcuts.ts      Global keyboard shortcuts
-    useAlarms.ts         Alarm strip state
-    useContainerFreshness.ts  Per-container freshness lookup
-    useFollowScroll.ts   Auto-follow scroll state for streaming lists
-    useNowMs.ts          Shared monotonic-clock hook (+ unit test)
-    usePluginServices.ts Plugin service discovery
-    usePopOutBootstrap.ts Bootstrap for pop-out windows
-    usePreflight.ts      Preflight state subscription
-    useDebouncedValue.ts
+    MainDashboard.tsx      RX/TX split-pane dashboard and shell skeletons
+    ConfigSidebar.tsx      Runtime config editor
+    radio/                 RadioPage: GNU Radio process supervisor UI
+    rx/                    RxPanel, packet list/detail, session banner, blackout pill
+    tx/                    TxPanel, TxQueue, queue rows, delay/note/checkpoint rows,
+                           import dialog, verifier tick/detail blocks, command input
+    logs/                  Log session browser
+    layout/                GlobalHeader, TabViewport, TabStrip, SplitPane, hint bar
+    shared/                atoms, dialogs, overlays, preflight, rendering, visualization
+    ui/                    shadcn/ui primitives
+  hooks/
+    useRxSocket.ts         /ws/rx consumer with 50 ms buffered flushes
+    rxSocketState.ts       RX packet buffer, batch handling, per-event parameters
+    useTxSocket.ts         /ws/tx consumer and queue/action helpers
+    useLogQuery.ts         Paginated log and parameter fetching
+    useAlarms.ts           Alarm stream state
+    usePreflight.ts        Preflight/update stream state
+    useContainerFreshness.ts, useReceivingDetection.ts, useShortcuts.ts, ...
+  state/
+    SessionProvider.tsx    Session identity and rename/new-session state
+    TxProvider.tsx         TX socket, queue, history, verification map
+    RxProvider.tsx         RX socket, status, packet stats, display toggles
+    ParametersProvider.tsx /api/parameters snapshot plus live freshness/cache updates
+    *Contexts.ts           Context objects split from provider components
+    *Hooks.ts              Provider selectors and convenience hooks
   lib/
-    colors.ts            Semantic tone tokens (danger/warning/info/success/active/neutral)
-    columns.ts           Column-driven rendering helpers
-    types.ts             Shared types (RxPacket, RxStatus, ColumnDef, etc.)
-    rxPacket.ts          Canonical RX packet row/detail adapter
-    navigation.ts        Tab/plugin navigation builders
-    auth.ts              Session token handling (+ unit test)
-    ws.ts                WebSocket helpers (createSocket)
-    utils.ts             Misc DOM/utility helpers (isInputFocused, cn)
-    cmdkFilter.ts        Filter predicate for the Ctrl+K command palette
+    auth.ts                API-token fetch helper
+    ws.ts                  WebSocket factory
+    types.ts               Shared RX/TX/config/plugin/alarm types
+    rxPacket.ts            RX row/detail adapters
+    txDetail.ts            TX detail adapters
+    columns.ts             Declarative RX/TX column rendering helpers
+    navigation.ts          Dashboard, Radio, and mission-plugin tab definitions
+    colors.ts              Semantic console palette
+    cmdkFilter.ts          Command-palette filter predicate
   plugins/
-    registry.ts          Convention-based plugin discovery via import.meta.glob
-    missionRuntime.tsx   Mission provider discovery and composition
+    registry.ts            Mission plugin discovery via import.meta.glob
+    missionRuntime.tsx     Mission provider discovery and composition
     maveric/
-      TxBuilder.tsx      MAVERIC command picker (mission TX builder)
-      plugins.ts         Plugin page manifest
-      providers.ts       Mission provider manifest
-      staleness.ts       Shared staleness thresholds + opacity scale
-      ImagingPage.tsx    Imaging downlink viewer
-      imaging/           Imaging subcomponents
-      eps/               EPS dashboard widgets and provider
-      gnc/               GNC dashboard widgets (attitude/nav/control)
+      TxBuilder.tsx        MAVERIC command builder
+      plugins.ts           Imaging, GNC, EPS page manifest
+      providers.ts         Mission provider manifest
+      ImagingPage.tsx      Imaging downlink viewer
+      imaging/             Imaging page subcomponents
+      gnc/                 GNC dashboard, registers, 3D viewer, shared widgets
+      eps/                 EPS dashboard, live cards, field panes
 
-dist/                    Production build (committed)
+public/                    Static assets copied into dist/
+dist/                      Production build served by FastAPI (committed)
 ```
 
-Providers are deliberately placed under `src/state/` rather than `src/hooks/`. `src/hooks/` contains only `use*` hooks; anything that wraps the tree in a `Context.Provider` lives in `src/state/`.
+Providers live under `src/state/`; `src/hooks/` contains reusable hooks and
+socket state helpers. Keep that split when adding new app-wide state.
 
 ## Provider tree
 
-`App.tsx` wraps the shell in this order (outermost first):
+`App.tsx` wraps the console in this order:
 
-1. `SessionProvider` — session identity, rename/new-session state
-2. `TxProvider` — TX WebSocket, queue, guard/send/history
-3. `RxProvider` — RX WebSocket, packets, status, display toggles
-4. `ParametersProvider` — `ParameterCache` snapshot + freshness, fed by `/api/parameters` and `/ws/rx`
-5. `MissionProviders` — mission-declared providers from `plugins/<mission>/providers.ts`
-6. `AppShell` — renders `GlobalHeader`, `TabViewport`, and lazy-loaded modals (`ConfigSidebar`, `LogViewer`, `HelpModal`, `CommandPalette`)
+1. `SessionProvider`
+2. `TxProvider`
+3. `RxProvider`
+4. `ParametersProvider`
+5. `MissionProviders`
+6. `AppShell` plus `PreflightOverlay`
 
-Pop-out windows (`?panel=tx` / `?panel=rx`) are rendered outside the provider tree; they bootstrap their own config via `usePopOutBootstrap` and open their own sockets via `useTxSocket` / `useRxSocket`.
+`AppShell` renders `GlobalHeader`, `RenameSessionDialog`, `RxCrcToastSentinel`,
+`AlarmStrip`, `TabViewport`, lazy-loaded `ConfigSidebar`, `LogViewer`,
+`HelpModal`, `CommandPalette`, `KeyboardHintBar`, and `Toaster`.
+
+`TabViewport` keeps the main dashboard and Radio page mounted but hidden when
+inactive. Mission plugin pages render when active; pages marked `keepAlive`
+(currently GNC) also stay mounted across tab switches.
 
 ## URL modes
 
-Verified in `src/App.tsx`:
+Routing is query-param based and handled in `App.tsx`:
 
 | URL | Renders |
 |---|---|
-| `/` | `AppShell` with `MainDashboard` — RX/TX split pane, tabs, shell modals |
-| `/?page=<plugin-id>` | Mission plugin page in the active tab (e.g. `?page=imaging`, `?page=gnc`, `?page=eps`) |
-| `/?panel=tx` | Pop-out TX panel only (no header, no providers) |
-| `/?panel=rx` | Pop-out RX panel only (no header, no providers) |
+| `/` | Dashboard tab (`MainDashboard`) |
+| `/?page=__radio__` | Radio tab (`components/radio/RadioPage`) |
+| `/?page=imaging` | MAVERIC Imaging plugin |
+| `/?page=gnc` | MAVERIC GNC plugin |
+| `/?page=gnc&tab=registers` | GNC registers sub-tab |
+| `/?page=eps` | MAVERIC EPS plugin |
 
-`?panel=` takes precedence over `?page=`. Plugin pages cannot be popped out. The `tab=` query parameter selects a sub-tab inside a plugin page.
+Unknown `page` values show a small not-found state. Plugin sub-tabs use `tab=`.
+There is no current `?panel=` pop-out mode in `App.tsx`.
 
-## Runtime contract
+## Backend contract
 
-The frontend talks to the FastAPI backend in `mav_gss_lib/server/` over a fixed set of HTTP and WebSocket endpoints. Everything the UI renders should come from these — no packet parsing or command framing happens in React.
+React renders normalized backend models. It does not parse packet wire formats
+or frame commands; those responsibilities belong to the active mission package
+and the Python platform.
 
 WebSocket endpoints:
 
 | Path | Purpose |
 |---|---|
-| `/ws/rx` | RX packet stream with canonical mission facts and parameter updates |
-| `/ws/tx` | TX queue ops: `queue` (raw CLI), `queue_mission_cmd` (mission builder), send/abort/guard/reorder |
-| `/ws/session` | Session identity, new-session and rename events |
-| `/ws/preflight` | Preflight check state and updater progress |
-| `/ws/alarms` | Alarm snapshot + change stream + ack |
+| `/ws/rx` | RX packets, RX batches, replay events, parameter snapshots, blackout messages, mission plugin events |
+| `/ws/tx` | Queue updates, history, send progress, guard/checkpoint prompts, verifier restore/update |
+| `/ws/radio` | GNU Radio process status and captured stdout/stderr |
+| `/ws/session` | Session identity, new-session, rename, and traffic-status events |
+| `/ws/preflight` | Preflight checks and updater progress |
+| `/ws/alarms` | Alarm snapshot, changes, removals, and ack flow |
 
-HTTP endpoints (see `mav_gss_lib/server/api/`):
+HTTP endpoints used by the UI:
 
 | Path | Purpose |
 |---|---|
-| `GET /api/status` | Basic health and version |
-| `GET /api/selfcheck` | Self-check results |
-| `GET /api/config` | Merged runtime config (platform + mission) |
-| `PUT /api/config` | Persist operator-overridable keys to `gss.yml` |
-| `GET /api/schema` | Mission command schema |
-| `GET /api/tx-columns` | TX queue column definitions |
-| `GET /api/tx/capabilities` | Mission TX capabilities (builder metadata) |
-| `GET /api/logs` | List log sessions |
-| `GET /api/logs/{session_id}` | Fetch JSONL log records |
-| `GET /api/logs/{session_id}/parameters` | Fetch parameter JSONL records |
-| `GET /api/identity` | Operator / host / station capture |
-| `GET /api/session` | Current session info |
-| `POST /api/session/new` | Start a new session |
-| `PATCH /api/session` | Rename the current session tag |
-| `GET /api/parameters` | Mission parameter spec list (name, group, type, unit, enum, tags). Live values flow over `/ws/rx` |
-| `DELETE /api/parameters/group/{group}` | Clear cached values for one parameter group |
-| `GET /api/import-files` | List importable queue files |
-| `GET /api/import/{filename}/preview` | Preview a queue import |
-| `POST /api/import/{filename}` | Apply a queue import |
-| `POST /api/export-queue` | Export the current queue |
-| `POST /api/tx/clear-sent` | Clear the sent-history buffer |
+| `GET /api/status` | Runtime health, version, ZMQ status, auth token, active session log |
+| `GET /api/selfcheck` | Lightweight environment self-check |
+| `GET /api/config`, `PUT /api/config` | Native split config read/write |
+| `GET /api/schema` | Active mission command schema |
+| `GET /api/rx-columns`, `GET /api/tx-columns` | Declarative column definitions from `mission.yml` |
+| `GET /api/tx/capabilities` | Mission TX capability flags |
+| `GET /api/rx/packets/{event_id}` | In-memory decoded RX packet detail by event id |
+| `GET /api/radio/status`, `GET /api/radio/logs` | Radio supervisor snapshots |
+| `POST /api/radio/start`, `POST /api/radio/stop`, `POST /api/radio/restart` | Radio supervisor control actions |
+| `GET /api/logs`, `GET /api/logs/{session_id}` | Log session list and RX/TX record pages |
+| `GET /api/logs/{session_id}/parameters` | Parameter rows for one log session |
+| `GET /api/parameters`, `DELETE /api/parameters/group/{group}` | Parameter spec/freshness and group clear |
+| `GET /api/session`, `POST /api/session/new`, `PATCH /api/session` | Session read/new/rename |
+| `GET /api/identity` | Operator, host, and station identity |
+| `GET /api/import-files`, `GET /api/import/{filename}/preview`, `POST /api/import/{filename}` | Queue import |
+| `POST /api/export-queue`, `POST /api/tx/clear-sent` | Queue export and sent-history clear |
 
-Boundaries:
-
-- Packet parsing and protocol truth belong in the active mission package, typically `mission.py` plus packet/command capability modules.
-- Backend packet shaping belongs in `mav_gss_lib/server/rx/service.py` and `mav_gss_lib/server/tx/service.py`
-- React components render the normalized packet, queue, and config models they receive — they do not decode wire formats
-- Mission-scoped UI (TX builders, plugin pages) lives under `src/plugins/<mission>/` and is discovered by `src/plugins/registry.ts` via `import.meta.glob`
-- Mission-scoped providers live in `src/plugins/<mission>/providers.ts` and are composed by `MissionProviders`
-
-If adapting this repository for another mission requires widespread React changes just to support a different packet format, the backend mission boundary is probably leaking.
+Mission routers add their own endpoints. MAVERIC currently mounts
+`/api/plugins/maveric/identity` and `/api/plugins/imaging/*`.
 
 ## Development guidance
 
-- Keep mission naming and operator-facing labels config-driven where practical
-- Treat protocol-detail sections as optional UI blocks, not universal assumptions
-- Prefer extending the normalized packet/queue shape over teaching React components new mission parsing rules
-- Follow NASA HFDS color/contrast guidance — see `CLAUDE.md` for the semantic color tokens and minimums
-- For mission-specific TX builders or plugin pages, place them under `src/plugins/<mission>/`; `registry.ts` discovers them automatically. For shared plugin state, add providers to `src/plugins/<mission>/providers.ts`.
+- Keep protocol truth in the backend mission package. React should render
+  `mission.facts`, `parameters`, and declarative columns.
+- Add mission-specific pages under `src/plugins/<mission>/`; `registry.ts`
+  discovers plugin manifests by convention.
+- Add mission-specific providers in `src/plugins/<mission>/providers.ts`;
+  `MissionProviders` composes them after `ParametersProvider`.
+- Keep new app-wide providers in `src/state/` and plain reusable hooks in
+  `src/hooks/`.
+- Follow the black mission-console palette in `src/lib/colors.ts`: sparse
+  semantic accents, no large colored panel fills, and no new sub-11px text
+  without a deliberate reason.
