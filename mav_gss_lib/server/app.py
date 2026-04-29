@@ -231,6 +231,9 @@ async def _verifier_sweep_loop(runtime: "WebRuntime") -> None:
 #  ALARM TICK
 # =============================================================================
 
+RADIO_ZMQ_STARTUP_GRACE_MS = 5_000
+
+
 def _tick_once(runtime, container_specs, now_ms):
     """One tick of the platform + container evaluators. Pure-ish: takes
     the runtime as a state container, returns nothing, side-effects
@@ -246,10 +249,24 @@ def _tick_once(runtime, container_specs, now_ms):
     radio_enabled = bool(radio_status.get("enabled"))
     radio_state = str(radio_status.get("state") or "")
     radio_running = radio_state.lower() == "running"
+    started_at_ms = radio_status.get("started_at_ms")
+    try:
+        # GNU Radio can take a tick or two to bind/publish after Popen
+        # succeeds. Suppress that startup-only RETRY blip, but let sustained
+        # RX ZMQ failures alarm once the grace window has elapsed.
+        radio_started_recently = (
+            radio_running
+            and started_at_ms is not None
+            and now_ms - int(started_at_ms) < RADIO_ZMQ_STARTUP_GRACE_MS
+        )
+    except (TypeError, ValueError):
+        radio_started_recently = False
     inputs = PlatformAlarmInputs(
         silence_s=silence_s,
         zmq_state=runtime.rx.status.get(),
-        rx_zmq_expected=not radio_enabled or radio_running,
+        rx_zmq_expected=not radio_enabled or (
+            radio_running and not radio_started_recently
+        ),
         crc_event_ms=tuple(runtime.rx.crc_window),
         dup_event_ms=tuple(runtime.rx.dup_window),
         radio_enabled=radio_enabled,

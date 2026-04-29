@@ -175,6 +175,102 @@ class TestTickOnce(unittest.TestCase):
         self.assertEqual(audited, [])
         self.assertEqual(registry.snapshot(), [])
 
+    def test_radio_startup_grace_suppresses_transient_zmq_retry(self):
+        from collections import deque
+        from types import SimpleNamespace
+        from mav_gss_lib.platform.alarms.dispatch import AlarmDispatch
+        from mav_gss_lib.server.app import _tick_once
+
+        registry = AlarmRegistry()
+        audited: list = []
+
+        class _Sink:
+            def write_alarm(self, ch, ts_ms):
+                audited.append(ch)
+
+        class _NoopTarget:
+            async def broadcast_text(self, _text):
+                pass
+
+        now_ms = int(time.time() * 1000)
+        runtime = SimpleNamespace(
+            alarm_registry=registry,
+            _alarm_dispatch=AlarmDispatch(
+                audit_sink=_Sink(),
+                broadcast_target=_NoopTarget(),
+                loop=None,
+            ),
+            rx=SimpleNamespace(
+                last_rx_at=0,
+                status=SimpleNamespace(get=lambda: "RETRY"),
+                crc_window=deque(),
+                dup_window=deque(),
+                last_arrival_ms={},
+            ),
+            radio=SimpleNamespace(
+                status=lambda: {
+                    "enabled": True,
+                    "autostart": False,
+                    "state": "running",
+                    "started_at_ms": now_ms,
+                },
+            ),
+        )
+
+        _tick_once(runtime, {}, now_ms)
+
+        self.assertEqual(audited, [])
+        self.assertEqual(registry.snapshot(), [])
+
+    def test_zmq_retry_alarms_after_radio_startup_grace(self):
+        from collections import deque
+        from types import SimpleNamespace
+        from mav_gss_lib.platform.alarms.dispatch import AlarmDispatch
+        from mav_gss_lib.server.app import (
+            RADIO_ZMQ_STARTUP_GRACE_MS,
+            _tick_once,
+        )
+
+        registry = AlarmRegistry()
+        audited: list = []
+
+        class _Sink:
+            def write_alarm(self, ch, ts_ms):
+                audited.append(ch)
+
+        class _NoopTarget:
+            async def broadcast_text(self, _text):
+                pass
+
+        now_ms = int(time.time() * 1000)
+        runtime = SimpleNamespace(
+            alarm_registry=registry,
+            _alarm_dispatch=AlarmDispatch(
+                audit_sink=_Sink(),
+                broadcast_target=_NoopTarget(),
+                loop=None,
+            ),
+            rx=SimpleNamespace(
+                last_rx_at=0,
+                status=SimpleNamespace(get=lambda: "RETRY"),
+                crc_window=deque(),
+                dup_window=deque(),
+                last_arrival_ms={},
+            ),
+            radio=SimpleNamespace(
+                status=lambda: {
+                    "enabled": True,
+                    "autostart": False,
+                    "state": "running",
+                    "started_at_ms": now_ms - RADIO_ZMQ_STARTUP_GRACE_MS - 1,
+                },
+            ),
+        )
+
+        _tick_once(runtime, {}, now_ms)
+
+        self.assertEqual([ch.event.id for ch in audited], ["platform.zmq"])
+
 
 if __name__ == "__main__":
     unittest.main()
