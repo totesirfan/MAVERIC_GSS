@@ -74,7 +74,8 @@ function processDot(status: RadioStatus): { status: string; label: string } {
 function lineColor(line: string): string {
   const lower = line.toLowerCase()
   if (lower.includes('warning')) return colors.warning
-  if (lower.includes('error') || lower.includes('overflow') || lower.includes('failed')) return colors.danger
+  if (lower.includes('error') || lower.includes('overflow') || lower.includes('underflow') || lower.includes('failed')) return colors.danger
+  if (lower.includes('[info]') || lower.startsWith('info')) return colors.info
   if (line.includes('***** VERBOSE PDU DEBUG PRINT ******') || line.includes('************************************')) return colors.info
   if (line.startsWith('Executing:')) return colors.textPrimary
   return colors.textSecondary
