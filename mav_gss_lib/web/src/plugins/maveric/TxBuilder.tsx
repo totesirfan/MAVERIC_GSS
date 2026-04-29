@@ -46,6 +46,7 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
   const [showEcho, setShowEcho] = useState(false)
   const [search, setSearch] = useState('')
   const firstArgRef = useRef<HTMLInputElement>(null)
+  const queueButtonRef = useRef<HTMLButtonElement>(null)
   const cmdkSearchRef = useRef<HTMLInputElement>(null)
   const hasInitialFocused = useRef(false)
 
@@ -109,6 +110,8 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
     setSearch('')
     if (def?.tx_args && def.tx_args.length > 0) {
       setTimeout(() => firstArgRef.current?.focus(), 50)
+    } else {
+      setTimeout(() => queueButtonRef.current?.focus(), 50)
     }
   }
 
@@ -339,7 +342,14 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
           <span className="font-mono text-xs select-none" style={{ color: colors.sep }} aria-hidden="true">❯</span>
           <code className="flex-1 text-[11px] font-mono truncate" style={{ color: colors.value }}>{preview}</code>
           <button
+            ref={queueButtonRef}
             onClick={handleQueue}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleQueue()
+              }
+            }}
             disabled={disabled}
             title={disabled ? 'Send in progress — queueing paused' : undefined}
             className="flex items-center gap-1.5 shrink-0 transition-all duration-150 btn-feedback"
