@@ -128,3 +128,40 @@ class SessionLog(_BaseLog):
             },
         }
         self.write_jsonl(record)
+
+    def write_radio_event(
+        self,
+        action: str,
+        *,
+        state: str = "",
+        pid: int | None = None,
+        exit_code: int | None = None,
+        command: list[str] | None = None,
+        script: str = "",
+        cwd: str = "",
+        detail: str = "",
+        expected: bool | None = None,
+        ts_ms: int | None = None,
+    ) -> None:
+        """Append one GNU Radio supervisor lifecycle event."""
+        from mav_gss_lib.platform.log_records import radio_event_record
+        import time as _time
+
+        stamp = ts_ms if ts_ms is not None else int(_time.time() * 1000)
+        self.write_jsonl(radio_event_record(
+            action,
+            session_id=self.session_id,
+            ts_ms=stamp,
+            version=self._version,
+            mission_id=self._mission_id,
+            operator=self._operator,
+            station=self._station,
+            state=state,
+            pid=pid,
+            exit_code=exit_code,
+            command=command,
+            script=script,
+            cwd=cwd,
+            detail=detail,
+            expected=expected,
+        ))

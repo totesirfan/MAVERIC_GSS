@@ -132,3 +132,48 @@ def tx_command_record(
         "wire_len": len(wire),
         "mission": mission_block,
     }
+
+
+def radio_event_record(
+    action: str,
+    *,
+    session_id: str,
+    ts_ms: int,
+    version: str,
+    mission_id: str = "",
+    operator: str = "",
+    station: str = "",
+    state: str = "",
+    pid: int | None = None,
+    exit_code: int | None = None,
+    command: list[str] | None = None,
+    script: str = "",
+    cwd: str = "",
+    detail: str = "",
+    expected: bool | None = None,
+    event_id: str | None = None,
+) -> dict[str, Any]:
+    """Build one GNU Radio supervisor lifecycle event record."""
+    return {
+        "event_id": event_id or new_event_id(),
+        "event_kind": "radio",
+        "session_id": session_id,
+        "ts_ms": ts_ms,
+        "ts_iso": ts_iso(ts_ms),
+        "seq": 0,
+        "v": version,
+        "mission_id": mission_id,
+        "operator": operator,
+        "station": station,
+        "radio": {
+            "action": action,
+            "state": state,
+            "pid": pid,
+            "exit_code": exit_code,
+            "command": list(command or ()),
+            "script": script,
+            "cwd": cwd,
+            "detail": detail,
+            "expected": expected,
+        },
+    }

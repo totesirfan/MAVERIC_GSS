@@ -28,7 +28,7 @@ _ENVELOPE_KEYS = {
     "seq", "v", "mission_id", "operator", "station",
 }
 
-_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm"}
+_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm", "radio"}
 
 
 def _assert_envelope(rec: dict) -> None:
@@ -191,3 +191,32 @@ def test_session_id_matches_file_stem():
     assert rec["session_id"] == expected_stem
     import os
     assert os.path.basename(log.jsonl_path).removesuffix(".jsonl") == expected_stem
+
+
+def test_radio_event_envelope_shape():
+    with tempfile.TemporaryDirectory() as tmp:
+        log = SessionLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="5.7.0",
+                    mission_id="maveric", station="GS-0", operator="irfan")
+        try:
+            log.write_radio_event(
+                "start",
+                state="running",
+                pid=1234,
+                command=["python", "-u", "gnuradio/MAV_DUO.py"],
+                script="gnuradio/MAV_DUO.py",
+                cwd="gnuradio",
+                detail="python -u gnuradio/MAV_DUO.py",
+            )
+        finally:
+            log.close()
+
+        with open(log.jsonl_path) as f:
+            rec = json.loads(f.readline())
+
+    _assert_envelope(rec)
+    assert rec["event_kind"] == "radio"
+    assert rec["mission_id"] == "maveric"
+    assert rec["radio"]["action"] == "start"
+    assert rec["radio"]["state"] == "running"
+    assert rec["radio"]["pid"] == 1234
+    assert rec["radio"]["command"] == ["python", "-u", "gnuradio/MAV_DUO.py"]

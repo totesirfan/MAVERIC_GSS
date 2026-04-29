@@ -55,6 +55,7 @@ from .parameter_cache import ParameterCache
 from .runtime import PlatformRuntime
 from .log_records import (
     parameter_records,
+    radio_event_record,
     rx_packet_record,
     tx_command_record,
 )
@@ -106,6 +107,7 @@ __all__ = [
     "parameter_records",
     "persist_mission_config",
     "prepare_command",
+    "radio_event_record",
     "rx_packet_record",
     "tx_command_record",
     "validate_mission_spec",

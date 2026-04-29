@@ -274,7 +274,7 @@ mav_gss_lib/
 
     logging/                        Unified JSONL session writer
         _base.py                    _BaseLog — writer thread, rotation, rename
-        session.py                  SessionLog for RX, TX, parameter, verifier, alarm events
+        session.py                  SessionLog for RX, TX, parameter, verifier, alarm, radio events
 
     updater/                        Self-updater + pre-import bootstrap
         bootstrap.py                bootstrap_dependencies (pre-FastAPI)
@@ -286,7 +286,7 @@ mav_gss_lib/
     platform/                       Mission/platform boundary + runners
         runtime.py                  PlatformRuntime.from_split(...)
         loader.py                   load_mission_spec_from_split
-        log_records.py              RX/TX/parameter event record builders
+        log_records.py              RX/TX/parameter/radio event record builders
         json_safety.py              Strict-JSON value coercion helper
         parameter_cache.py          Flat live-parameter store persisted to parameters.json
         _log_envelope.py            event_id + timestamp helpers
@@ -391,6 +391,7 @@ Current event kinds:
 - `tx_command` — command label, frame label, inner/wire hex and lengths, plus mission facts and mission-provided log fields under `mission`.
 - `cmd_verifier` — command verification stage/outcome transitions.
 - `alarm` — alarm state transitions from the unified alarm engine.
+- `radio` — GNU Radio supervisor lifecycle events: start, stop, exit, crash, and control failures.
 
 ## Configuration
 

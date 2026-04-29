@@ -172,10 +172,43 @@ class RadioService:
         with self._state_lock:
             self.last_error = message
 
+    def _write_radio_event(
+        self,
+        action: str,
+        *,
+        status: dict[str, Any] | None = None,
+        detail: str = "",
+        expected: bool | None = None,
+    ) -> None:
+        log = getattr(getattr(self.runtime, "rx", None), "log", None)
+        if log is None:
+            log = getattr(getattr(self.runtime, "tx", None), "log", None)
+        if log is None or not hasattr(log, "write_radio_event"):
+            return
+        snapshot = status or self.status()
+        try:
+            log.write_radio_event(
+                action,
+                state=str(snapshot.get("state") or ""),
+                pid=snapshot.get("pid"),
+                exit_code=snapshot.get("exit_code"),
+                command=list(snapshot.get("command") or ()),
+                script=str(snapshot.get("script") or ""),
+                cwd=str(snapshot.get("cwd") or ""),
+                detail=detail,
+                expected=expected,
+            )
+        except Exception:
+            logging.exception("radio lifecycle log failed")
+
     def start(self) -> dict[str, Any]:
         if not self.enabled():
             self._set_error("radio integration disabled")
-            return self.status()
+            status = self.status()
+            self._write_radio_event(
+                "start_failed", status=status, detail="radio integration disabled",
+            )
+            return status
 
         already_running = False
         with self._state_lock:
@@ -188,14 +221,18 @@ class RadioService:
         if not script.is_file():
             self._set_error(f"radio script not found: {script}")
             self._schedule_broadcast({"type": "status", "status": self.status()})
-            return self.status()
+            status = self.status()
+            self._write_radio_event("start_failed", status=status, detail=self.last_error)
+            return status
 
         python = self._python_path()
         python_exists = Path(python).is_file() or shutil.which(python) is not None
         if not python_exists:
             self._set_error(f"python executable not found: {python}")
             self._schedule_broadcast({"type": "status", "status": self.status()})
-            return self.status()
+            status = self.status()
+            self._write_radio_event("start_failed", status=status, detail=self.last_error)
+            return status
 
         cmd = [python, "-u", str(script), *self._args()]
         env = os.environ.copy()
@@ -215,7 +252,9 @@ class RadioService:
         except OSError as exc:
             self._set_error(f"radio start failed: {exc}")
             self._schedule_broadcast({"type": "status", "status": self.status()})
-            return self.status()
+            status = self.status()
+            self._write_radio_event("start_failed", status=status, detail=self.last_error)
+            return status
 
         with self._state_lock:
             self.proc = proc
@@ -242,8 +281,10 @@ class RadioService:
         )
         self._reader_thread.start()
         self._wait_thread.start()
-        self._schedule_broadcast({"type": "status", "status": self.status()})
-        return self.status()
+        status = self.status()
+        self._write_radio_event("start", status=status, detail=command_text)
+        self._schedule_broadcast({"type": "status", "status": status})
+        return status
 
     def _reader(self, proc: subprocess.Popen[str]) -> None:
         stream = proc.stdout
@@ -262,6 +303,8 @@ class RadioService:
 
     def _waiter(self, proc: subprocess.Popen[str]) -> None:
         code = proc.wait()
+        should_log = False
+        was_stopping = False
         with self._state_lock:
             if self.proc is proc:
                 self.last_exit_code = code
@@ -272,7 +315,12 @@ class RadioService:
                 self._stopping = False
                 if code not in (0, None) and not was_stopping and not self.last_error:
                     self.last_error = f"radio process exited with code {code}"
-        self._schedule_broadcast({"type": "exit", "code": code, "status": self.status()})
+                should_log = True
+        status = self.status()
+        if should_log:
+            action = "stop" if was_stopping else ("exit" if code in (0, None) else "crash")
+            self._write_radio_event(action, status=status, expected=was_stopping)
+        self._schedule_broadcast({"type": "exit", "code": code, "status": status})
 
     def stop(self) -> dict[str, Any]:
         already_stopped = False
@@ -286,8 +334,11 @@ class RadioService:
         if already_stopped:
             return self.status()
 
-        self._schedule_broadcast({"type": "status", "status": self.status()})
+        status = self.status()
+        self._write_radio_event("stop_requested", status=status, detail="SIGTERM", expected=True)
+        self._schedule_broadcast({"type": "status", "status": status})
         code: int | None = None
+        should_log_stop = False
         try:
             proc.send_signal(signal.SIGTERM)
             code = proc.wait(timeout=STOP_TIMEOUT_S)
@@ -298,8 +349,14 @@ class RadioService:
                 code = proc.wait(timeout=STOP_TIMEOUT_S)
             except subprocess.TimeoutExpired:
                 self._set_error("radio process did not exit after SIGKILL")
+                self._write_radio_event(
+                    "stop_failed",
+                    detail="radio process did not exit after SIGKILL",
+                    expected=True,
+                )
         except OSError as exc:
             self._set_error(f"radio stop failed: {exc}")
+            self._write_radio_event("stop_failed", detail=str(exc), expected=True)
         if code is not None:
             with self._state_lock:
                 if self.proc is proc:
@@ -308,7 +365,11 @@ class RadioService:
                     self.started_at = None
                     self.last_stop_expected = True
                     self._stopping = False
-        return self.status()
+                    should_log_stop = True
+        status = self.status()
+        if should_log_stop:
+            self._write_radio_event("stop", status=status, expected=True)
+        return status
 
     def restart(self) -> dict[str, Any]:
         self.stop()
