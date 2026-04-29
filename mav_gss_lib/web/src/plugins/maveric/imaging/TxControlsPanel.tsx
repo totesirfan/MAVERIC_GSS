@@ -36,9 +36,9 @@ interface TxControlsPanelProps {
   queueCommand: (cmd: {
     cmd_id: string;
     args: Record<string, string>;
-    dest: string;
-    echo: string;
-    ptype: string;
+    packet: {
+      dest: string;
+    };
   }) => void;
   /** Schema for looking up echo/ptype per command */
   schema: Record<string, Record<string, unknown>> | null;
@@ -63,7 +63,6 @@ export function TxControlsPanel({
   previewTab,
   thumbPrefix,
   queueCommand,
-  schema,
   txConnected,
 }: TxControlsPanelProps) {
   const [activeTab, setActiveTab] = useState<TabName>('download');
@@ -150,9 +149,7 @@ export function TxControlsPanel({
     queueCommand({
       cmd_id: cmdId,
       args,
-      dest: destNode,
-      echo: (schema?.[cmdId] as Record<string, unknown>)?.echo as string ?? 'NONE',
-      ptype: (schema?.[cmdId] as Record<string, unknown>)?.ptype as string ?? 'CMD',
+      packet: { dest: destNode },
     });
   };
 

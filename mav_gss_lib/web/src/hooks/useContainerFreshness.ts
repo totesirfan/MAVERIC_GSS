@@ -1,5 +1,6 @@
-import { useContext, useEffect, useState } from 'react'
+import { useContext } from 'react'
 import { ParametersContext } from '@/state/parametersContexts'
+import { useNowMs } from '@/hooks/useNowMs'
 
 export function useContainerFreshness(containerId: string): {
   lastMs: number | null
@@ -9,18 +10,12 @@ export function useContainerFreshness(containerId: string): {
   const ctx = useContext(ParametersContext)
   if (!ctx) throw new Error('useContainerFreshness outside ParametersProvider')
   const f = ctx.freshness[containerId]
-
-  // Tick every second so age updates even when no new freshness messages arrive
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
+  const nowMs = useNowMs()
 
   if (!f) return { lastMs: null, ageMs: null, expectedPeriodMs: null }
   return {
     lastMs: f.last_ms,
-    ageMs: f.last_ms != null ? Date.now() - f.last_ms : null,
+    ageMs: f.last_ms != null ? nowMs - f.last_ms : null,
     expectedPeriodMs: f.expected_period_ms,
   }
 }

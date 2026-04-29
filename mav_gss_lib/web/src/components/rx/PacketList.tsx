@@ -2,7 +2,10 @@ import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { PacketRow } from './PacketRow'
 import { colors } from '@/lib/colors'
+import { composeRxColumns } from '@/lib/columns'
 import type { ColumnDef, RxPacket } from '@/lib/types'
+
+const FALLBACK_COLUMNS = composeRxColumns([])
 
 interface PacketListProps {
   packets: RxPacket[]
@@ -29,6 +32,7 @@ export function PacketList({
   autoScroll, onScrolledUp, zmqStatus, scrollSignal, compact,
 }: PacketListProps) {
   const isStale = zmqStatus ? ['DOWN', 'OFFLINE'].includes(zmqStatus.toUpperCase()) : false
+  const effectiveColumns = columns && columns.length > 0 ? columns : FALLBACK_COLUMNS
   const virtuosoRef = useRef<VirtuosoHandle | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const suppressScroll = useRef(true)
@@ -119,30 +123,18 @@ export function PacketList({
       {filtered.length > 0 && (
         <div className="flex items-center text-[11px] font-light px-2 py-0.5 shrink-0" style={{ color: colors.sep }}>
           {!compact && <span className="w-5 px-1" />}
-          {(columns ?? []).length > 0 ? (
-            columns!.map(c => {
-              if (c.toggle === 'showFrame' && !showFrame) return null
-              if (c.toggle === 'showEcho' && !showEcho) return null
-              return (
-                <span
-                  key={c.id}
-                  className={`px-2 shrink-0 ${c.flex ? 'flex-1' : ''} ${c.align === 'right' ? 'text-right' : ''} ${c.width ?? ''}`}
-                >
-                  {c.label}
-                </span>
-              )
-            })
-          ) : (
-            <>
-              <span className="w-9 px-2 text-right">#</span>
-              <span className="w-[68px] px-2">time</span>
-              {showFrame && <span className="w-[72px] px-2">frame</span>}
-              {showEcho && <span className="w-[52px] px-1.5">echo</span>}
-              <span className="flex-1 px-2">payload</span>
-              <span className="w-[72px] px-2 text-right"></span>
-              <span className="w-10 px-2 text-right">size</span>
-            </>
-          )}
+          {effectiveColumns.map(c => {
+            if (c.toggle === 'showFrame' && !showFrame) return null
+            if (c.toggle === 'showEcho' && !showEcho) return null
+            return (
+              <span
+                key={c.id}
+                className={`px-2 shrink-0 ${c.flex ? 'flex-1' : ''} ${c.align === 'right' ? 'text-right' : ''} ${c.width ?? ''}`}
+              >
+                {c.label}
+              </span>
+            )
+          })}
         </div>
       )}
 
@@ -172,7 +164,7 @@ export function PacketList({
                 <div className={wrapClasses}>
                   <PacketRow
                     packet={pkt}
-                    columns={columns}
+                    columns={effectiveColumns}
                     selected={isActive}
                     showFrame={showFrame}
                     showEcho={showEcho}

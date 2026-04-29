@@ -68,7 +68,7 @@ let hasLoadedHelpModal = false
 export function HelpModal({ open, onClose }: HelpModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<Element | null>(null)
-  const [status, setStatus] = useState<{ mission_name?: string; version: string; schema_path: string; schema_count: number; log_dir: string; rx_log_text: string | null; tx_log_text: string | null } | null>(null)
+  const [status, setStatus] = useState<{ mission_name?: string; version: string; schema_path: string; schema_count: number; log_dir: string } | null>(null)
   const animateOnMount = hasLoadedHelpModal
 
   useEffect(() => {
@@ -198,20 +198,6 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
                       <span style={{ color: colors.dim }}>Log Dir</span>
                       <span className="ml-auto font-mono" style={{ color: colors.value }}>{status.log_dir}</span>
                     </div>
-                    {status.rx_log_text && (
-                      <div className="flex items-center gap-1.5 col-span-2">
-                        <span className="size-3" />
-                        <span style={{ color: colors.dim }}>RX Log</span>
-                        <span className="ml-auto font-mono truncate" style={{ color: colors.value }}>{(status.rx_log_text || '').split('/').pop()}</span>
-                      </div>
-                    )}
-                    {status.tx_log_text && (
-                      <div className="flex items-center gap-1.5 col-span-2">
-                        <span className="size-3" />
-                        <span style={{ color: colors.dim }}>TX Log</span>
-                        <span className="ml-auto font-mono truncate" style={{ color: colors.value }}>{(status.tx_log_text || '').split('/').pop()}</span>
-                      </div>
-                    )}
                   </div>
                 </div>
               </>

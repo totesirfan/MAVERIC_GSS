@@ -3,7 +3,7 @@ import { createSocket } from '@/lib/ws'
 import { showToast } from '@/components/shared/overlays/StatusToast'
 import type {
   TxQueueItem, TxQueueSummary, TxHistoryItem,
-  SendProgress, GuardConfirm, CmdDisplay,
+  SendProgress, GuardConfirm, MissionFacts,
   CommandInstance,
 } from '@/lib/types'
 
@@ -77,7 +77,8 @@ export function useTxSocket() {
           case 'guard_confirm':
             setGuardConfirm({
               index: msg.index as number,
-              display: (msg.display ?? { title: '?' }) as CmdDisplay,
+              cmd_id: (msg.cmd_id ?? '') as string,
+              mission: msg.mission as MissionFacts | undefined,
             })
             break
           case 'error': {

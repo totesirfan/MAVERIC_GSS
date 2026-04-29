@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import {
   DndContext, closestCenter,
   PointerSensor, useSensor, useSensors,
@@ -14,9 +14,9 @@ import {
 } from '@/components/ui/collapsible'
 import { QueueItem } from '@/components/tx/QueueItem'
 import { colors } from '@/lib/colors'
-import { cellText } from '@/lib/rendering'
+import { buildTxRow } from '@/lib/columns'
 import type {
-  TxQueueItem, TxQueueCmd, TxColumnDef, SendProgress,
+  TxQueueItem, TxQueueCmd, ColumnDef, SendProgress,
 } from '@/lib/types'
 
 const ROW_HEIGHT_PX = 30
@@ -24,7 +24,7 @@ const MAX_VISIBLE_ROWS = 4
 
 interface QueuePanelProps {
   pendingQueue: TxQueueItem[]
-  txColumns: TxColumnDef[]
+  txColumns: ColumnDef[]
   sendProgress: SendProgress | null
   sendAll: () => void
   abortSend: () => void
@@ -69,9 +69,10 @@ export function QueuePanel({
       if (column.id === 'src') return false
       if (!column.hide_if_all?.length) return true
       const suppressSet = new Set(column.hide_if_all)
-      return !imagingRows.every(row =>
-        suppressSet.has(cellText(row.item.display?.row?.[column.id])),
-      )
+      return !imagingRows.every(row => {
+        const r = buildTxRow(row.item, [column])
+        return suppressSet.has(r[column.id]?.value as never)
+      })
     })
   }, [txColumns, imagingRows])
 
@@ -80,12 +81,9 @@ export function QueuePanel({
   const sending = sendProgress !== null
   const noop = () => {}
 
-  // Auto-open when commands appear, auto-close when the queue empties.
-  const [open, setOpen] = useState(count > 0)
-  useEffect(() => {
-    if (count > 0) setOpen(true)
-    else setOpen(false)
-  }, [count])
+  const [collapsedAtCount, setCollapsedAtCount] = useState<number | null>(null)
+  const open = count > 0 && collapsedAtCount !== count
+  const setOpen = (nextOpen: boolean) => setCollapsedAtCount(nextOpen ? null : count)
 
   const bodyMaxHeight = Math.min(count, MAX_VISIBLE_ROWS) * ROW_HEIGHT_PX
 

@@ -8,17 +8,17 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { colors } from '@/lib/colors'
-import { col } from '@/lib/columns'
-import { cellText } from '@/lib/rendering'
-import { ValueBadge } from '@/components/shared/atoms/ValueBadge'
+import { col, buildTxRow } from '@/lib/columns'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator,
 } from '@/components/shared/overlays/ContextMenu'
+import { CellValue } from '@/components/shared/rendering'
 import { useTx } from '@/state/txHooks'
 import { VerifierTickStrip } from './VerifierTickStrip'
 import { VerifierDetailBlock } from './VerifierDetailBlock'
-import type { TxQueueCmd, TxHistoryItem, TxColumnDef, TxRowStatus } from '@/lib/types'
+import { txDetailBlocks, txParameterBlocks } from '@/lib/txDetail'
+import type { ColumnDef, TxQueueCmd, TxHistoryItem, TxRowStatus } from '@/lib/types'
 
 const TERMINAL: TxRowStatus[] = ['complete', 'failed', 'timed_out']
 const isTerminal = (s: TxRowStatus) => TERMINAL.includes(s)
@@ -30,8 +30,6 @@ function railColor(status: TxRowStatus, guard: boolean, isGuarding: boolean): st
   if (status === 'complete') return colors.success
   if (status === 'failed') return colors.danger
   if (status === 'timed_out') return colors.danger
-  // 'pending' and 'sending'-pre-publish (no live verifier) both fall here —
-  // the row hasn't transmitted yet, so the rail stays calm.
   return guard ? colors.warning : colors.borderStrong
 }
 
@@ -44,7 +42,7 @@ interface QueueItemProps {
   isGuarding: boolean
   flash?: boolean
   compact?: boolean
-  visibleColumns: TxColumnDef[]
+  visibleColumns: ColumnDef[]
   onSelect: () => void
   onToggleGuard: (index: number) => void
   onDelete: (index: number) => void
@@ -65,24 +63,14 @@ export function QueueItem({
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: sortId, disabled: !pending })
 
-  const display = item.display ?? { title: '?', row: {}, detail_blocks: [] }
   const num = 'num' in item ? item.num : ('n' in item ? item.n : 0)
   const guard = 'guard' in item ? item.guard : false
+  const row = buildTxRow(item, visibleColumns)
 
-  // Join this row to a live verifier instance, if any. Backend stamps
-  // `event_id` on history rows via `_record_sent` and on the still-queued
-  // sending item right after register (so the row can show pending dots
-  // mid-send). Pending rows have no event_id, so `instance` is null.
   const { verification } = useTx()
   const cmdEventId = (item as { event_id?: string }).event_id ?? ''
   const instance = cmdEventId ? (verification.get(cmdEventId) ?? null) : null
 
-  // The visible row's verification stage drives every visual attribute that
-  // signals "this row owns the open CheckWindow": rail color, rail thickness,
-  // and pulse. Whichever row holds the live instance (queue[0] during dwell
-  // or history[-1] post-pop) shows the stage-mapped state; rows without an
-  // instance keep their raw status (pending / sending pre-publish / complete
-  // for legacy history rows with no event_id).
   const effectiveStatus: TxRowStatus = (() => {
     if (instance) {
       if (instance.stage === 'received') return 'accepted'
@@ -92,9 +80,6 @@ export function QueueItem({
   })()
   const effectiveTerminal = isTerminal(effectiveStatus)
 
-  // Tick clock every 500ms while this row has a live non-terminal instance,
-  // so the near-expiry pulse can fire without waiting for a WS update. Stops
-  // ticking once the instance reaches a terminal stage to avoid wasted renders.
   const [nowMs, setNowMs] = useState(() => Date.now())
   const liveInstance = !!instance && !effectiveTerminal
   useEffect(() => {
@@ -103,9 +88,6 @@ export function QueueItem({
     return () => window.clearInterval(id)
   }, [liveInstance])
 
-  // Caution flash on the row whenever any pending verifier is past 80% of its
-  // CheckWindow (i.e., the dot itself would pulse). Operator gets a synced
-  // row-level warning before the verification times out.
   const dotsCaution = !!instance && instance.verifier_set.verifiers.some(v => {
     const o = instance.outcomes[v.verifier_id]
     if (!o || o.state !== 'pending') return false
@@ -119,21 +101,15 @@ export function QueueItem({
   }
 
   const borderColor = railColor(effectiveStatus, guard, isGuarding)
-  // Row pulse follows the verifier instance, not the queue position. Pulses
-  // on whichever row owns the currently-open instance: queue[0] during the
-  // post-publish dwell (event_id stamped after register) or history[-1] after
-  // pop while the next send waits. Pre-publish rows have no event_id, so the
-  // "next to be sent" row stays calm — only the row that's actually awaiting
-  // a response pulses.
-  //   - no live instance → no pulse
-  //   - any pending dot past 80% elapsed → caution flash (yellow, 900ms)
-  //   - otherwise → info flash (cyan, 900ms — same cadence so caution↔info
-  //     swap on threshold crossing doesn't skip a beat)
   const pulseClass = (() => {
     if (!liveInstance) return ''
     if (dotsCaution) return 'animate-pulse-warning'
     return 'animate-pulse-info'
   })()
+
+  const protocolBlocks = txDetailBlocks(item)
+  const argBlocks = txParameterBlocks(item)
+  const cmdLabel = item.cmd_id || 'unknown'
 
   return (
     <ContextMenuRoot>
@@ -147,7 +123,7 @@ export function QueueItem({
           }}
           className={`color-transition rounded-md text-xs ${compact ? '' : 'border-l-2'} mb-0.5 hover:bg-white/[0.03] ${pulseClass} ${flash ? 'animate-slide-in' : ''}`}
         >
-          <div className="flex items-center gap-1.5 px-1.5 py-1.5 cursor-pointer" onClick={onSelect}>
+          <div className="flex items-center gap-1.5 px-1.5 py-0.5 cursor-pointer" onClick={onSelect}>
             {!compact && (
               pending ? (
                 <span {...attributes} {...listeners}
@@ -161,36 +137,18 @@ export function QueueItem({
               )
             )}
             <span className={`${col.num} text-right shrink-0 tabular-nums`} style={{ color: colors.dim }}>{num}</span>
-            {visibleColumns.length > 0 ? (
-              visibleColumns.map(c => {
-                if (c.id === 'verifiers') {
-                  return (
-                    <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'} text-right`}>
-                      <VerifierTickStrip instance={instance} now_ms={Date.now()} />
-                    </span>
-                  )
-                }
-                const cell = display.row?.[c.id]
-                const val = cellText(cell)
+            {visibleColumns.map(c => {
+              if (c.kind === 'verifiers') {
                 return (
-                  <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'}`}>
-                    {cell?.badge ? <ValueBadge value={val} tone={cell.tone} /> :
-                     c.id === 'cmd' ? (
-                       <>
-                         <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>
-                           {String(val).split(' ')[0]}
-                         </span>
-                         {String(val).includes(' ') && <span className="ml-2" style={{ color: colors.dim }}>{String(val).split(' ').slice(1).join(' ')}</span>}
-                       </>
-                     ) : <span style={{ color: colors.label }}>{val}</span>}
+                  <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'} text-right`}>
+                    <VerifierTickStrip instance={instance} now_ms={nowMs} />
                   </span>
                 )
-              })
-            ) : (
-              <span className="flex-1 min-w-0 truncate">
-                <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{display.title ?? '?'}</span>
-              </span>
-            )}
+              }
+              return (
+                <CellValue key={c.id} col={c} row={row} showFrame showEcho />
+              )
+            })}
             {!compact && isGuarding && (
               <Badge className="text-[11px] px-1.5 py-0 h-5 shrink-0 animate-pulse-warning" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>GUARD</Badge>
             )}
@@ -203,7 +161,7 @@ export function QueueItem({
             {!compact && (
               pending ? (
                 <div className={`${col.actions} flex items-center gap-0.5 shrink-0 ml-1 justify-end`}>
-                  <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
+                  <Button variant="ghost" size="icon" className="size-5 rounded-md btn-feedback"
                     onClick={(e) => { e.stopPropagation(); onToggleGuard(index) }}
                     title={guard ? 'Remove guard' : 'Add guard'}>
                     {guard
@@ -211,7 +169,7 @@ export function QueueItem({
                       : <Shield className="size-3.5" style={{ color: colors.dim }} />
                     }
                   </Button>
-                  <Button variant="ghost" size="icon" className="size-6 rounded-md btn-feedback"
+                  <Button variant="ghost" size="icon" className="size-5 rounded-md btn-feedback"
                     onClick={(e) => { e.stopPropagation(); onDelete(index) }} title="Delete">
                     <Trash2 className="size-3.5" style={{ color: colors.dim }} />
                   </Button>
@@ -223,8 +181,8 @@ export function QueueItem({
           </div>
 
           {expanded && (
-            <div className="px-3 pb-2 pt-1 ml-6 space-y-2 animate-slide-in" style={{ borderTop: `1px solid ${colors.borderSubtle}` }}>
-              {display.detail_blocks?.map((block, i) => (
+            <div className="px-3 pb-1.5 pt-1 ml-6 space-y-1.5 animate-slide-in" style={{ borderTop: `1px solid ${colors.borderSubtle}` }}>
+              {[...argBlocks, ...protocolBlocks].map((block, i) => (
                 <div key={i} className="space-y-0.5">
                   <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: colors.dim }}>{block.label}</div>
                   {block.fields.map((f, j) => (
@@ -237,7 +195,7 @@ export function QueueItem({
                 </div>
               ))}
               {pending && guard && <div style={{ color: colors.warning }} className="text-[11px]">Guarded — requires confirmation</div>}
-              {instance && <VerifierDetailBlock instance={instance} now_ms={Date.now()} />}
+              {instance && <VerifierDetailBlock instance={instance} now_ms={nowMs} />}
             </div>
           )}
         </div>
@@ -264,10 +222,7 @@ export function QueueItem({
           </>
         ) : (
           <>
-            <ContextMenuItem icon={Copy} onSelect={() => {
-              const text = cellText(display.row?.cmd) || String(display.title ?? '?')
-              navigator.clipboard.writeText(text)
-            }}>
+            <ContextMenuItem icon={Copy} onSelect={() => navigator.clipboard.writeText(cmdLabel)}>
               Copy Command
             </ContextMenuItem>
             {onRequeue && 'payload' in item && (

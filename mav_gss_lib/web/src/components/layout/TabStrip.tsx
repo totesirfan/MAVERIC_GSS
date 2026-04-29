@@ -20,7 +20,6 @@ const tabVariants = {
 
 export function TabStrip({ tabs, activeId, onTabClick }: TabStripProps) {
   const reducedMotion = useReducedMotion()
-  let prevCategory: string | null = null
 
   return (
     <motion.div
@@ -30,11 +29,11 @@ export function TabStrip({ tabs, activeId, onTabClick }: TabStripProps) {
       initial="hidden"
       animate="visible"
     >
-      {tabs.map((t) => {
+      {tabs.map((t, index) => {
         const isActive = activeId === t.id
         const isDashboard = t.kind === 'dashboard'
-        const needsDivider = prevCategory !== null && prevCategory !== t.category
-        prevCategory = t.category
+        const previousCategory = tabs[index - 1]?.category ?? null
+        const needsDivider = previousCategory !== null && previousCategory !== t.category
 
         const activeColor = isDashboard ? colors.value : colors.active
         const tabColor = isActive ? activeColor : colors.dim

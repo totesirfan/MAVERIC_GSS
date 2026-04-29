@@ -4,6 +4,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Clock, Radio, AlertTriangle, Binary } from 'lucide-react'
 import { colors, frameColor } from '@/lib/colors'
 import { SemanticBlocks, ProtocolBlocks, IntegritySection } from '@/components/shared/rendering'
+import { integrityBlocks, missionDetailBlocks, parameterBlocks, protocolBlocks, rxTime } from '@/lib/rxPacket'
 import type { RxPacket } from '@/lib/types'
 
 interface PacketDetailProps {
@@ -32,91 +33,55 @@ function F({ icon: Icon, label, value, color, tooltip }: { icon?: React.ElementT
 }
 
 export function PacketDetail({ packet: p, showHex, showWrapper, showFrame }: PacketDetailProps) {
-  const r = p._rendering
+  const detailBlocks = missionDetailBlocks(p)
+  const paramBlocks = parameterBlocks(p)
+  const pBlocks = protocolBlocks(p)
+  const iBlocks = integrityBlocks(p)
 
   return (
     <div className="px-3 py-2 space-y-1.5 border-t font-mono" style={{ borderColor: colors.borderSubtle }}>
-      {r ? (
+      <div className="flex items-center gap-4">
+        <F icon={Clock} label="Time" value={rxTime(p)} />
+      </div>
+
+      {showFrame && p.frame && (
+        <div className="flex items-center gap-4">
+          <F icon={Radio} label="Frame" value={p.frame} color={frameColor(p.frame)} />
+        </div>
+      )}
+
+      <SemanticBlocks blocks={detailBlocks} />
+
+      {paramBlocks.length > 0 && <SemanticBlocks blocks={paramBlocks} />}
+
+      {p.warnings.length > 0 && (
+        <div className="flex items-center gap-1">
+          <AlertTriangle className="size-3 shrink-0" style={{ color: colors.warning }} />
+          {p.warnings.map((w, i) => (
+            <Badge key={i} className="text-[11px] h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>
+              {w}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {showWrapper && (
         <>
-          {/* Frame — only when toggle is on */}
-          {showFrame && (
-            <div className="flex items-center gap-4">
-              <F icon={Radio} label="Frame" value={p.frame || '--'} color={frameColor(p.frame)} />
-            </div>
-          )}
-
-          {/* Mission-provided semantic blocks */}
-          <SemanticBlocks blocks={r.detail_blocks} />
-
-          {/* Warnings (platform-owned) */}
-          {p.warnings.length > 0 && (
-            <div className="flex items-center gap-1">
-              <AlertTriangle className="size-3 shrink-0" style={{ color: colors.warning }} />
-              {p.warnings.map((w, i) => (
-                <Badge key={i} className="text-[11px] h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>
-                  {w}
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          {/* Protocol + Integrity (platform-owned rendering, mission-provided data) */}
-          {showWrapper && (
-            <>
-              <Separator style={{ backgroundColor: colors.borderSubtle }} />
-              <IntegritySection blocks={r.integrity_blocks} />
-              <ProtocolBlocks blocks={r.protocol_blocks} />
-            </>
-          )}
-
-          {/* Raw hex (platform-owned) */}
-          {showHex && p.raw_hex && (
-            <>
-              <Separator style={{ backgroundColor: colors.borderSubtle }} />
-              <div className="flex items-start gap-1">
-                <Binary className="size-3 mt-0.5 shrink-0" style={{ color: colors.sep }} />
-                <pre className="text-[11px] p-2 rounded font-mono flex-1 whitespace-pre-wrap break-all" style={{ color: colors.dim, backgroundColor: colors.bgApp }}>
-                  {p.raw_hex.match(/.{1,2}/g)?.join(' ')}
-                </pre>
-              </div>
-            </>
-          )}
+          <Separator style={{ backgroundColor: colors.borderSubtle }} />
+          <IntegritySection blocks={iBlocks} />
+          <ProtocolBlocks blocks={pBlocks} />
         </>
-      ) : (
+      )}
+
+      {showHex && p.raw_hex && (
         <>
-          {/* Minimal fallback for entries without _rendering */}
-          <div className="flex items-center gap-4">
-            <F icon={Clock} label="Time" value={p.time} />
+          <Separator style={{ backgroundColor: colors.borderSubtle }} />
+          <div className="flex items-start gap-1">
+            <Binary className="size-3 mt-0.5 shrink-0" style={{ color: colors.sep }} />
+            <pre className="text-[11px] p-2 rounded font-mono flex-1 whitespace-pre-wrap break-all" style={{ color: colors.dim, backgroundColor: colors.bgApp }}>
+              {p.raw_hex.match(/.{1,2}/g)?.join(' ')}
+            </pre>
           </div>
-
-          {showFrame && p.frame && (
-            <div className="flex items-center gap-4">
-              <F icon={Radio} label="Frame" value={p.frame} color={frameColor(p.frame)} />
-            </div>
-          )}
-
-          {p.warnings.length > 0 && (
-            <div className="flex items-center gap-1">
-              <AlertTriangle className="size-3 shrink-0" style={{ color: colors.warning }} />
-              {p.warnings.map((w, i) => (
-                <Badge key={i} className="text-[11px] h-5" style={{ backgroundColor: `${colors.warning}22`, color: colors.warning }}>
-                  {w}
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          {showHex && p.raw_hex && (
-            <>
-              <Separator style={{ backgroundColor: colors.borderSubtle }} />
-              <div className="flex items-start gap-1">
-                <Binary className="size-3 mt-0.5 shrink-0" style={{ color: colors.sep }} />
-                <pre className="text-[11px] p-2 rounded font-mono flex-1 whitespace-pre-wrap break-all" style={{ color: colors.dim, backgroundColor: colors.bgApp }}>
-                  {p.raw_hex.match(/.{1,2}/g)?.join(' ')}
-                </pre>
-              </div>
-            </>
-          )}
         </>
       )}
     </div>

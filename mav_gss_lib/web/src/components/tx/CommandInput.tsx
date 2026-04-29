@@ -13,9 +13,8 @@ interface CommandInputProps {
   placeholderOverride?: string
 }
 
-// Raw CLI supports two grammars: shortcut `<cmd_id> [args...]` (first token
-// is the cmd_id) and full `<dest> <cmd_id> [args...]` (second token). Look
-// up both against the schema so the deprecation warning fires for either.
+// Some missions support both a shortcut command grammar and a longer routed
+// form. Check the first two tokens so deprecation warnings fire for either.
 function findDeprecatedCmdId(line: string, schema: Record<string, CommandSchemaItem>): string | null {
   const tokens = line.trim().split(/\s+/)
   for (const t of [tokens[0], tokens[1]]) {

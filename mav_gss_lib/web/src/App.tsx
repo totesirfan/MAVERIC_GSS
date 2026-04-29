@@ -6,14 +6,9 @@ import { TxProvider } from '@/state/TxProvider'
 import { useTx } from '@/state/txHooks'
 import { RxProvider } from '@/state/RxProvider'
 import { ParametersProvider } from '@/state/ParametersProvider'
-import { useRxStatus, useRxDisplayToggles } from '@/state/rxHooks'
-import { RxDisplayTogglesContext, type RxDisplayToggles } from '@/state/rxContexts'
+import { useRxDisplayToggles } from '@/state/rxHooks'
 import { colors } from '@/lib/colors'
 import { GlobalHeader, RenameSessionDialog } from '@/components/layout/GlobalHeader'
-import { useRxSocket } from '@/hooks/useRxSocket'
-import { usePopOutBootstrap } from '@/hooks/usePopOutBootstrap'
-import { RxPanel } from '@/components/rx/RxPanel'
-import { TxPanel } from '@/components/tx/TxPanel'
 import { Toaster } from '@/components/ui/sonner'
 import {
   MainDashboard,
@@ -40,15 +35,6 @@ const LogViewer = lazy(() => import('@/components/logs/LogViewer').then((m) => (
 const HelpModal = lazy(() => import('@/components/shared/dialogs/HelpModal').then((m) => ({ default: m.HelpModal })))
 const CommandPalette = lazy(() => import('@/components/shared/overlays/CommandPalette').then((m) => ({ default: m.CommandPalette })))
 
-/** Check if app is running in a pop-out panel mode */
-function getPanelMode(): 'tx' | 'rx' | null {
-  const params = new URLSearchParams(window.location.search)
-  const panel = params.get('panel')
-  if (panel === 'tx') return 'tx'
-  if (panel === 'rx') return 'rx'
-  return null
-}
-
 /** Read the ?page= param for plugin page routing */
 function getPageMode(): string | null {
   const params = new URLSearchParams(window.location.search)
@@ -56,16 +42,6 @@ function getPageMode(): string | null {
 }
 
 export default function App() {
-  const panelMode = getPanelMode()
-
-  // Pop-out windows stay outside the provider — they manage their own state
-  if (panelMode === 'tx') {
-    return <PopOutTx />
-  }
-  if (panelMode === 'rx') {
-    return <PopOutRx />
-  }
-
   return (
     <SessionProvider>
       <TxProvider>
@@ -85,8 +61,7 @@ export default function App() {
 /** Main app shell — lives inside Session/Tx/Rx providers */
 function AppShell() {
   const { config, setConfig } = useConfig()
-  const [panelMode, setPanelMode] = useState(() => getPanelMode())
-  const [page, setPage] = useState<string | null>(() => panelMode ? null : getPageMode())
+  const [page, setPage] = useState<string | null>(() => getPageMode())
   const [plugins, setPlugins] = useState<PluginPageDef[]>([])
 
   // Shell modal state (lifted from old MainDashboard)
@@ -94,11 +69,9 @@ function AppShell() {
   const [showConfig, setShowConfig] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showCommand, setShowCommand] = useState(false)
-  const [replaySession, setReplaySession] = useState<string | null>(null)
   const [confirmSendSignal, setConfirmSendSignal] = useState(0)
   const [confirmClearSignal, setConfirmClearSignal] = useState(0)
 
-  const rx = useRxStatus()
   const tx = useTx()
   const session = useSessionContext()
   const rxToggles = useRxDisplayToggles()
@@ -129,36 +102,22 @@ function AppShell() {
 
   // Browser back/forward
   useEffect(() => {
-    const onPopState = () => {
-      setPanelMode(getPanelMode())
-      setPage(getPageMode())
-    }
+    const onPopState = () => setPage(getPageMode())
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
   useEffect(() => {
-    const missionName = config?.mission.name ?? 'MAVERIC'
+    const missionName = config?.mission.name ?? 'Mission'
     document.title = `${missionName} GSS`
   }, [config?.mission.name])
 
   const version = config?.platform.general.version ?? '...'
-  const missionName = config?.mission.name ?? 'MAVERIC'
+  const missionName = config?.mission.name ?? 'Mission'
 
   // Derived state
   const activeTabId = page ?? '__dashboard__'
   const navigationTabs = useMemo(() => buildNavigationTabs(plugins), [plugins])
-
-  // Replay callbacks
-  const startReplay = useCallback((sessionId: string) => {
-    rx.enterReplay()
-    setReplaySession(sessionId)
-  }, [rx])
-
-  const stopReplay = useCallback(() => {
-    rx.exitReplay()
-    setReplaySession(null)
-  }, [rx])
 
   // Build palette actions — dashboard-scoped entries are conditional
   const paletteActions = useMemo<CommandPaletteActions>(() => {
@@ -220,8 +179,6 @@ function AppShell() {
             config={config}
             confirmSendSignal={confirmSendSignal}
             confirmClearSignal={confirmClearSignal}
-            replaySession={replaySession}
-            onStopReplay={stopReplay}
           />
         )}
       />
@@ -233,7 +190,7 @@ function AppShell() {
       )}
       {showLogs && (
         <Suspense fallback={<LogViewerSkeleton />}>
-          <LogViewer open={showLogs} onClose={() => setShowLogs(false)} onStartReplay={startReplay} />
+          <LogViewer open={showLogs} onClose={() => setShowLogs(false)} />
         </Suspense>
       )}
       {showHelp && (
@@ -311,89 +268,5 @@ function PreflightOverlay() {
       operator={identity?.operator}
       station={identity?.station}
     />
-  )
-}
-
-/** Pop-out TX panel — wraps inner in TxProvider so TxQueue can call useTx() */
-function PopOutTx() {
-  return (
-    <TxProvider>
-      <PopOutTxInner />
-    </TxProvider>
-  )
-}
-
-function PopOutTxInner() {
-  const { config } = usePopOutBootstrap()
-  const tx = useTx()
-
-  return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
-      <div className="flex-1 p-2">
-      <TxPanel
-        config={config}
-        queue={tx.queue} summary={tx.summary}
-        sendProgress={tx.sendProgress} guardConfirm={tx.guardConfirm}
-        connected={tx.connected}
-        queueCommand={tx.queueCommand}
-        deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
-        undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
-        reorder={tx.reorder} addDelay={tx.addDelay}
-        editDelay={tx.editDelay} sendAll={tx.sendAll}
-        abortSend={tx.abortSend} approveGuard={tx.approveGuard}
-        rejectGuard={tx.rejectGuard}
-        queueTemplate={tx.queueMissionCmd}
-        triggerConfirmSend={0}
-        triggerConfirmClear={0}
-      />
-      </div>
-    </div>
-  )
-}
-
-/** Pop-out RX panel — standalone window.
- *
- *  Mounts its own RxDisplayTogglesContext so RxPanel/RxPanelHeader/RxDetailPane
- *  (which read toggles from context) work outside the main RxProvider tree.
- *  Uses local toggle state — pop-out windows manage their own UI state per
- *  the App-level "panel mode" rule (App.tsx:60).
- */
-function PopOutRx() {
-  const { config } = usePopOutBootstrap()
-  const rx = useRxSocket()
-
-  const [showHex, setShowHex] = useState(false)
-  const [showFrame, setShowFrame] = useState(false)
-  const [showWrapper, setShowWrapper] = useState(false)
-  const [hideUplink, setHideUplink] = useState(true)
-
-  const toggles = useMemo<RxDisplayToggles>(() => ({
-    showHex, showFrame, showWrapper, hideUplink,
-    toggleHex: () => setShowHex(v => !v),
-    toggleFrame: () => setShowFrame(v => !v),
-    toggleWrapper: () => setShowWrapper(v => !v),
-    toggleUplink: () => setHideUplink(v => !v),
-  }), [showHex, showFrame, showWrapper, hideUplink])
-
-  return (
-    <RxDisplayTogglesContext.Provider value={toggles}>
-      <div className="flex flex-col h-full" style={{ backgroundColor: colors.bgApp }}>
-        <div className="flex-1 p-2">
-          <RxPanel
-            config={config}
-            packets={rx.packets} status={rx.status}
-            packetStats={rx.stats}
-            columns={rx.columns}
-            replayMode={rx.replayMode}
-            replaySession={null}
-            replacePackets={rx.replacePackets}
-            onStopReplay={() => {}}
-            sessionGeneration={rx.sessionGeneration}
-            sessionTag={rx.sessionTag || ''}
-            blackoutUntil={rx.blackoutUntil}
-          />
-        </div>
-      </div>
-    </RxDisplayTogglesContext.Provider>
   )
 }

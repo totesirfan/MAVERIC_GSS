@@ -2,24 +2,22 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   X, ChevronDown, ChevronRight, AlertTriangle, Binary,
-  ArrowDownToLine, ArrowUpFromLine, Play, ClipboardCopy, Braces,
+  ArrowUpFromLine, ClipboardCopy, Braces,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Separator } from '@/components/ui/separator'
 import { colors } from '@/lib/colors'
 import { useLogQuery, type LogEntry } from '@/hooks/useLogQuery'
 import {
   ContextMenuRoot, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator,
+  ContextMenuItem,
 } from '@/components/shared/overlays/ContextMenu'
 import { LogFilterBar } from './LogFilterBar'
 
 interface LogViewerProps {
   open: boolean
   onClose: () => void
-  onStartReplay?: (sessionId: string) => void
 }
 
 function parseSessionLabel(sid: string): { date: string; time: string; label: string } {
@@ -49,33 +47,36 @@ function hhmmss(ts_iso: string | undefined, ts_ms: number | undefined): string {
   return '--:--:--'
 }
 
-function entryCmdId(e: LogEntry): string {
-  const top = e.cmd_id
-  if (typeof top === 'string' && top) return top
-  const mission = e.mission as Record<string, unknown> | undefined
-  const header = mission?.header as Record<string, unknown> | undefined
-  const fromHeader = header?.cmd_id
-  if (typeof fromHeader === 'string' && fromHeader) return fromHeader
-  const cmd = mission?.cmd as Record<string, unknown> | undefined
-  const inner = cmd?.cmd_id
-  return typeof inner === 'string' ? inner : ''
+function entryLabel(e: LogEntry): string {
+  const mission = e.mission
+  if (mission && typeof mission === 'object') {
+    const missionObj = mission as Record<string, unknown>
+    const missionCmd = missionObj.cmd_id
+    if (typeof missionCmd === 'string' && missionCmd) return missionCmd
+
+    const facts = missionObj.facts
+    if (facts && typeof facts === 'object') {
+      const header = (facts as Record<string, unknown>).header
+      if (header && typeof header === 'object') {
+        const cmdId = (header as Record<string, unknown>).cmd_id
+        if (typeof cmdId === 'string' && cmdId) return cmdId
+      }
+    }
+  }
+  return ''
 }
 
 function formatHexBlock(hex: string): string {
   return hex.match(/.{1,2}/g)?.join(' ') ?? ''
 }
 
-// Raw wire bytes sometimes get lossily stringified upstream (notably
-// tlm_beacon extra_args when the schema under-specifies the trailer) —
-// those strings carry C0 controls, DEL, or the U+FFFD replacement char.
-// Detect and replace with a hex label so the expanded-row JSON stays
-// readable and doesn't break the pretty-print with unprintable glyphs.
-// eslint-disable-next-line no-control-regex
-const BINARY_JUNK_RE = new RegExp(
-  '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f�]'
-)
 function isBinaryJunk(s: string): boolean {
-  return s.length > 0 && BINARY_JUNK_RE.test(s)
+  return Array.from(s).some((ch) => {
+    const code = ch.charCodeAt(0)
+    return code === 0xfffd
+      || (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d)
+      || (code >= 0x7f && code <= 0x9f)
+  })
 }
 function toHexLabel(s: string): string {
   let hex = ''
@@ -108,7 +109,7 @@ const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mas
 let hasLoadedLogViewer = false
 
 
-export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
+export function LogViewer({ open, onClose }: LogViewerProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<Element | null>(null)
   const [expandedSet, setExpandedSet] = useState<Set<number>>(new Set())
@@ -124,8 +125,8 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
     hasMore,
     currentOffset,
     error,
-    cmdFilter,
-    setCmdFilter,
+    labelFilter,
+    setLabelFilter,
     fromTime,
     setFromTime,
     toTime,
@@ -195,11 +196,10 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
   }, [open, reset])
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const isDownlinkSession = selected?.startsWith('downlink') ?? false
 
   // Prefer the date embedded in the session_id filename over file mtime —
   // mtime reflects last-write time, which can lag far behind the session
-  // capture time (e.g. after a one-shot migration rewrote every file today).
+  // capture time when files are copied, restored, or touched.
   const sessionDateCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const s of sessions) {
@@ -278,8 +278,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                     return ds === dateFilter
                   }).map((s) => {
                     const sid = s.session_id
-                    const direction = s.direction
-                    const isDownlink = direction === 'downlink'
+                    const isSession = s.direction === 'session'
                     const parsed = parseSessionLabel(sid)
                     let dateStr = parsed.date
                     let timeStr2 = parsed.time
@@ -290,8 +289,8 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                     }
                     const sizeKb = typeof s.size === 'number' ? (s.size / 1024).toFixed(1) + ' KB' : '?'
                     const isSel = selected === sid
-                    const dirColor = isDownlink ? colors.success : colors.label
-                    const DirIcon = isDownlink ? ArrowDownToLine : ArrowUpFromLine
+                    const dirColor = isSession ? colors.label : colors.dim
+                    const DirIcon = isSession ? Braces : ArrowUpFromLine
                     const tagMatch = sid.match(/\d{8}_\d{6}_(.+?)(?:\.jsonl)?$/)
                     const tag = tagMatch ? tagMatch[1] : ''
                     return (
@@ -307,7 +306,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                           <div className="flex items-center gap-1.5">
                             <DirIcon className="size-3 shrink-0" style={{ color: dirColor }} />
                             <span className="text-[11px] font-bold uppercase shrink-0" style={{ color: dirColor }}>
-                              {isDownlink ? 'RX' : 'TX'}
+                              Session
                             </span>
                             <span className="text-[11px] font-mono tabular-nums" style={{ color: isSel ? colors.label : colors.value }}>
                               {dateStr} {timeStr2}
@@ -317,16 +316,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                           {tag && <div className="text-[11px] truncate pl-5" style={{ color: colors.sep }}>{tag}</div>}
                           <div className="text-[11px] font-mono truncate pl-5" style={{ color: colors.sep }}>{sid}</div>
                         </button>
-                        {isDownlink && onStartReplay && (
-                          <Button
-                            variant="ghost" size="icon"
-                            className="size-6 shrink-0 mr-1 btn-feedback"
-                            onClick={(e) => { e.stopPropagation(); onStartReplay(sid); onClose() }}
-                            title="Replay session"
-                          >
-                            <Play className="size-3" style={{ color: colors.warning }} />
-                          </Button>
-                        )}
                       </div>
                     )
                   })
@@ -337,12 +326,12 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
             {/* Right area */}
             <div className="flex-1 flex flex-col overflow-hidden">
               <LogFilterBar
-                cmdFilter={cmdFilter}
+                labelFilter={labelFilter}
                 fromTime={fromTime}
                 toTime={toTime}
                 entryCount={entries.length}
                 hasSelection={!!selected}
-                onCmdFilterChange={setCmdFilter}
+                onLabelFilterChange={setLabelFilter}
                 onFromTimeChange={setFromTime}
                 onToTimeChange={setToTime}
               />
@@ -360,7 +349,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                   <span className="px-2 w-12 text-right">#</span>
                   <span className="px-2 w-28">time</span>
                   <span className="px-2 w-16">kind</span>
-                  <span className="px-2 flex-1">cmd</span>
+                  <span className="px-2 flex-1">label</span>
                   <span className="px-2 w-24">frame</span>
                   <span className="px-2 w-16 text-right">wire</span>
                   <span className="px-2 w-16 text-right">inner</span>
@@ -382,7 +371,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                     const kind = String(e.event_kind ?? '?')
                     const seq = Number(e.seq ?? 0)
                     const timeStr = hhmmss(e.ts_iso as string | undefined, e.ts_ms as number | undefined)
-                    const cmdId = entryCmdId(e)
+                    const label = entryLabel(e)
                     const frame = String(e.frame_type ?? e.frame_label ?? '')
                     const wireLen = Number(e.wire_len ?? 0)
                     const innerLen = Number(e.inner_len ?? 0)
@@ -415,7 +404,7 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                               <span className="px-2 w-16 uppercase font-bold text-[10px]" style={{ color: dirColor }}>
                                 {isTx ? 'TX' : 'RX'}
                               </span>
-                              <span className="px-2 flex-1 truncate" style={{ color: colors.label }}>{cmdId || (isUnknown ? '(unknown)' : '')}</span>
+                              <span className="px-2 flex-1 truncate" style={{ color: colors.label }}>{label || (isUnknown ? '(unknown)' : '')}</span>
                               <span className="px-2 w-24 truncate" style={{ color: colors.dim }}>{frame}</span>
                               <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{wireLen}</span>
                               <span className="px-2 w-16 text-right tabular-nums" style={{ color: colors.dim }}>{innerLen}</span>
@@ -516,9 +505,9 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                         <ContextMenuContent>
                           <ContextMenuItem
                             icon={ClipboardCopy}
-                            onSelect={() => navigator.clipboard.writeText(cmdId)}
+                            onSelect={() => navigator.clipboard.writeText(label)}
                           >
-                            Copy Command
+                            Copy Label
                           </ContextMenuItem>
                           <ContextMenuItem
                             icon={Braces}
@@ -541,17 +530,6 @@ export function LogViewer({ open, onClose, onStartReplay }: LogViewerProps) {
                             >
                               Copy Wire Hex
                             </ContextMenuItem>
-                          )}
-                          {isDownlinkSession && onStartReplay && (
-                            <>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                icon={Play}
-                                onSelect={() => { onStartReplay(selected!); onClose() }}
-                              >
-                                Replay from Here
-                              </ContextMenuItem>
-                            </>
                           )}
                         </ContextMenuContent>
                       </ContextMenuRoot>

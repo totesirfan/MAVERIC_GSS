@@ -1,8 +1,22 @@
 import { Badge } from '@/components/ui/badge'
-import { colors, frameColor } from '@/lib/colors'
+import { colors } from '@/lib/colors'
 import { ValueBadge } from '@/components/shared/atoms/ValueBadge'
 import type { ColumnDef, RenderCell, RenderingFlag } from '@/lib/types'
 
+function iconTokenForValue(
+  value: unknown,
+  valueIcons: Record<string, string> | undefined,
+  defaultIcon: string | undefined,
+): string | undefined {
+  if (!valueIcons && !defaultIcon) return undefined
+  const label = String(value ?? '')
+  return valueIcons?.[label] ?? defaultIcon
+}
+
+// Pure dispatcher driven by cell properties — no platform-id awareness.
+// Cells decide their own appearance via `flags` (array → flag badges),
+// `badge` (truthy → ValueBadge), `tone`/`tabular`/`suffix`/`monospace`
+// (text-cell variants).
 export function CellValue({ col: c, row, showFrame, showEcho }: {
   col: ColumnDef
   row: Record<string, RenderCell>
@@ -17,16 +31,7 @@ export function CellValue({ col: c, row, showFrame, showEcho }: {
   const width = c.flex ? 'flex-1 min-w-0 truncate' : `${c.width ?? ''} shrink-0`
   const align = c.align === 'right' ? 'text-right' : ''
 
-  if (cell?.badge) {
-    return (
-      <span className={`py-1.5 px-1 ${width}`}>
-        <ValueBadge value={val as string | number} tone={cell.tone} />
-      </span>
-    )
-  }
-
-  // Flags column
-  if (c.id === 'flags' && Array.isArray(val)) {
+  if (Array.isArray(val)) {
     const flags = val as RenderingFlag[]
     return (
       <span className={`py-1.5 px-2 ${width} ${align}`}>
@@ -42,40 +47,26 @@ export function CellValue({ col: c, row, showFrame, showEcho }: {
     )
   }
 
-  // Cmd column — cmd ID pill + args
-  if (c.id === 'cmd') {
-    const raw = String(val ?? '')
-    const spaceIdx = raw.indexOf(' ')
-    const cmdId = spaceIdx > 0 ? raw.slice(0, spaceIdx) : raw
-    const args = spaceIdx > 0 ? raw.slice(spaceIdx + 1) : ''
+  if (cell?.badge) {
     return (
-      <span className={`py-1.5 px-2 ${width}`}>
-        <span className="inline-block px-1.5 py-0 rounded-sm text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>
-          {cmdId || '--'}
-        </span>
-        {args && <span className="ml-2" style={{ color: colors.dim }}>{args}</span>}
+      <span className={`py-1.5 px-1 ${width}`}>
+        <ValueBadge
+          value={val as string | number}
+          tone={cell.tone}
+          iconToken={iconTokenForValue(val, c.value_icons, c.default_icon)}
+        />
       </span>
     )
   }
 
-  // Frame column — with color
-  if (c.id === 'frame') {
-    return (
-      <span className={`py-1.5 px-2 ${width} whitespace-nowrap`} style={{ color: frameColor(String(val ?? '')) }}>
-        {String(val ?? '')}
-      </span>
-    )
-  }
-
-  // Num column
-  if (c.id === 'num') {
-    return <span className={`py-1.5 px-2 ${width} tabular-nums ${align}`}>{String(val ?? '')}</span>
-  }
-
-  // Default text cell
+  const text = `${val ?? ''}${cell?.suffix ?? ''}`
   return (
-    <span className={`py-1.5 px-2 ${width} ${align} whitespace-nowrap ${cell?.monospace ? 'font-mono' : ''}`} style={{ color: colors.dim }} title={cell?.tooltip ?? undefined}>
-      {c.id === 'size' ? `${val}B` : String(val ?? '')}
+    <span
+      className={`py-1.5 px-2 ${width} ${align} whitespace-nowrap ${cell?.monospace ? 'font-mono' : ''} ${cell?.tabular ? 'tabular-nums' : ''}`}
+      style={{ color: cell?.tone ?? colors.dim }}
+      title={cell?.tooltip ?? undefined}
+    >
+      {text}
     </span>
   )
 }

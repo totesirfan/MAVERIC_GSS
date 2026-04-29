@@ -1,5 +1,4 @@
-import { ExternalLink, SlidersHorizontal, Download } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { SlidersHorizontal, Download } from 'lucide-react'
 import { TogglePill } from '@/components/shared/atoms/TogglePill'
 import { StatusDot } from '@/components/shared/atoms/StatusDot'
 import { BlackoutPill } from './BlackoutPill'
@@ -18,14 +17,12 @@ interface RxPanelHeaderProps {
   status: RxStatus
   packets: RxPacket[]
   packetStats?: { total: number; crcFailures: number; dupCount: number; hasEcho: boolean }
-  replayMode?: boolean
   receiving: boolean
   blackoutUntil?: number | null
-  missionName: string
 }
 
 export function RxPanelHeader({
-  config, status, packets, packetStats, replayMode, receiving, blackoutUntil, missionName,
+  config, status, packets, packetStats, receiving, blackoutUntil,
 }: RxPanelHeaderProps) {
   const { showHex, showFrame, showWrapper, hideUplink, toggleHex, toggleFrame, toggleWrapper, toggleUplink } = useRxDisplayToggles()
 
@@ -42,10 +39,8 @@ export function RxPanelHeader({
         <span className="text-xs font-bold tracking-wide uppercase" style={{ color: colors.value }}>
           {config?.mission.config.rx_title ?? 'RX Downlink'}
         </span>
-        <StatusDot status={replayMode ? 'REPLAY' : status.zmq} />
-        {replayMode ? (
-          <span className="text-[11px] font-medium" style={{ color: colors.warning }}>REPLAY</span>
-        ) : receiving ? (
+        <StatusDot status={status.zmq} />
+        {receiving ? (
           <span className="text-[11px] font-bold animate-pulse-text flex items-center gap-1" style={{ color: colors.success }}>
             <Download className="size-3" />
             Received
@@ -62,7 +57,7 @@ export function RxPanelHeader({
           until={blackoutUntil ?? null}
           configuredMs={config?.platform.rx.tx_blackout_ms ?? 0}
         />
-        {!replayMode && packets.length > 0 && (
+        {packets.length > 0 && (
           <span className="text-[11px] font-mono tabular-nums flex items-center gap-2 ml-auto mr-2" style={{ color: colors.textMuted }}>
             {packetStats?.total ?? packets.length} pkts
             {(packetStats?.crcFailures ?? 0) > 0 && (
@@ -92,15 +87,6 @@ export function RxPanelHeader({
         {!showHex && hideUplink && !showFrame && !showWrapper && (
           <SlidersHorizontal className="size-3.5 group-hover/toggles:hidden" style={{ color: colors.dim }} />
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          onClick={() => window.open('/?panel=rx', `${missionName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-rx`, 'popup=1,width=900,height=800')}
-          title={`Pop out ${missionName} RX panel`}
-        >
-          <ExternalLink className="size-3.5" style={{ color: colors.dim }} />
-        </Button>
       </div>
     </div>
   )

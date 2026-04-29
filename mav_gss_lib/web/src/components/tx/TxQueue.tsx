@@ -23,18 +23,17 @@ import { QueueItem } from './QueueItem'
 import { DelayItem } from './DelayItem'
 import { NoteItem } from './NoteItem'
 import { colors } from '@/lib/colors'
-import { cellText } from '@/lib/rendering'
-import { col } from '@/lib/columns'
+import { col, buildTxRow } from '@/lib/columns'
 import { useTx } from '@/state/txHooks'
 import type {
-  TxQueueSummary, SendProgress, TxColumnDef, TxHistoryItem, TxQueueCmd,
+  TxQueueSummary, SendProgress, ColumnDef, TxHistoryItem, TxQueueCmd,
 } from '@/lib/types'
 
 interface TxQueueProps {
   summary: TxQueueSummary
   sendProgress: SendProgress | null
   isGuarding: boolean
-  txColumns: TxColumnDef[]
+  txColumns: ColumnDef[]
   onToggleGuard: (index: number) => void
   onDelete: (index: number) => void
   onEditDelay: (index: number, ms: number) => void
@@ -61,22 +60,31 @@ export function TxQueue({
 
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
-  const [confirmClear, setConfirmClear] = useState(false)
-  const [confirmSend, setConfirmSend] = useState(false)
+  const [localConfirmClear, setLocalConfirmClear] = useState(false)
+  const [localConfirmSend, setLocalConfirmSend] = useState(false)
+  const [handledConfirmClearSignal, setHandledConfirmClearSignal] = useState(0)
+  const [handledConfirmSendSignal, setHandledConfirmSendSignal] = useState(0)
   const [confirmClearSent, setConfirmClearSent] = useState(false)
   const [showSavePrompt, setShowSavePrompt] = useState(false)
 
   const outerRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!tabActive) return
-    if (triggerConfirmSend) setConfirmSend(true)
-  }, [triggerConfirmSend, tabActive])
-  useEffect(() => {
-    if (!tabActive) return
-    if (triggerConfirmClear) setConfirmClear(true)
-  }, [triggerConfirmClear, tabActive])
+  const sendSignal = triggerConfirmSend ?? 0
+  const clearSignal = triggerConfirmClear ?? 0
+  const signalConfirmSend = tabActive && sendSignal > 0 && sendSignal !== handledConfirmSendSignal
+  const signalConfirmClear = tabActive && clearSignal > 0 && clearSignal !== handledConfirmClearSignal
+  const confirmSend = localConfirmSend || signalConfirmSend
+  const confirmClear = localConfirmClear || signalConfirmClear
+
+  const closeConfirmSend = () => {
+    setLocalConfirmSend(false)
+    setHandledConfirmSendSignal(sendSignal)
+  }
+  const closeConfirmClear = () => {
+    setLocalConfirmClear(false)
+    setHandledConfirmClearSignal(clearSignal)
+  }
 
   const sendingItem = items.find(i => i.status === 'sending')
   const sendTargetUid = sendingItem?.uid ?? null
@@ -187,8 +195,8 @@ export function TxQueue({
       if (items.length === 0) return true
       return !items.every(it => {
         if (it.source === 'queue' && (it.item.type === 'delay' || it.item.type === 'note')) return true
-        const row = (it.item as { display?: { row?: Record<string, unknown> } }).display?.row
-        return suppressSet.has(cellText(row?.[c.id] as Parameters<typeof cellText>[0]))
+        const row = buildTxRow(it.item as TxQueueCmd | TxHistoryItem, [c])
+        return suppressSet.has(row[c.id]?.value as never)
       })
     })
   }, [txColumns, items])
@@ -320,8 +328,8 @@ export function TxQueue({
         <ConfirmBar
           label={`Clear ${summary.cmds} pending command${summary.cmds !== 1 ? 's' : ''}?`}
           color={colors.error}
-          onConfirm={() => { onClear(); setConfirmClear(false) }}
-          onCancel={() => setConfirmClear(false)}
+          onConfirm={() => { onClear(); closeConfirmClear() }}
+          onCancel={closeConfirmClear}
         />
       ) : confirmClearSent ? (
         <ConfirmBar
@@ -343,8 +351,8 @@ export function TxQueue({
         <ConfirmBar
           label={`Send ${summary.cmds} command${summary.cmds !== 1 ? 's' : ''}?`}
           color={colors.success}
-          onConfirm={() => { onSend(); setConfirmSend(false) }}
-          onCancel={() => setConfirmSend(false)}
+          onConfirm={() => { onSend(); closeConfirmSend() }}
+          onCancel={closeConfirmSend}
         />
       ) : (
         <div className="flex items-center justify-between px-3 py-1 border-t shrink-0" style={{ borderColor: colors.borderSubtle }}>
@@ -357,11 +365,11 @@ export function TxQueue({
             <Button variant="ghost" size="sm" onClick={() => onAddDelay(2000)} className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }} disabled={!hasPending}>
               <Timer className="size-3" /> Delay
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setConfirmClear(true); setConfirmSend(false) }}
+            <Button variant="ghost" size="sm" onClick={() => { setLocalConfirmClear(true); setLocalConfirmSend(false) }}
               className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }} disabled={!hasPending}>
               <Trash2 className="size-3" /> Clear
             </Button>
-            <Button size="sm" onClick={() => { setConfirmSend(true); setConfirmClear(false) }}
+            <Button size="sm" onClick={() => { setLocalConfirmSend(true); setLocalConfirmClear(false) }}
               className="h-6 px-2 text-xs gap-1 btn-feedback" disabled={!hasPending || isActivelySending}
               style={{ color: colors.bgBase, backgroundColor: colors.success }}>
               <Send className="size-3" /> Send All

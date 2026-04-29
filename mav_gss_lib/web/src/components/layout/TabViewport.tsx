@@ -1,4 +1,4 @@
-import { Suspense, useRef, type ReactNode } from 'react'
+import { Suspense, type ReactNode } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TabActiveProvider } from '@/state/TabActiveContext'
 import { colors } from '@/lib/colors'
@@ -11,17 +11,9 @@ interface TabViewportProps {
 }
 
 export function TabViewport({ plugins, activeId, renderDashboard }: TabViewportProps) {
-  const mountedIdsRef = useRef<Set<string>>(new Set<string>())
-
   const dashboardActive = activeId === '__dashboard__'
   const knownIds = new Set(plugins.map(p => p.id))
   const isKnownPage = dashboardActive || knownIds.has(activeId)
-
-  // Track keep-alive plugins that have been activated
-  if (!dashboardActive && isKnownPage) {
-    const plugin = plugins.find(p => p.id === activeId)
-    if (plugin?.keepAlive) mountedIdsRef.current.add(plugin.id)
-  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -35,7 +27,7 @@ export function TabViewport({ plugins, activeId, renderDashboard }: TabViewportP
       {/* Plugins: active one or any keep-alive that's been visited */}
       {plugins.map(p => {
         const isActive = activeId === p.id
-        const keepMounted = p.keepAlive && mountedIdsRef.current.has(p.id)
+        const keepMounted = Boolean(p.keepAlive)
         if (!isActive && !keepMounted) return null
         return (
           <TabActiveProvider key={p.id} value={isActive}>

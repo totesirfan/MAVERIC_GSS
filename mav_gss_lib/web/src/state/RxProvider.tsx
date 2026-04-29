@@ -14,7 +14,7 @@ export function RxProvider({ children }: { children: ReactNode }) {
   const { packets, stats, ...rest } = rx
 
   // `packets` and `stats` change on every 50ms flush. Everything else only
-  // changes on rare events (status message, column load, replay toggle,
+  // changes on rare events (status message,
   // session reset). We memoize `rest` against its slow-changing fields so
   // status subscribers don't rerender 20×/sec under RX traffic.
   const statusValue = useMemo<RxStatusValue>(
@@ -23,14 +23,9 @@ export function RxProvider({ children }: { children: ReactNode }) {
     [
       rest.status,
       rest.connected,
-      rest.columns,
-      rest.replayMode,
       rest.sessionGeneration,
       rest.sessionTag,
       rest.clearPackets,
-      rest.replacePackets,
-      rest.enterReplay,
-      rest.exitReplay,
       rest.subscribeCustom,
       rest.blackoutUntil,
     ],

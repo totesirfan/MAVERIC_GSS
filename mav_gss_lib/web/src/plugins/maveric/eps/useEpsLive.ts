@@ -93,6 +93,7 @@ export function useEpsLive(): EpsLive {
 
   // React to parameter-group identity changes (one per ingest batch).
   useEffect(() => {
+    let cancelled = false
     const isEmpty = Object.keys(byKey).length === 0
     const wasNonEmpty = prevNonEmptyRef.current
     prevNonEmptyRef.current = !isEmpty
@@ -100,22 +101,25 @@ export function useEpsLive(): EpsLive {
     // Transition non-empty → empty: parameter group was cleared.
     if (isEmpty) {
       if (wasNonEmpty) {
-        recentIBatsRef.current = []
-        setState((s) => ({
-          ...s,
-          fields: EMPTY_MAP,
-          field_t: EMPTY_MAP,
-          prev_fields: EMPTY_MAP,
-          prev_field_t: EMPTY_MAP,
-          latched: {},
-          chargeDir: 'idle',
-          epsMode: null,
-          epsModeT: null,
-          epsHeartbeat: null,
-          epsHeartbeatT: null,
-        }))
+        queueMicrotask(() => {
+          if (cancelled) return
+          recentIBatsRef.current = []
+          setState((s) => ({
+            ...s,
+            fields: EMPTY_MAP,
+            field_t: EMPTY_MAP,
+            prev_fields: EMPTY_MAP,
+            prev_field_t: EMPTY_MAP,
+            latched: {},
+            chargeDir: 'idle',
+            epsMode: null,
+            epsModeT: null,
+            epsHeartbeat: null,
+            epsHeartbeatT: null,
+          }))
+        })
       }
-      return
+      return () => { cancelled = true }
     }
 
     // Per-field rotation. For each eps field in the group:
@@ -126,7 +130,9 @@ export function useEpsLive(): EpsLive {
     //   touching only 7 fields) doesn't clobber prev_VOUT1 / etc.
     const isReplay = !wasNonEmpty
 
-    setState((s) => {
+    queueMicrotask(() => {
+      if (cancelled) return
+      setState((s) => {
       const fields      = { ...s.fields }
       const field_t     = { ...s.field_t }
       const prev_fields = { ...s.prev_fields }
@@ -220,6 +226,8 @@ export function useEpsLive(): EpsLive {
         epsHeartbeatT,
       }
     })
+    })
+    return () => { cancelled = true }
   }, [byKey])
 
   // Session reset: keep current values (last-known satellite state is
@@ -231,15 +239,20 @@ export function useEpsLive(): EpsLive {
   useEffect(() => {
     if (sessionGeneration === lastSessionGenRef.current) return
     lastSessionGenRef.current = sessionGeneration
-    setState((s) => ({
-      ...s,
-      prev_fields: EMPTY_MAP,
-      prev_field_t: EMPTY_MAP,
-      receivedThisLink: 0,
-      linkGeneration: s.linkGeneration + 1,
-      chargeDir: 'idle',
-    }))
-    recentIBatsRef.current = []
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setState((s) => ({
+        ...s,
+        prev_fields: EMPTY_MAP,
+        prev_field_t: EMPTY_MAP,
+        receivedThisLink: 0,
+        linkGeneration: s.linkGeneration + 1,
+        chargeDir: 'idle',
+      }))
+      recentIBatsRef.current = []
+    })
+    return () => { cancelled = true }
   }, [sessionGeneration])
 
   const clearSnapshot = useCallback(async () => {

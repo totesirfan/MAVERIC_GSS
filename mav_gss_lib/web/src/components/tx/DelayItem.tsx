@@ -67,7 +67,7 @@ export function DelayItem({
         />
       )}
 
-      <div className="flex items-center gap-1.5 px-1.5 py-1.5 relative z-10">
+      <div className="flex items-center gap-1.5 px-1.5 py-0.5 relative z-10">
         {pending ? (
           <span {...attributes} {...listeners}
             className={`${col.grip} cursor-grab shrink-0 p-0.5 rounded hover:bg-white/[0.06] flex items-center justify-center`}>

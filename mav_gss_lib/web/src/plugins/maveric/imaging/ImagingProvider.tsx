@@ -20,9 +20,7 @@
  * memo'd children.
  */
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -31,6 +29,7 @@ import {
 } from 'react';
 import { useRxStatus } from '@/state/rxHooks';
 import { fetchImagingStatus } from './helpers';
+import { ImagingContext, type ImagingApi } from './ImagingContext';
 import type { PairedFile, ImagingTab } from './types';
 
 interface ImagingProgressMsg {
@@ -41,29 +40,12 @@ interface ImagingProgressMsg {
   complete: boolean;
 }
 
-interface ImagingApi {
-  files: PairedFile[];
-  selectedStem: string;
-  previewTab: ImagingTab;
-  previewVersion: number;
-  /** Persisted imaging destination node (HLNV / ASTR). Survives
-   *  navigation so the operator doesn't re-pick it every time. */
-  destNode: string;
-  setSelectedStem: (stem: string) => void;
-  setPreviewTab: (tab: ImagingTab) => void;
-  setDestNode: (n: string) => void;
-  refetch: () => Promise<PairedFile[]>;
-}
-
-const ImagingContext = createContext<ImagingApi | null>(null);
-
 export function ImagingProvider({ children }: PropsWithChildren) {
   const { subscribeCustom: subscribeRxCustom } = useRxStatus();
 
   const [files, setFiles] = useState<PairedFile[]>([]);
   const [selectedStem, setSelectedStem] = useState('');
   const [previewTab, setPreviewTab] = useState<ImagingTab>('thumb');
-  const [previewVersion, setPreviewVersion] = useState(0);
   const [destNode, setDestNode] = useState('');
 
   // Ref mirror so the broadcast handler reads current files without
@@ -84,8 +66,8 @@ export function ImagingProvider({ children }: PropsWithChildren) {
   // REST fetch gives us the paired-file grouping (thumb/full
   // pairing by prefix) that the broadcast alone can't reconstruct.
   useEffect(() => {
-    refetch();
-  }, [refetch]);
+    fetchImagingStatus().then(setFiles).catch(() => {});
+  }, []);
 
   useEffect(() => {
     return subscribeRxCustom((msg) => {
@@ -141,10 +123,11 @@ export function ImagingProvider({ children }: PropsWithChildren) {
     () => files.find((f) => f.stem === selectedStem) ?? null,
     [files, selectedStem],
   );
-
-  useEffect(() => {
-    setPreviewVersion((v) => v + 1);
-  }, [selectedStem, selected?.full?.received, selected?.thumb?.received]);
+  const previewVersion = [
+    selectedStem,
+    selected?.full?.received ?? '',
+    selected?.thumb?.received ?? '',
+  ].join(':');
 
   const api = useMemo<ImagingApi>(
     () => ({
@@ -162,15 +145,4 @@ export function ImagingProvider({ children }: PropsWithChildren) {
   );
 
   return <ImagingContext.Provider value={api}>{children}</ImagingContext.Provider>;
-}
-
-export function useImaging(): ImagingApi {
-  const ctx = useContext(ImagingContext);
-  if (!ctx) {
-    throw new Error(
-      'useImaging must be used inside <ImagingProvider>. '
-      + 'Check that plugins/maveric/providers.ts registers ImagingProvider.',
-    );
-  }
-  return ctx;
 }

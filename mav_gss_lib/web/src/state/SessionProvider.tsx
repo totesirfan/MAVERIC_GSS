@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react'
 import { useSession } from '@/hooks/useSession'
-import type { ColumnDef, ColumnDefs, GssConfig, TxColumnDef } from '@/lib/types'
+import { composeRxColumns } from '@/lib/columns'
+import type { ColumnDef, ColumnDefs, GssConfig } from '@/lib/types'
 import { SessionContext, type SessionContextValue } from './sessionContexts'
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -17,16 +18,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/tx-columns').then((r) => r.json() as Promise<TxColumnDef[]>),
-      fetch('/api/columns').then((r) => r.json() as Promise<ColumnDef[]>),
-    ])
-      .then(([tx, rx]) => setColumns({ rx, tx }))
-      .catch(() => {
-        // On boot-time fetch failure, columns stays null and consumers render
-        // empty column lists until the page reloads. `/api/columns` is served
-        // from static mission schema so this only fires if the server is in a
-        // badly broken state.
-      })
+      fetch('/api/rx-columns')
+        .then((r) => r.json() as Promise<ColumnDef[]>)
+        .catch(() => [] as ColumnDef[]),
+      fetch('/api/tx-columns')
+        .then((r) => r.json() as Promise<ColumnDef[]>)
+        .catch(() => [] as ColumnDef[]),
+    ]).then(([rxMission, tx]) => {
+      setColumns({ rx: composeRxColumns(rxMission), tx })
+    })
   }, [])
 
   // Destructure `session` so the memo depends on primitive-ish fields; the raw

@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { useShortcuts } from '@/hooks/useShortcuts'
 import { useTabActive } from '@/state/TabActiveContext'
 import { motion } from 'framer-motion'
-import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, ExternalLink, Wrench } from 'lucide-react'
+import { FileUp, StopCircle, Send as SendIcon, ShieldCheck, X, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Kbd } from '@/components/ui/kbd'
@@ -16,7 +16,7 @@ import { getMissionBuilder } from '@/plugins/registry'
 import { useColumnDefs } from '@/state/sessionHooks'
 import type {
   TxQueueItem, TxQueueSummary,
-  SendProgress, GuardConfirm, GssConfig, TxColumnDef,
+  SendProgress, GuardConfirm, GssConfig,
 } from '@/lib/types'
 
 interface TxPanelProps {
@@ -53,8 +53,7 @@ export function TxPanel({
 }: TxPanelProps) {
   const [showBuilder, setShowBuilder] = useState(false)
   const [showImport, setShowImport] = useState(false)
-  const { defs: ctxDefs, hasProvider } = useColumnDefs()
-  const [localTxColumns, setLocalTxColumns] = useState<TxColumnDef[]>([])
+  const { defs: ctxDefs } = useColumnDefs()
   const [cmdHistory, setCmdHistory] = useState<string[]>([])
   const pushHistory = useCallback((cmd: string) => {
     setCmdHistory(prev => [cmd, ...prev])
@@ -66,13 +65,7 @@ export function TxPanel({
   const MissionBuilder = useMemo(() => getMissionBuilder(missionId), [missionId])
   const hasCommandBuilder = MissionBuilder !== null
 
-  // Pop-out windows render outside SessionProvider (hasProvider=false) and
-  // fall back to a local fetch. Main window reads from context.
-  useEffect(() => {
-    if (hasProvider) return
-    fetch('/api/tx-columns').then(r => r.json()).then(setLocalTxColumns).catch(() => {})
-  }, [hasProvider])
-  const txColumns = ctxDefs?.tx ?? localTxColumns
+  const txColumns = ctxDefs?.tx ?? []
 
   const [frameLabel, setFrameLabel] = useState<string>('')
   useEffect(() => {
@@ -80,7 +73,6 @@ export function TxPanel({
   }, [])
 
   const sending = sendProgress !== null
-  const missionName = config?.mission.name ?? 'MAVERIC'
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -106,9 +98,6 @@ export function TxPanel({
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="size-6" onClick={() => setShowImport(true)} title="Import commands">
               <FileUp className="size-3.5" style={{ color: colors.dim }} />
-            </Button>
-            <Button variant="ghost" size="icon" className="size-6" onClick={() => window.open('/?panel=tx', `${missionName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-tx`, 'popup=1,width=600,height=800')} title={`Pop out ${missionName} TX panel`}>
-              <ExternalLink className="size-3.5" style={{ color: colors.dim }} />
             </Button>
           </div>
         </div>
@@ -327,7 +316,7 @@ function GuardConfirmBlock({ guardConfirm, onApprove, onReject }: {
         <div className="min-w-0">
           <div className="text-xs font-bold" style={{ color: colors.warning }}>GUARD — Confirm to send</div>
           <div className="text-[11px] truncate" style={{ color: colors.value }}>
-            {guardConfirm.display.title}{guardConfirm.display.subtitle ? ` — ${guardConfirm.display.subtitle}` : ''}
+            {guardConfirm.cmd_id}
           </div>
         </div>
       </div>

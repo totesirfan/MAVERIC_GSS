@@ -35,7 +35,7 @@ function readTabFromUrl(): TabId {
 export default function GNCPage() {
   const { byKey, specs, lastUpdateAt } = useParameterGroup('gnc')
 
-  // Project the parameter group into the legacy {value, t} shape the
+  // Project the parameter group into the {value, t} shape the
   // dashboard cards already consume. This keeps each card's component
   // signature stable while the underlying state moves to the platform
   // ParametersProvider.
@@ -47,7 +47,7 @@ export default function GNCPage() {
     return out
   }, [byKey])
 
-  // Project parameter specs into the legacy CatalogEntry[] shape the
+  // Project parameter specs into the CatalogEntry[] shape the
   // RegistersTable consumes. tags.module / tags.register identify
   // addressable spacecraft registers; keys without tags get null on
   // both, so the table's `module !== null` filter still hides

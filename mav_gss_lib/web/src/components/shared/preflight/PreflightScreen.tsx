@@ -302,7 +302,7 @@ export function PreflightScreen({
           style={{ display: 'grid', placeItems: 'center' }}
         >
           <VisualStage active={!showUpdaterStage}>
-            <PlanetGlobe />
+            <PlanetGlobe satelliteLabel="MAVERIC" />
           </VisualStage>
           <VisualStage active={showUpdaterStage}>
             <UpdaterStage
@@ -818,4 +818,3 @@ function VisualStage({ active, children }: { active: boolean; children: ReactNod
     </motion.div>
   )
 }
-

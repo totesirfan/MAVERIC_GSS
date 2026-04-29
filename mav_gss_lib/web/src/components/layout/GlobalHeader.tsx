@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Settings, HelpCircle, FileText } from 'lucide-react'
+import { Settings, HelpCircle, FileText, Satellite } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -24,11 +24,11 @@ interface GlobalHeaderProps {
   session?: SessionState
 }
 
-function formatElapsed(startedAt: string): string {
+function formatElapsed(startedAt: string, nowMs: number): string {
   if (!startedAt) return ''
   const start = new Date(startedAt).getTime()
   if (isNaN(start)) return ''
-  const diffMs = Date.now() - start
+  const diffMs = nowMs - start
   if (diffMs < 0) return 'just now'
   const s = Math.floor(diffMs / 1000)
   if (s < 60) return `${s}s`
@@ -89,20 +89,12 @@ export function GlobalHeader({
   session,
 }: GlobalHeaderProps) {
   const [now, setNow] = useState(new Date())
-  const [elapsed, setElapsed] = useState(() => formatElapsed(session?.startedAt ?? ''))
   const rxState = useRxStateColor()
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(id)
   }, [])
-
-  useEffect(() => {
-    if (!session?.startedAt) return
-    setElapsed(formatElapsed(session.startedAt))
-    const id = setInterval(() => setElapsed(formatElapsed(session.startedAt)), 30_000)
-    return () => clearInterval(id)
-  }, [session?.startedAt])
 
   const utcTime = now.toISOString().slice(11, 19)
   const utcDate = now.toISOString().slice(0, 10)
@@ -114,6 +106,7 @@ export function GlobalHeader({
   const sessionLabel = isUntitled
     ? `untitled @ ${extractTimeLocal(session?.startedAt ?? '')}`
     : session?.sessionTag ?? ''
+  const elapsed = session?.startedAt ? formatElapsed(session.startedAt, now.getTime()) : ''
 
   return (
     <header className="shrink-0" style={{ backgroundColor: colors.bgApp }}>
@@ -130,9 +123,9 @@ export function GlobalHeader({
         {/* Brand */}
         <div className="usc-brand flex items-center gap-2 mr-4 cursor-default relative">
           <img src="/usc-shield.png" alt="" className="h-[20px] w-auto" />
-          <img src="/maveric-patch.webp" alt="" className="usc-icon size-[24px]" />
+          <Satellite className="usc-icon size-[18px]" aria-hidden="true" />
           <div className="flex items-center">
-            <span className="usc-maveric font-bold text-[13px] tracking-wide transition-colors" style={{ color: colors.value }}>{missionName}</span>
+            <span className="usc-mission font-bold text-[13px] tracking-wide transition-colors" style={{ color: colors.value }}>{missionName}</span>
             <span className="usc-gss font-bold text-[13px] tracking-wide transition-colors" style={{ color: colors.value }}>&nbsp;GSS</span>
           </div>
           <span className="text-[11px]" style={{ color: colors.dim }}>v{version}</span>

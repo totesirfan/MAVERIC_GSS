@@ -9,7 +9,7 @@ interface PreviewPanelProps {
   activeTab: ImagingTab;
   onTabChange: (tab: ImagingTab) => void;
   /** Monotonic version — bumped by parent when chunks arrive so the `<img>` refreshes. */
-  version: number;
+  version: string | number;
 }
 
 /**

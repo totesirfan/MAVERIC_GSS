@@ -52,10 +52,7 @@ export function ProgressPanel({
   const [chunkSets, setChunkSets] = useState<ChunkSetByFilename>({});
 
   useEffect(() => {
-    if (!selected) {
-      setChunkSets({});
-      return;
-    }
+    if (!selected) return;
     const toFetch = [selected.full, selected.thumb].filter(
       (l): l is FileLeaf => l !== null && l.total !== null,
     );
@@ -75,11 +72,7 @@ export function ProgressPanel({
       setChunkSets(next);
     });
     return () => ctrl.abort();
-  }, [
-    selected?.stem,
-    selected?.full?.received,
-    selected?.thumb?.received,
-  ]);
+  }, [selected]);
 
   return (
     <div

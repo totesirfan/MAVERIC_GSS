@@ -63,14 +63,6 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
       .catch(() => {})
   }, [])
 
-  // Focus cmdk search when picker first becomes available
-  useEffect(() => {
-    if (destNode && !hasInitialFocused.current) {
-      hasInitialFocused.current = true
-      setTimeout(() => cmdkSearchRef.current?.focus(), 0)
-    }
-  }, [destNode])
-
   const gsNodeName = identity?.gs_node ?? ''
   const nodes = useMemo(() => {
     const nodeMap = identity?.nodes
@@ -79,22 +71,24 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
       .map(([name, id]) => ({ id: Number(id), name }))
       .filter(n => n.id !== 0 && n.name !== String(gsNodeName))
   }, [identity, gsNodeName])
+  const selectedDestNode = destNode ?? nodes[0]?.name ?? null
 
-  // Auto-select first node so cmdk picker renders on builder open
+  // Focus cmdk search when picker first becomes available.
   useEffect(() => {
-    if (nodes.length > 0 && !destNode) {
-      setDestNode(nodes[0].name)
+    if (selectedDestNode && !hasInitialFocused.current) {
+      hasInitialFocused.current = true
+      setTimeout(() => cmdkSearchRef.current?.focus(), 0)
     }
-  }, [nodes, destNode])
+  }, [selectedDestNode])
 
   const dataFilteredCmds = useMemo(() => {
     if (!schema) return []
     let entries = Object.entries(schema).filter(([, def]) => !def.rx_only && !def.deprecated)
-    if (destNode) {
-      entries = entries.filter(([, def]) => !def.nodes || def.nodes.length === 0 || def.nodes.includes(destNode))
+    if (selectedDestNode) {
+      entries = entries.filter(([, def]) => !def.nodes || def.nodes.length === 0 || def.nodes.includes(selectedDestNode))
     }
     return entries
-  }, [schema, destNode])
+  }, [schema, selectedDestNode])
 
   const cmdDef: CommandDef | null = selectedCmd && schema ? schema[selectedCmd] ?? null : null
   const txArgs = cmdDef?.tx_args ?? []
@@ -120,13 +114,13 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
 
   function handleQueue() {
     if (disabled) return
-    if (!selectedCmd || !destNode) return
+    if (!selectedCmd || !selectedDestNode) return
+    const packet: Record<string, string> = {}
+    if (!cmdDef?.dest || cmdDef.dest !== selectedDestNode) packet.dest = selectedDestNode
     onQueue({
       cmd_id: selectedCmd,
       args: argValues,
-      dest: destNode,
-      echo: echo || 'NONE',
-      ptype: cmdDef?.ptype ?? 'CMD',
+      packet,
       guard: cmdDef?.guard ?? false,
     })
     setArgValues({})
@@ -145,8 +139,8 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
     if (!val) break
     previewArgs.push(val)
   }
-  const preview = selectedCmd && destNode
-    ? `${destNode} ${selectedCmd} ${previewArgs.join(' ')}`.trim()
+  const preview = selectedCmd && selectedDestNode
+    ? `${selectedDestNode} ${selectedCmd} ${previewArgs.join(' ')}`.trim()
     : ''
 
   return (
@@ -174,7 +168,7 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
           aria-label="Destination node"
         >
           {nodes.map((n) => {
-            const active = destNode === n.name
+            const active = selectedDestNode === n.name
             return (
               <button
                 key={n.id}
@@ -195,7 +189,7 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
         </div>
 
         {/* Command picker */}
-        {destNode && (
+        {selectedDestNode && (
           <Command
             className="!bg-transparent !p-0 !rounded-md !overflow-visible !h-auto !size-auto [&_*]:!ring-0 [&_*]:!outline-none"
             shouldFilter={true}
@@ -337,7 +331,7 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
       </div>
 
       {/* Preview bar — static, outside scroll area */}
-      {selectedCmd && destNode && (
+      {selectedCmd && selectedDestNode && (
         <div
           className="shrink-0 flex items-center gap-2 px-2.5 py-2"
           style={{ background: colors.bgPanelRaised, borderTop: `1px solid ${colors.borderSubtle}` }}

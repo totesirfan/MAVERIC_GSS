@@ -9,7 +9,7 @@ export interface LogSession {
   filename: string
   size: number
   mtime: number
-  direction: 'downlink' | 'uplink' | 'unknown'
+  direction: 'session' | 'unknown'
 }
 
 export function useLogQuery() {
@@ -22,12 +22,12 @@ export function useLogQuery() {
   const [currentOffset, setCurrentOffset] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  const [cmdFilter, setCmdFilter] = useState('')
+  const [labelFilter, setLabelFilter] = useState('')
   const [fromTime, setFromTime] = useState('')
   const [toTime, setToTime] = useState('')
   const [dateFilter, setDateFilter] = useState('')
 
-  const debouncedCmd = useDebouncedValue(cmdFilter, 300)
+  const debouncedLabel = useDebouncedValue(labelFilter, 300)
   const debouncedFrom = useDebouncedValue(fromTime, 300)
   const debouncedTo = useDebouncedValue(toTime, 300)
 
@@ -47,7 +47,7 @@ export function useLogQuery() {
   const fetchEntries = useCallback((sessionId: string, append = false, offsetOverride = 0) => {
     setLoading(true)
     const params = new URLSearchParams()
-    if (debouncedCmd) params.set('cmd', debouncedCmd)
+    if (debouncedLabel) params.set('label', debouncedLabel)
     if (debouncedFrom) params.set('from', debouncedFrom)
     if (debouncedTo) params.set('to', debouncedTo)
     params.set('offset', String(offsetOverride))
@@ -91,13 +91,13 @@ export function useLogQuery() {
         })
         .catch(() => setTelemetryByParent(new Map()))
     }
-  }, [debouncedCmd, debouncedFrom, debouncedTo])
+  }, [debouncedLabel, debouncedFrom, debouncedTo])
 
   const reset = useCallback(() => {
     setSelected(null)
     setEntries([])
     setTelemetryByParent(new Map())
-    setCmdFilter('')
+    setLabelFilter('')
     setFromTime('')
     setToTime('')
     setDateFilter('')
@@ -116,15 +116,15 @@ export function useLogQuery() {
     hasMore,
     currentOffset,
     error,
-    cmdFilter,
-    setCmdFilter,
+    labelFilter,
+    setLabelFilter,
     fromTime,
     setFromTime,
     toTime,
     setToTime,
     dateFilter,
     setDateFilter,
-    debouncedCmd,
+    debouncedLabel,
     debouncedFrom,
     debouncedTo,
     fetchSessions,

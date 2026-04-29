@@ -94,6 +94,38 @@ function ToggleField({ label, value, onChange }: { label: string; value: boolean
   )
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function configLabel(key: string): string {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function MissionValueField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  if (typeof value === 'boolean') {
+    return <ToggleField label={label} value={value} onChange={onChange} />
+  }
+  if (typeof value === 'number') {
+    return <NumberField label={label} value={value} onChange={onChange} compact />
+  }
+  return (
+    <TextField
+      label={label}
+      value={value === undefined || value === null ? '' : String(value)}
+      onChange={onChange}
+    />
+  )
+}
+
 /* -- main component ----------------------------------------------- */
 
 interface ConfigSidebarProps {
@@ -104,7 +136,7 @@ interface ConfigSidebarProps {
 export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
   const [cfg, setCfg] = useState<GssConfig | null>(null)
   const [dirty, setDirty] = useState(false)
-  const [statusInfo, setStatusInfo] = useState<{ version: string; schema_path: string; schema_count: number; log_dir: string; rx_log_json: string | null; rx_log_text: string | null; tx_log_json: string | null; tx_log_text: string | null } | null>(null)
+  const [statusInfo, setStatusInfo] = useState<{ version: string; schema_path: string; schema_count: number; log_dir: string; session_log_json: string | null } | null>(null)
   const initialRef = useRef<GssConfig | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<Element | null>(null)
@@ -229,8 +261,8 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
     })
   }, [])
 
-  const updateMission = useCallback(<K extends keyof GssConfig['mission']['config']>(
-    section: K,
+  const updateMission = useCallback((
+    section: string,
     key: string,
     value: unknown,
   ) => {
@@ -242,7 +274,25 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
           ...prev.mission,
           config: {
             ...prev.mission.config,
-            [section]: { ...(prev.mission.config[section] as object), [key]: value },
+            [section]: { ...(isRecord(prev.mission.config[section]) ? prev.mission.config[section] : {}), [key]: value },
+          },
+        },
+      }
+      setDirty(true)
+      return next
+    })
+  }, [])
+
+  const updateMissionTopLevel = useCallback((key: string, value: unknown) => {
+    setCfg((prev) => {
+      if (!prev) return prev
+      const next = {
+        ...prev,
+        mission: {
+          ...prev.mission,
+          config: {
+            ...prev.mission.config,
+            [key]: value,
           },
         },
       }
@@ -288,16 +338,34 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
               <div className="text-xs" style={{ color: colors.dim }}>Loading...</div>
             ) : (
               <>
-                {/* CSP */}
-                <Section title="CSP">
-                  <ToggleField label="CRC-32" value={cfg.mission.config.csp.csp_crc} onChange={(v) => updateMission('csp', 'csp_crc', v)} />
-                  <NumberField label="Priority" value={cfg.mission.config.csp.priority} onChange={(v) => updateMission('csp', 'priority', v)} compact />
-                  <NumberField label="Source" value={cfg.mission.config.csp.source} onChange={(v) => updateMission('csp', 'source', v)} compact />
-                  <NumberField label="Destination" value={cfg.mission.config.csp.destination} onChange={(v) => updateMission('csp', 'destination', v)} compact />
-                  <NumberField label="Dest Port" value={cfg.mission.config.csp.dest_port} onChange={(v) => updateMission('csp', 'dest_port', v)} compact />
-                  <NumberField label="Src Port" value={cfg.mission.config.csp.src_port} onChange={(v) => updateMission('csp', 'src_port', v)} compact />
-                  <NumberField label="Flags" value={cfg.mission.config.csp.flags} onChange={(v) => updateMission('csp', 'flags', v)} compact />
-                </Section>
+                {Object.entries(cfg.mission.config).some(([, value]) => !isRecord(value)) && (
+                  <Section title={cfg.mission.name || cfg.mission.id || 'Mission'}>
+                    {Object.entries(cfg.mission.config)
+                      .filter(([, value]) => !isRecord(value))
+                      .map(([key, value]) => (
+                        <MissionValueField
+                          key={key}
+                          label={configLabel(key)}
+                          value={value}
+                          onChange={(v) => updateMissionTopLevel(key, v)}
+                        />
+                      ))}
+                  </Section>
+                )}
+                {Object.entries(cfg.mission.config)
+                  .filter(([, value]) => isRecord(value))
+                  .map(([section, value]) => (
+                    <Section key={section} title={configLabel(section)}>
+                      {Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => (
+                        <MissionValueField
+                          key={key}
+                          label={configLabel(key)}
+                          value={nestedValue}
+                          onChange={(v) => updateMission(section, key, v)}
+                        />
+                      ))}
+                    </Section>
+                  ))}
 
                 {/* System */}
                 <Section title="System">
@@ -314,10 +382,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                     <InfoRow icon={<FileText className="size-3" />} label="Schema" value={(statusInfo.schema_path || '').split('/').pop() ?? ''} />
                     <InfoRow label="Commands" value={String(statusInfo.schema_count)} />
                     <InfoRow label="Log Dir" value={statusInfo.log_dir} />
-                    {statusInfo.rx_log_text && <InfoRow label="RX Log" value={statusInfo.rx_log_text.split('/').pop() ?? ''} />}
-                    {statusInfo.rx_log_json && <InfoRow label="RX Data" value={statusInfo.rx_log_json.split('/').pop() ?? ''} />}
-                    {statusInfo.tx_log_text && <InfoRow label="TX Log" value={statusInfo.tx_log_text.split('/').pop() ?? ''} />}
-                    {statusInfo.tx_log_json && <InfoRow label="TX Data" value={statusInfo.tx_log_json.split('/').pop() ?? ''} />}
+                    {statusInfo.session_log_json && <InfoRow label="Session Data" value={statusInfo.session_log_json.split('/').pop() ?? ''} />}
                   </Section>
                 )}
 

@@ -268,7 +268,7 @@ body {
 }
 
 /* USC easter egg */
-.usc-brand:hover .usc-maveric { color: #990000 !important; }
+.usc-brand:hover .usc-mission { color: #990000 !important; }
 .usc-brand:hover .usc-gss { color: #FFCC00 !important; }
 .usc-brand:hover .usc-icon { color: #FFCC00 !important; }
 

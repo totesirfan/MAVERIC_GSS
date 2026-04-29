@@ -5,10 +5,10 @@ import { ArrowDownToLine } from 'lucide-react'
 import { PacketList } from './PacketList'
 import { RxPanelHeader } from './RxPanelHeader'
 import { RxDetailPane } from './RxDetailPane'
-import { ReplayPanel } from '@/components/logs/ReplayPanel'
 import { useRxDisplayToggles } from '@/state/rxHooks'
+import { useColumnDefs } from '@/state/sessionHooks'
 import { colors } from '@/lib/colors'
-import type { ColumnDef, GssConfig, RxPacket, RxStatus } from '@/lib/types'
+import type { GssConfig, RxPacket, RxStatus } from '@/lib/types'
 
 interface RxPanelProps {
   config?: GssConfig | null
@@ -20,11 +20,6 @@ interface RxPanelProps {
     dupCount: number
     hasEcho: boolean
   }
-  columns?: ColumnDef[]
-  replayMode?: boolean
-  replaySession?: string | null
-  replacePackets?: (pkts: RxPacket[]) => void
-  onStopReplay?: () => void
   sessionGeneration?: number
   sessionTag?: string
   blackoutUntil?: number | null
@@ -35,10 +30,11 @@ function hasEcho(packet: RxPacket): boolean {
 }
 
 export function RxPanel({
-  config, packets, status, packetStats, columns, replayMode, replaySession,
-  replacePackets, onStopReplay, sessionGeneration, sessionTag, blackoutUntil,
+  config, packets, status, packetStats, sessionGeneration, sessionTag, blackoutUntil,
 }: RxPanelProps) {
   const { showFrame, hideUplink } = useRxDisplayToggles()
+  const { defs: columnDefs } = useColumnDefs()
+  const rxColumns = columnDefs?.rx
   const [autoScroll, setAutoScroll] = useState(true)
   const [selectedNum, setSelectedNum] = useState<number | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
@@ -129,7 +125,6 @@ export function RxPanel({
 
   const selectedPacket = selectedNum !== null ? filtered.find(p => p.num === selectedNum) ?? null : null
   const isLive = autoScroll && selectedNum === lastNum
-  const missionName = config?.mission.name ?? 'MAVERIC'
 
   return (
     <div className="flex flex-col h-full gap-3 relative">
@@ -146,21 +141,15 @@ export function RxPanel({
           status={status}
           packets={packets}
           packetStats={packetStats}
-          replayMode={replayMode}
           receiving={receiving}
           blackoutUntil={blackoutUntil}
-          missionName={missionName}
         />
-
-        {replayMode && replaySession && replacePackets && onStopReplay && (
-          <ReplayPanel sessionId={replaySession} replacePackets={replacePackets} onStop={onStopReplay} />
-        )}
 
         <SessionBanner sessionGeneration={sessionGeneration} sessionTag={sessionTag} packetCount={packets.length} />
 
         <PacketList
           packets={filtered}
-          columns={columns}
+          columns={rxColumns}
           showFrame={showFrame}
           showEcho={showEcho}
           flashPacketNum={lastNum}
@@ -168,7 +157,7 @@ export function RxPanel({
           onSelect={handleSelect}
           autoScroll={autoScroll}
           onScrolledUp={handleScrolledUp}
-          zmqStatus={replayMode ? 'REPLAY' : status.zmq}
+          zmqStatus={status.zmq}
           scrollSignal={detailOpen ? detailHeight : -1}
         />
 

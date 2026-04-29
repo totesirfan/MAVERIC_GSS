@@ -1,4 +1,4 @@
-/* ── MAVERIC GSS Semantic Color System ────────────────────────────
+/* ── GSS Semantic Color System ───────────────────────────────────
  *
  * All colors reference CSS custom properties defined in index.css.
  * Semantic meanings:

@@ -2,17 +2,16 @@ import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FileUp, FileText, Check, ChevronRight, Shield, Timer, MessageSquareText } from 'lucide-react'
 import { colors } from '@/lib/colors'
-import { col } from '@/lib/columns'
-import { cellText } from '@/lib/rendering'
-import { ValueBadge } from '@/components/shared/atoms/ValueBadge'
+import { col, buildTxRow } from '@/lib/columns'
+import { CellValue } from '@/components/shared/rendering'
 import { authFetch } from '@/lib/auth'
-import type { TxColumnDef, DetailBlock, RenderCell } from '@/lib/types'
+import type { ColumnDef, MissionFacts, ParamUpdate, TxHistoryItem, TxQueueCmd } from '@/lib/types'
 
 interface ImportDialogProps {
   open: boolean
   onClose: () => void
   onImported: () => void
-  txColumns: TxColumnDef[]
+  txColumns: ColumnDef[]
   disabled?: boolean
 }
 
@@ -24,12 +23,9 @@ interface ImportFile {
 
 interface PreviewItem {
   type: string
-  display?: {
-    title: string
-    subtitle?: string
-    row?: Record<string, RenderCell>
-    detail_blocks?: DetailBlock[]
-  }
+  cmd_id?: string
+  mission?: MissionFacts
+  parameters?: ParamUpdate[]
   guard?: boolean
   size?: number
   delay_ms?: number
@@ -59,12 +55,14 @@ export function ImportDialog({ open, onClose, onImported, txColumns, disabled }:
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const visibleColumns = useMemo(() => {
-    return txColumns.filter(col => {
-      if (!col.hide_if_all?.length) return true
-      const suppressSet = new Set(col.hide_if_all)
+    return txColumns.filter(c => {
+      if (!c.hide_if_all?.length) return true
+      const suppressSet = new Set(c.hide_if_all)
       return !preview.every(item => {
-        if (item.type === 'delay') return true
-        return suppressSet.has(cellText(item.display?.row?.[col.id]))
+        if (item.type === 'delay' || item.type === 'note') return true
+        if (!item.mission) return false
+        const row = buildTxRow(item as unknown as TxQueueCmd | TxHistoryItem, [c])
+        return suppressSet.has(row[c.id]?.value as never)
       })
     })
   }, [txColumns, preview])
@@ -222,27 +220,19 @@ export function ImportDialog({ open, onClose, onImported, txColumns, disabled }:
                           <Timer className="size-3 shrink-0" style={{ color: colors.warning }} />
                           <span style={{ color: colors.warning }}>{((item.delay_ms ?? 0) / 1000).toFixed(1)}s delay</span>
                         </>
-                      ) : visibleColumns.length > 0 ? (
+                      ) : visibleColumns.length > 0 && item.mission ? (
                         <>
-                          {visibleColumns.map(c => {
-                            const cell = item.display?.row?.[c.id]
-                            const val = cellText(cell)
-                            return (
-                              <span key={c.id} className={`${c.width ?? ''} ${c.flex ? 'flex-1 min-w-0 truncate' : 'shrink-0'}`}>
-                                {cell?.badge ? <ValueBadge value={val} tone={cell.tone} /> :
-                                 c.id === 'cmd' ? (
-                                   <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>
-                                     {String(val)}
-                                   </span>
-                                 ) : <span style={{ color: colors.dim }}>{val}</span>}
-                              </span>
-                            )
-                          })}
+                          {(() => {
+                            const row = buildTxRow(item as unknown as TxQueueCmd | TxHistoryItem, visibleColumns)
+                            return visibleColumns.map(c => (
+                              <CellValue key={c.id} col={c} row={row} showFrame showEcho />
+                            ))
+                          })()}
                           {item.guard && <Shield className="size-3 shrink-0" style={{ color: colors.warning }} />}
                         </>
                       ) : (
                         <>
-                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{item.display?.title ?? '?'}</span>
+                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ color: colors.value, backgroundColor: 'rgba(255,255,255,0.06)' }}>{item.cmd_id ?? '?'}</span>
                           {item.guard && <Shield className="size-3 shrink-0" style={{ color: colors.warning }} />}
                         </>
                       )}

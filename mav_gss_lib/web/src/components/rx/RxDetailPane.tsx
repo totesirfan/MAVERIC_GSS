@@ -7,7 +7,13 @@ import {
 } from '@/components/shared/overlays/ContextMenu'
 import { PacketDetail } from './PacketDetail'
 import { useRxDisplayToggles } from '@/state/rxHooks'
-import { renderingText } from '@/lib/rendering'
+import {
+  integrityBlocks,
+  packetDisplayLabel,
+  packetPayloadText,
+  protocolBlocks,
+  rxTimestamp,
+} from '@/lib/rxPacket'
 import { colors } from '@/lib/colors'
 import type { RxPacket } from '@/lib/types'
 
@@ -15,61 +21,34 @@ function f(label: string, value: string): string {
   return `  ${label.padEnd(12)} ${value}`
 }
 
-/** Extract command label from _rendering (live row or replay detail_blocks). */
 function extractCmd(p: RxPacket): string {
-  const rowCmd = renderingText(p._rendering, 'cmd')
-  if (rowCmd) return String(rowCmd).split(' ')[0] || '???'
-  for (const block of p._rendering?.detail_blocks ?? []) {
-    if (block.kind !== 'command') continue
-    for (const field of block.fields ?? []) {
-      if (field.name === 'Command') return field.value || '???'
-    }
-  }
-  return '???'
+  return packetDisplayLabel(p)
 }
 
-/** Extract "cmd args" string from _rendering for clipboard. */
 function extractCmdArgs(p: RxPacket): string {
-  const rowCmd = renderingText(p._rendering, 'cmd')
-  if (rowCmd) return String(rowCmd).trim()
-  const parts: string[] = []
-  for (const block of p._rendering?.detail_blocks ?? []) {
-    if (block.kind !== 'command') continue
-    for (const field of block.fields ?? []) {
-      parts.push(field.value)
-    }
-  }
-  return parts.join(' ').trim()
+  return [packetDisplayLabel(p), packetPayloadText(p)].filter(Boolean).join(' ').trim()
 }
 
 function formatPacketText(p: RxPacket): string {
   const lines: string[] = []
   const sep = '\u2500'
   const extras = [p.frame || '', `${p.size}B`, p.is_dup ? '[DUP]' : '', p.is_echo ? '[UL]' : ''].filter(Boolean).join('  ')
-  lines.push(`${sep.repeat(4)} #${p.num}  ${p.time_utc || p.time}  ${extras} ${sep.repeat(20)}`)
+  lines.push(`${sep.repeat(4)} #${p.num}  ${rxTimestamp(p)}  ${extras} ${sep.repeat(20)}`)
   if (p.is_echo) lines.push('  \u25B2\u25B2\u25B2 UPLINK ECHO \u25B2\u25B2\u25B2')
   for (const w of p.warnings) lines.push(f('\u26A0 WARNING', w))
 
-  const r = p._rendering
-  if (r?.detail_blocks) {
-    for (const block of r.detail_blocks) {
-      for (const field of block.fields ?? []) {
-        lines.push(f(field.name.toUpperCase(), field.value))
-      }
-    }
+  const label = packetDisplayLabel(p)
+  if (label) lines.push(f('LABEL', label))
+  const payload = packetPayloadText(p)
+  if (payload) lines.push(f('PAYLOAD', payload))
+
+  for (const block of protocolBlocks(p)) {
+    const vals = (block.fields ?? []).map((fld: { name: string; value: string }) => `${fld.name}:${fld.value}`).join('  ')
+    lines.push(f(block.label, vals))
   }
 
-  if (r?.protocol_blocks) {
-    for (const block of r.protocol_blocks) {
-      const vals = (block.fields ?? []).map((fld: { name: string; value: string }) => `${fld.name}:${fld.value}`).join('  ')
-      lines.push(f(block.label, vals))
-    }
-  }
-
-  if (r?.integrity_blocks) {
-    for (const block of r.integrity_blocks) {
-      lines.push(f(block.label, block.ok === null ? '?' : block.ok ? 'OK' : 'FAIL'))
-    }
+  for (const block of integrityBlocks(p)) {
+    lines.push(f(block.label, block.ok === null ? '?' : block.ok ? 'OK' : 'FAIL'))
   }
 
   if (p.raw_hex) {

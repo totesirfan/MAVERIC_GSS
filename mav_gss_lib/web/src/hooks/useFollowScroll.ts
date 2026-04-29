@@ -34,9 +34,13 @@ interface UseFollowScrollResult {
 export function useFollowScroll({
   containerRef, target, resetKey,
 }: UseFollowScrollArgs): UseFollowScrollResult {
-  const [detached, setDetached] = useState(false)
+  const [detachedState, setDetachedState] = useState({
+    detached: false,
+    resetKey,
+  })
   const [direction, setDirection] = useState<'up' | 'down'>('down')
   const suppressRef = useRef(false)
+  const detached = detachedState.resetKey === resetKey ? detachedState.detached : false
 
   const updateDirection = useCallback(() => {
     const c = containerRef.current
@@ -69,14 +73,6 @@ export function useFollowScroll({
     center()
   }, [target, detached, center])
 
-  // Edge-triggered re-attach on idle → active.
-  useEffect(() => {
-    if (resetKey === 'active') {
-      setDetached(false)
-      center()
-    }
-  }, [resetKey, center])
-
   // Single `scroll` listener catches every scroll cause (wheel, touch,
   // keyboard, programmatic). Programmatic scrolls fire while suppressRef
   // is true and are filtered out; user-driven scrolls flip detached.
@@ -85,7 +81,7 @@ export function useFollowScroll({
     if (!c) return
     const onScroll = () => {
       if (!suppressRef.current) {
-        setDetached(true)
+        setDetachedState({ detached: true, resetKey })
       }
       updateDirection()
     }
@@ -93,17 +89,12 @@ export function useFollowScroll({
     return () => {
       c.removeEventListener('scroll', onScroll)
     }
-  }, [containerRef, updateDirection])
-
-  // Refresh direction whenever the target itself changes.
-  useEffect(() => {
-    updateDirection()
-  }, [target, updateDirection])
+  }, [containerRef, resetKey, updateDirection])
 
   const jumpToCurrent = useCallback(() => {
-    setDetached(false)
+    setDetachedState({ detached: false, resetKey })
     center()
-  }, [center])
+  }, [center, resetKey])
 
   return { detached, direction, jumpToCurrent }
 }

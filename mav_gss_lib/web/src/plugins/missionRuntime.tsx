@@ -13,11 +13,9 @@
  * mission `EventOps.on_client_connect` replay). Lazy loading would miss it.
  * Eager resolution also sidesteps the async `/api/config` fetch that
  * determines the active mission — the provider tree renders every
- * discovered provider regardless of active-mission state. For a
- * single-mission deployment this is equivalent to "render the
- * MAVERIC providers"; if a second mission is ever added, providers
- * should gate themselves on the active mission or this module needs
- * to become mission-aware.
+ * discovered provider regardless of active-mission state. Mission-owned
+ * providers should gate themselves on the active mission when multiple
+ * missions are bundled into one frontend.
  */
 import type { ComponentType, PropsWithChildren, ReactElement, ReactNode } from 'react'
 

@@ -9,6 +9,9 @@ import {
 } from 'd3-geo'
 import { feature } from 'topojson-client'
 import * as satellite from 'satellite.js'
+import type { GeoPermissibleObjects } from 'd3-geo'
+import type { FeatureCollection, Geometry, GeoJsonProperties, LineString } from 'geojson'
+import type { GeometryObject, Topology } from 'topojson-specification'
 
 // =============================================================================
 //  PlanetGlobe — d3 orthographic Earth, rendered to SVG.
@@ -43,7 +46,7 @@ const MOUSE_PHI_RANGE    = 22
 const PHI_BASE           = -18
 const MOUSE_LERP         = 0.055
 
-// MAVERIC orbit — real TLE propagated via satellite.js. SSO at 97.82°
+// Representative mission orbit propagated via satellite.js. SSO at 97.82°
 // inclination, ~96.5 min period.
 const TLE_LINE1 = '1 99999U 26001A   26182.53800926  .00000000  00000-0  15000-3 0  9999'
 const TLE_LINE2 = '2 99999  97.8250 154.7171 0058009 348.1000 351.9980 14.91466332000019'
@@ -63,7 +66,7 @@ const TIME_SCALE = 160
 const PASS_AT_REAL_SEC = 20
 
 // Nominal vs LOS-active colors for the satellite + trail + footprint.
-// When the sub-point is inside MAVERIC's coverage cap centered on SERC,
+// When the sub-point is inside the coverage cap centered on SERC,
 // everything swaps to gold to signal that the ground station has the sat.
 const NOMINAL_SAT_FILL   = '#EAEFF6'
 const NOMINAL_SAT_RING   = 'rgba(225, 232, 242, 0.55)'
@@ -102,7 +105,7 @@ function satSubPoint(satrec: satellite.SatRec, date: Date): { lat: number; lon: 
   }
 }
 
-// Scan forward from `fromMs` until the sub-point first enters MAVERIC's
+// Scan forward from `fromMs` until the sub-point first enters the
 // coverage cap around SERC, then fine-step back to find the exact entry.
 // Returns the entry timestamp in ms, or null if no pass found within maxHours.
 function findFirstPassEntry(
@@ -130,7 +133,7 @@ function findFirstPassEntry(
   return null
 }
 
-export function PlanetGlobe() {
+export function PlanetGlobe({ satelliteLabel = 'SAT' }: { satelliteLabel?: string }) {
   const continentPathsRef = useRef<(SVGPathElement | null)[]>([])
   const graticulePathRef  = useRef<SVGPathElement | null>(null)
   const sercRingRef       = useRef<SVGCircleElement | null>(null)
@@ -146,7 +149,7 @@ export function PlanetGlobe() {
   const satCoreRef         = useRef<SVGCircleElement | null>(null)
   const satLabelRef        = useRef<SVGTextElement | null>(null)
 
-  const [landFeatures, setLandFeatures] = useState<unknown[]>([])
+  const [landFeatures, setLandFeatures] = useState<GeoPermissibleObjects[]>([])
   const [atlasFailed, setAtlasFailed]   = useState(false)
 
   // ------------------------------------------------------------
@@ -156,11 +159,11 @@ export function PlanetGlobe() {
     let cancelled = false
     fetch('/countries-110m.json')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((world: any) => {
+      .then((world: Topology<{ countries: GeometryObject }>) => {
         if (cancelled) return
         try {
-          const land = feature(world, world.objects.countries) as any
-          setLandFeatures(land.features || [])
+          const land = feature(world, world.objects.countries) as FeatureCollection<Geometry, GeoJsonProperties>
+          setLandFeatures(land.features)
         } catch (err) {
           console.warn('[PlanetGlobe] topojson decode failed:', err)
           setAtlasFailed(true)
@@ -251,13 +254,13 @@ export function PlanetGlobe() {
       for (let i = 0; i < paths.length && i < landFeatures.length; i++) {
         const el = paths[i]
         if (!el) continue
-        const d = pathGen(landFeatures[i] as any)
+        const d = pathGen(landFeatures[i])
         el.setAttribute('d', d || '')
       }
 
       // Graticule
       if (graticulePathRef.current) {
-        const d = pathGen(graticuleData as any)
+        const d = pathGen(graticuleData)
         graticulePathRef.current.setAttribute('d', d || '')
       }
 
@@ -266,7 +269,7 @@ export function PlanetGlobe() {
       if (!sub) return
       const { lat: satLat, lon: satLon } = sub
 
-      // Line-of-sight test — is SERC inside MAVERIC's coverage cap?
+      // Line-of-sight test — is SERC inside the satellite's coverage cap?
       // (geoDistance returns great-circle distance in radians.)
       const satToSerc = geoDistance([satLon, satLat], [GS_LON, GS_LAT])
       const inLOS = satToSerc < HORIZON_RAD
@@ -282,7 +285,7 @@ export function PlanetGlobe() {
         : `drop-shadow(0 0 3px ${NOMINAL_GLOW_INNER}) drop-shadow(0 0 9px ${NOMINAL_GLOW_MID}) drop-shadow(0 0 20px ${NOMINAL_GLOW_OUTER})`
 
       // SERC pin — show when LA is on the visible hemisphere, fade near limb.
-      // Brightens and grows slightly when MAVERIC has LOS.
+      // Brightens and grows slightly when the satellite has LOS.
       const rot = proj.rotate()
       const viewCenter: [number, number] = [-rot[0], -rot[1]]
       const sercDist = geoDistance([GS_LON, GS_LAT], viewCenter)
@@ -323,7 +326,7 @@ export function PlanetGlobe() {
 
       // Coverage footprint
       const cap = geoCircle().center([satLon, satLat]).radius(HORIZON_DEG)()
-      const footprintD = pathGen(cap as any) || ''
+      const footprintD = pathGen(cap) || ''
       if (footprintFillRef.current) {
         footprintFillRef.current.setAttribute('d', footprintD)
         footprintFillRef.current.setAttribute('fill', fpFill)
@@ -343,7 +346,7 @@ export function PlanetGlobe() {
         const a = satTrail[i - 1]
         const b = satTrail[i]
         if (Math.abs(a.lon - b.lon) > 180) continue
-        const lineGeom = {
+        const lineGeom: LineString = {
           type: 'LineString',
           coordinates: [
             [a.lon, a.lat],
@@ -351,7 +354,7 @@ export function PlanetGlobe() {
           ],
         }
         segs.push({
-          d: pathGen(lineGeom as any) || '',
+          d: pathGen(lineGeom) || '',
           age: i / satTrail.length,
         })
       }
@@ -611,7 +614,7 @@ export function PlanetGlobe() {
             letterSpacing="1.3"
             opacity="0"
           >
-            MAVERIC
+            {satelliteLabel}
           </text>
         </g>
       </svg>

@@ -36,7 +36,7 @@ export function NoteItem({ text, index, sortId, status, flash, onDelete }: NoteI
       style={{ ...style, borderLeftColor: colors.dim }}
       className={`rounded-md text-xs border-l-2 mb-0.5 ${flash ? 'animate-slide-in' : ''}`}
     >
-      <div className="flex items-center gap-1.5 px-1.5 py-1.5">
+      <div className="flex items-center gap-1.5 px-1.5 py-0.5">
         {pending ? (
           <span {...attributes} {...listeners}
             className={`${col.grip} cursor-grab shrink-0 p-0.5 rounded hover:bg-white/[0.06] flex items-center justify-center`}>

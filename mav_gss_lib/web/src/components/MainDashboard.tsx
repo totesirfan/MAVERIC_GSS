@@ -9,7 +9,7 @@ import { RxPanel } from '@/components/rx/RxPanel'
 import { TxPanel } from '@/components/tx/TxPanel'
 import { showToast } from '@/components/shared/overlays/StatusToast'
 import { Skeleton } from '@/components/ui/skeleton'
-import { renderingFlags, renderingText } from '@/lib/rendering'
+import { packetDisplayLabel, packetFlags } from '@/lib/rxPacket'
 import type { GssConfig } from '@/lib/types'
 
 /** Sentinel that watches the packet stream for CRC failures and toasts them.
@@ -22,8 +22,8 @@ export function RxCrcToastSentinel() {
     const last = packets[packets.length - 1]
     if (last.num <= lastCheckedNum.current) return
     lastCheckedNum.current = last.num
-    const hasCrcFail = renderingFlags(last._rendering).some(f => f.tag === 'CRC')
-    const cmdLabel = renderingText(last._rendering, 'cmd').split(' ')[0] || 'unknown'
+    const hasCrcFail = packetFlags(last).some(f => f.tag === 'CRC')
+    const cmdLabel = packetDisplayLabel(last) || 'unknown'
     if (hasCrcFail) showToast(`CRC-16 FAIL: ${cmdLabel} #${last.num} — verify link quality`, 'warning', 'rx')
   }, [packets])
   return null
@@ -119,13 +119,10 @@ interface MainDashboardProps {
   config: GssConfig | null
   confirmSendSignal: number
   confirmClearSignal: number
-  replaySession: string | null
-  onStopReplay: () => void
 }
 
-export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, replaySession, onStopReplay }: MainDashboardProps) {
+export function MainDashboard({ config, confirmSendSignal, confirmClearSignal }: MainDashboardProps) {
   const rx = useRxStatus()
-  const columns = rx.columns
   const tx = useTx()
   const session = useSessionContext()
   const tabActive = useTabActive()
@@ -169,11 +166,6 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal, r
           <RxPanelWithPackets
             config={config}
             status={rx.status}
-            columns={columns}
-            replayMode={rx.replayMode}
-            replaySession={replaySession}
-            replacePackets={rx.replacePackets}
-            onStopReplay={onStopReplay}
             sessionGeneration={rx.sessionGeneration}
             sessionTag={rx.sessionTag || session.sessionTag}
             blackoutUntil={rx.blackoutUntil}

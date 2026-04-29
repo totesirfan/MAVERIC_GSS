@@ -2,20 +2,52 @@
 
 export interface RxPacket {
   num: number
-  time: string
-  time_utc: string
+  time?: string
+  time_utc?: string
+  received_at_ms?: number
   frame: string
   size: number
   raw_hex: string
+  payload_hex?: string
+  payload_len?: number
+  wire_hex?: string
+  wire_len?: number
+  mission?: MissionFacts
+  parameters?: ParamUpdate[]
   warnings: string[]
   is_echo: boolean
   is_dup: boolean
   is_unknown: boolean
+  flags?: RxFlags
   _rendering?: RenderingData
+}
+
+export interface MissionFacts {
+  id: string
+  facts?: Record<string, unknown>
+}
+
+export interface RxFlags {
+  duplicate?: boolean
+  unknown?: boolean
+  uplink_echo?: boolean
+  integrity_ok?: boolean | null
+}
+
+export interface ParamUpdate {
+  name: string
+  value: unknown
+  ts_ms: number
+  unit?: string
+  display_only?: boolean
 }
 
 // ---- Rendering Slots ----
 
+// Declarative column def — superset shape covering both platform-shell
+// columns (RX num/time/frame/flags/size — `kind` and `path` omitted) and
+// mission-authored columns from `mission.yml::ui.{rx,tx}_columns`
+// (`path` for `kind: value`, no path for `kind: verifiers`).
 export interface ColumnDef {
   id: string
   label: string
@@ -23,6 +55,12 @@ export interface ColumnDef {
   align?: 'left' | 'right'
   flex?: boolean
   toggle?: string
+  path?: string
+  kind?: 'value' | 'verifiers'
+  badge?: boolean
+  value_icons?: Record<string, string>
+  default_icon?: string
+  hide_if_all?: unknown[]
 }
 
 export interface RenderingFlag {
@@ -40,6 +78,8 @@ export interface RenderCell {
   badge?: boolean
   tooltip?: string | null
   monospace?: boolean
+  tabular?: boolean       // tabular-nums for fixed-width numbers
+  suffix?: string         // appended verbatim to the rendered text (e.g. "B" for sizes)
 }
 
 export interface BlockField {
@@ -77,34 +117,26 @@ export interface RxStatus {
 }
 
 // ---- TX ----
-
-export interface CmdDisplay {
-  title: string
-  subtitle?: string
-  row: Record<string, RenderCell>
-  detail_blocks: DetailBlock[]
-}
-
-export interface TxColumnDef {
-  id: string
-  label: string
-  width?: string
-  align?: 'left' | 'right'
-  flex?: boolean
-  hide_if_all?: string[]
-}
+// TX queue / history items mirror the RX shape: `mission: {id, facts}` is
+// the mission-owned opaque dict consumed by declarative TX columns and the
+// detail panel. `parameters` is the typed-args list used by the parameter
+// blocks in the detail panel. There is no rich `display` object — all
+// presentation flows through declarative `mission.yml::ui.tx_columns`.
 
 export interface ColumnDefs {
   rx: ColumnDef[]
-  tx: TxColumnDef[]
+  tx: ColumnDef[]
 }
 
 export interface TxQueueCmd {
   type: 'mission_cmd'
   num: number
-  display: CmdDisplay
+  cmd_id: string
+  mission?: MissionFacts
+  parameters?: ParamUpdate[]
   guard: boolean
   size: number
+  raw_hex: string
   payload: Record<string, unknown>
   // Backend stamps this on the still-queued item right after register so the
   // tick strip can render mid-send. Absent on pending (not-yet-sent) rows.
@@ -133,12 +165,16 @@ export interface TxHistoryItem {
   n: number
   ts: string
   type: 'mission_cmd'
-  display: CmdDisplay
+  cmd_id: string
+  mission?: MissionFacts
+  parameters?: ParamUpdate[]
   payload: Record<string, unknown>
   size: number
+  raw_hex: string
+  wire_hex: string
   // Join key to the verification Map. Stamped by backend `_record_sent`;
   // the same id is used as `CommandInstance.cmd_event_id` when the instance
-  // is registered. Optional because legacy history rows won't have it.
+  // is registered. Optional because older persisted rows may not have it.
   event_id?: string
 }
 
@@ -151,7 +187,8 @@ export interface SendProgress {
 
 export interface GuardConfirm {
   index: number
-  display: CmdDisplay
+  cmd_id: string
+  mission?: MissionFacts
 }
 
 // ---- Unified TX timeline ----
@@ -206,6 +243,9 @@ export interface MissionBuilderProps {
 // here. `deprecated: true` in the schema triggers UX demotion (hidden from
 // the builder, warning toast on CLI submit).
 export interface CommandSchemaItem {
+  description?: string
+  title?: string
+  label?: string
   tx_args?: Array<{ name: string; type: string; important?: boolean; optional?: boolean }>
   rx_args?: Array<{ name: string; type: string }>
   variadic?: boolean
@@ -242,26 +282,16 @@ export interface PlatformConfig {
   stations?: Record<string, string>
 }
 
-export interface MavericCspConfig {
-  priority: number
-  source: number
-  destination: number
-  dest_port: number
-  src_port: number
-  flags: number
-  csp_crc: boolean
-}
-
-export interface MavericMissionConfig {
+export interface MissionConfig {
   mission_name?: string
   rx_title?: string
   tx_title?: string
   gs_node?: string
-  nodes?: Record<string, string>
-  ptypes?: Record<string, string>
-  node_descriptions?: Record<string, string>
-  csp: MavericCspConfig
+  nodes?: Record<string, unknown>
+  ptypes?: Record<string, unknown>
+  node_descriptions?: Record<string, unknown>
   imaging?: Record<string, unknown>
+  [key: string]: unknown
 }
 
 export interface GssConfig {
@@ -269,7 +299,7 @@ export interface GssConfig {
   mission: {
     id: string
     name: string
-    config: MavericMissionConfig
+    config: MissionConfig
   }
 }
 
