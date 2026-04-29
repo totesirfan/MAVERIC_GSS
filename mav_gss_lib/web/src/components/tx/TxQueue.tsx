@@ -5,7 +5,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { Trash2, Send, Timer, Save, ArrowDownToLine, ArrowUpToLine, History } from 'lucide-react'
+import { Trash2, Send, Timer, Save, ArrowDownToLine, ArrowUpToLine, History, ShieldCheck } from 'lucide-react'
 import { useTabActive } from '@/state/TabActiveContext'
 import { useShortcuts, type Shortcut } from '@/hooks/useShortcuts'
 import { useFollowScroll } from '@/hooks/useFollowScroll'
@@ -22,6 +22,7 @@ import { ConfirmBar } from '@/components/shared/overlays/ConfirmBar'
 import { QueueItem } from './QueueItem'
 import { DelayItem } from './DelayItem'
 import { NoteItem } from './NoteItem'
+import { CheckpointItem } from './CheckpointItem'
 import { colors } from '@/lib/colors'
 import { col, buildTxRow } from '@/lib/columns'
 import { useTx } from '@/state/txHooks'
@@ -38,6 +39,7 @@ interface TxQueueProps {
   onDelete: (index: number) => void
   onEditDelay: (index: number, ms: number) => void
   onAddDelay: (ms: number) => void
+  onAddCheckpoint: (text: string) => void
   onClear: () => void
   onSend: () => void
   onDuplicate: (index: number) => void
@@ -51,7 +53,7 @@ interface TxQueueProps {
 export function TxQueue({
   summary, sendProgress, isGuarding,
   txColumns,
-  onToggleGuard, onDelete, onEditDelay, onAddDelay,
+  onToggleGuard, onDelete, onEditDelay, onAddDelay, onAddCheckpoint,
   onClear, onSend, onDuplicate, onMoveToTop, onMoveToBottom, onRequeue,
   triggerConfirmSend, triggerConfirmClear,
 }: TxQueueProps) {
@@ -66,6 +68,7 @@ export function TxQueue({
   const [handledConfirmSendSignal, setHandledConfirmSendSignal] = useState(0)
   const [confirmClearSent, setConfirmClearSent] = useState(false)
   const [showSavePrompt, setShowSavePrompt] = useState(false)
+  const [showCheckpointPrompt, setShowCheckpointPrompt] = useState(false)
 
   const outerRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -194,7 +197,7 @@ export function TxQueue({
       const suppressSet = new Set(c.hide_if_all)
       if (items.length === 0) return true
       return !items.every(it => {
-        if (it.source === 'queue' && (it.item.type === 'delay' || it.item.type === 'note')) return true
+        if (it.source === 'queue' && (it.item.type === 'delay' || it.item.type === 'note' || it.item.type === 'checkpoint')) return true
         const row = buildTxRow(it.item as TxQueueCmd | TxHistoryItem, [c])
         return suppressSet.has(row[c.id]?.value as never)
       })
@@ -257,6 +260,21 @@ export function TxQueue({
                           index={it.queueIndex!}
                           sortId={it.uid}
                           status={it.status}
+                          onDelete={onDelete}
+                        />
+                      </div>
+                    )
+                  }
+                  if (it.source === 'queue' && it.item.type === 'checkpoint') {
+                    const checkpointActive = isGuarding && it.status === 'sending'
+                    return (
+                      <div key={it.uid}>
+                        <CheckpointItem
+                          text={it.item.text}
+                          index={it.queueIndex!}
+                          sortId={it.uid}
+                          status={it.status}
+                          isActive={checkpointActive}
                           onDelete={onDelete}
                         />
                       </div>
@@ -359,11 +377,15 @@ export function TxQueue({
           <span className="text-[11px]" style={{ color: colors.dim }}>
             {summary.cmds} pending
             {summary.guards > 0 ? ` · ${summary.guards} guarded` : ''}
+            {summary.checkpoints ? ` · ${summary.checkpoints} checkpoint${summary.checkpoints !== 1 ? 's' : ''}` : ''}
             {estStr ? ` · ${estStr}` : ''}
           </span>
           <div className="flex items-center gap-1.5">
             <Button variant="ghost" size="sm" onClick={() => onAddDelay(2000)} className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }} disabled={!hasPending}>
               <Timer className="size-3" /> Delay
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowCheckpointPrompt(true)} className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }} disabled={isActivelySending}>
+              <ShieldCheck className="size-3" /> Checkpoint
             </Button>
             <Button variant="ghost" size="sm" onClick={() => { setLocalConfirmClear(true); setLocalConfirmSend(false) }}
               className="h-6 px-2 text-xs gap-1" style={{ color: colors.dim }} disabled={!hasPending}>
@@ -393,6 +415,16 @@ export function TxQueue({
           }).catch(() => showToast('Failed to save queue', 'error'))
         }}
         onCancel={() => setShowSavePrompt(false)}
+      />
+      <PromptDialog
+        open={showCheckpointPrompt}
+        title="Add Checkpoint"
+        placeholder="Checkpoint text"
+        onSubmit={(text) => {
+          setShowCheckpointPrompt(false)
+          onAddCheckpoint(text)
+        }}
+        onCancel={() => setShowCheckpointPrompt(false)}
       />
     </div>
   )

@@ -7,12 +7,13 @@
 Author:  Irfan Annuar - USC ISI SERC
 """
 
-from .queue import QueueItem, make_delay, make_mission_cmd, make_note, sanitize_queue_items
+from .queue import QueueItem, make_checkpoint, make_delay, make_mission_cmd, make_note, sanitize_queue_items
 from .service import TxService
 
 __all__ = [
     "QueueItem",
     "TxService",
+    "make_checkpoint",
     "make_delay",
     "make_mission_cmd",
     "make_note",

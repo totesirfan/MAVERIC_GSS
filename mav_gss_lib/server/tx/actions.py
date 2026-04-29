@@ -22,6 +22,7 @@ Author:  Irfan Annuar - USC ISI SERC
 #   reorder           {order: int[]}                  → queue_update
 #   add_delay         {delay_ms: int, index?: int}    → queue_update
 #   edit_delay        {index: int, delay_ms: int}     → queue_update
+#   add_checkpoint    {text: str, index?: int}        → queue_update
 #   send              {}                              → send_progress | error
 #   abort             {}                              → send_aborted
 #   guard_approve     {}                              → (resumes send)
@@ -49,7 +50,7 @@ from typing import TYPE_CHECKING, Callable, NamedTuple
 from mav_gss_lib.platform.spec import SpecError
 
 from ..state import MAX_QUEUE
-from .queue import QueueItem, make_delay, validate_mission_cmd
+from .queue import QueueItem, make_checkpoint, make_delay, validate_mission_cmd
 from .service import AdmitResult
 from .._task_utils import log_task_exception
 
@@ -301,6 +302,23 @@ async def handle_edit_delay(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -
     await runtime.tx.send_queue_update()
 
 
+async def handle_add_checkpoint(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
+    """Insert a manual checkpoint item at a given index or append."""
+    text = str(msg.get("text", "")).strip()
+    item = make_checkpoint(text)
+    idx = msg.get("index")
+    def do_add(q: list[QueueItem]) -> None:
+        if isinstance(idx, int) and 0 <= idx <= len(q):
+            q.insert(idx, item)
+        else:
+            q.append(item)
+    err, _ = mutate_queue_if_idle(runtime, do_add, check_space=True)
+    if err:
+        await send_error(ws, err)
+        return
+    await runtime.tx.send_queue_update()
+
+
 async def handle_send(runtime: "WebRuntime", msg: dict, ws: "WebSocket") -> None:
     """Start the TX send loop."""
     error = None
@@ -359,6 +377,7 @@ ACTIONS: dict[str, ActionSpec] = {
     "reorder":           ActionSpec(handler=handle_reorder,           guards=[requires_idle]),
     "add_delay":         ActionSpec(handler=handle_add_delay,         guards=[requires_idle, requires_space]),
     "edit_delay":        ActionSpec(handler=handle_edit_delay,        guards=[requires_idle]),
+    "add_checkpoint":    ActionSpec(handler=handle_add_checkpoint,    guards=[requires_idle, requires_space]),
     "send":              ActionSpec(handler=handle_send,              guards=[]),
     "abort":             ActionSpec(handler=handle_abort,             guards=[]),
     "guard_approve":     ActionSpec(handler=handle_guard_approve,     guards=[]),

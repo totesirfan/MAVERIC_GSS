@@ -19,7 +19,7 @@ from mav_gss_lib.server.api.queue_io import (
     parse_import_file,
     preview_import,
 )
-from mav_gss_lib.server.tx.queue import make_delay, validate_mission_cmd
+from mav_gss_lib.server.tx.queue import make_checkpoint, make_delay, make_note, validate_mission_cmd
 from mav_gss_lib.server.state import create_runtime
 
 
@@ -68,17 +68,22 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         payload = """
         // comment
         {"type": "mission_cmd", "guard": true, "payload": {"cmd_id": "com_ping", "args": {}, "packet": {"dest": "EPS"}}} // trailing
+        {"type": "checkpoint", "text": "Confirm EPS bus is stable"}
         {"type": "delay", "delay_ms": 250}
         """.strip()
         path = self.generated_dir / "sample.jsonl"
         path.write_text(payload + "\n")
         items, skipped = parse_import_file(path, runtime=self.runtime)
         self.assertEqual(skipped, 0)
-        self.assertEqual(len(items), 2)
-        self.assertEqual(items[0]["type"], "mission_cmd")
-        self.assertTrue(items[0]["guard"])
-        self.assertEqual(items[0]["cmd_id"], "com_ping")
-        self.assertEqual(items[1]["type"], "delay")
+        self.assertEqual(len(items), 4)
+        self.assertEqual(items[0]["type"], "note")
+        self.assertEqual(items[0]["text"], "comment")
+        self.assertEqual(items[1]["type"], "mission_cmd")
+        self.assertTrue(items[1]["guard"])
+        self.assertEqual(items[1]["cmd_id"], "com_ping")
+        self.assertEqual(items[2]["type"], "checkpoint")
+        self.assertEqual(items[2]["text"], "Confirm EPS bus is stable")
+        self.assertEqual(items[3]["type"], "delay")
 
     def test_list_import_files_uses_configured_directory(self):
         (self.generated_dir / "a.jsonl").write_text("{}\n")
@@ -99,6 +104,15 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         self.assertIn("mission", item)
         self.assertEqual(item["mission"]["facts"]["header"]["cmd_id"], "com_ping")
         self.assertEqual(item["mission"]["facts"]["header"]["dest"], "EPS")
+
+    def test_preview_returns_checkpoint_items(self):
+        path = self.generated_dir / "checkpoint.jsonl"
+        path.write_text('{"type": "checkpoint", "text": "Confirm pass constraints"}\n')
+        preview = asyncio.run(preview_import("checkpoint.jsonl", _request_for(self.runtime)))
+        self.assertEqual(preview["skipped"], 0)
+        self.assertEqual(preview["items"], [
+            {"type": "checkpoint", "text": "Confirm pass constraints"},
+        ])
 
     def test_import_produces_mission_cmd_queue_items(self):
         path = self.generated_dir / "queue.jsonl"
@@ -131,6 +145,29 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
         self.assertIn('"type": "mission_cmd"', contents)
         self.assertIn('"type": "delay"', contents)
 
+    def test_export_then_import_round_trips_notes_delays_and_commands(self):
+        self.runtime.tx.queue.extend(
+            [
+                make_note("ops note"),
+                make_checkpoint("operator checkpoint"),
+                _make_mission_item("com_ping", "", runtime=self.runtime),
+                make_delay(500),
+            ]
+        )
+        exported = asyncio.run(export_queue({"name": "roundtrip"}, _request_for(self.runtime)))
+        self.assertTrue(exported["ok"])
+
+        self.runtime.tx.queue.clear()
+        imported = asyncio.run(import_file("roundtrip.jsonl", _request_for(self.runtime)))
+
+        self.assertEqual(imported["loaded"], 4)
+        self.assertEqual(imported["skipped"], 0)
+        self.assertEqual([item["type"] for item in self.runtime.tx.queue], ["note", "checkpoint", "mission_cmd", "delay"])
+        self.assertEqual(self.runtime.tx.queue[0]["text"], "ops note")
+        self.assertEqual(self.runtime.tx.queue[1]["text"], "operator checkpoint")
+        self.assertEqual(self.runtime.tx.queue[2]["cmd_id"], "com_ping")
+        self.assertEqual(self.runtime.tx.queue[3]["delay_ms"], 500)
+
     def test_export_queue_requires_session_token(self):
         self.runtime.tx.queue.append(
             _make_mission_item("com_ping", "", runtime=self.runtime)
@@ -162,8 +199,7 @@ class TestWebRuntimeWorkflows(unittest.TestCase):
                 "seq": i + 1, "v": "5.7.0", "mission_id": "maveric",
                 "operator": "", "station": "",
                 "frame_type": "HDLC", "transport_meta": "",
-                "wire_hex": f"{i:02x}" * 10, "wire_len": 20,
-                "inner_hex": f"{i:02x}" * 8, "inner_len": 16,
+                "raw_hex": f"{i:02x}" * 10, "size": 20,
                 "duplicate": False, "uplink_echo": False, "unknown": False,
                 "warnings": [], "mission": {},
             }

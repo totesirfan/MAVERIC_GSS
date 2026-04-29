@@ -51,7 +51,12 @@ class NoteItem(TypedDict):
     text: str
 
 
-QueueItem = Union[MissionCmdItem, DelayItem, NoteItem]
+class CheckpointItem(TypedDict):
+    type: Literal["checkpoint"]
+    text: str
+
+
+QueueItem = Union[MissionCmdItem, DelayItem, NoteItem, CheckpointItem]
 
 
 def make_delay(delay_ms: int) -> DelayItem:
@@ -62,6 +67,12 @@ def make_delay(delay_ms: int) -> DelayItem:
 def make_note(text: Any) -> NoteItem:
     """Build one note queue item (from ``//`` comment lines in JSONL files)."""
     return {"type": "note", "text": " ".join(str(text).split())}
+
+
+def make_checkpoint(text: Any) -> CheckpointItem:
+    """Build one manual checkpoint queue item."""
+    clean = " ".join(str(text).split())
+    return {"type": "checkpoint", "text": clean or "Confirm before continuing"}
 
 
 def _params_as_json(params: tuple) -> list[dict[str, Any]]:
@@ -158,7 +169,7 @@ def sanitize_queue_items(
     accepted: list[QueueItem] = []
     skipped = 0
     for item in items:
-        if item["type"] in ("delay", "note"):
+        if item["type"] in ("delay", "note", "checkpoint"):
             accepted.append(item)  # type: ignore[arg-type]
             continue
         if item["type"] == "mission_cmd":
@@ -191,6 +202,8 @@ def json_to_item(
         return make_delay(payload.get("delay_ms", 0))
     if payload["type"] == "note":
         return make_note(payload.get("text", ""))
+    if payload["type"] == "checkpoint":
+        return make_checkpoint(payload.get("text", ""))
     if payload["type"] == "mission_cmd":
         item = validate_mission_cmd(
             payload.get("payload", {}),
@@ -261,10 +274,11 @@ def queue_summary(queue: list[QueueItem], default_delay_ms: int = 500) -> dict[s
     """Summarize queue size, guard count, and rough execution time."""
     cmds = sum(1 for item in queue if item["type"] == "mission_cmd")
     guards = sum(1 for item in queue if item.get("guard"))
+    checkpoints = sum(1 for item in queue if item["type"] == "checkpoint")
     delay_total = sum(item.get("delay_ms", 0) for item in queue if item["type"] == "delay")
     inter_cmd_ms = default_delay_ms * max(cmds - 1, 0)
     est_time_s = (delay_total + inter_cmd_ms) / 1000.0
-    return {"cmds": cmds, "guards": guards, "est_time_s": round(est_time_s, 1)}
+    return {"cmds": cmds, "guards": guards, "checkpoints": checkpoints, "est_time_s": round(est_time_s, 1)}
 
 
 def queue_items_json(queue: list[QueueItem]) -> list[dict[str, Any]]:
@@ -276,6 +290,9 @@ def queue_items_json(queue: list[QueueItem]) -> list[dict[str, Any]]:
             continue
         if item["type"] == "note":
             result.append({"type": "note", "text": item["text"]})
+            continue
+        if item["type"] == "checkpoint":
+            result.append({"type": "checkpoint", "text": item["text"]})
             continue
         raw = item.get("raw_cmd", b"")
         projected: dict[str, Any] = {
@@ -307,6 +324,9 @@ def parse_import_file(
         if not line:
             continue
         if line.startswith("//"):
+            text = line[2:].strip()
+            if text:
+                items.append(make_note(text))
             continue
         in_str, escaped, out = False, False, []
         for index, ch in enumerate(line):
@@ -337,6 +357,8 @@ def parse_import_file(
                     text = str(obj.get("text", "")).strip()
                     if text:
                         items.append(make_note(text))
+                elif obj.get("type") == "checkpoint":
+                    items.append(make_checkpoint(obj.get("text", "")))
                 elif obj.get("type") == "mission_cmd" and "payload" in obj:
                     item = validate_mission_cmd(obj["payload"], runtime=runtime)
                     if obj.get("guard"):

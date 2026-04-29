@@ -54,6 +54,9 @@ async def preview_import(filename: str, request: Request) -> dict[str, Any] | JS
         if item["type"] == "note":
             preview.append({"type": "note", "text": item["text"]})
             continue
+        if item["type"] == "checkpoint":
+            preview.append({"type": "checkpoint", "text": item["text"]})
+            continue
         preview.append({
             "type": "mission_cmd",
             "cmd_id": item.get("cmd_id", ""),

@@ -59,7 +59,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns, disabled }:
       if (!c.hide_if_all?.length) return true
       const suppressSet = new Set(c.hide_if_all)
       return !preview.every(item => {
-        if (item.type === 'delay' || item.type === 'note') return true
+        if (item.type === 'delay' || item.type === 'note' || item.type === 'checkpoint') return true
         if (!item.mission) return false
         const row = buildTxRow(item as unknown as TxQueueCmd | TxHistoryItem, [c])
         return suppressSet.has(row[c.id]?.value as never)
@@ -190,7 +190,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns, disabled }:
                 <div className="flex items-center justify-between px-3 py-2 border-b shrink-0" style={{ borderColor: colors.borderSubtle }}>
                   <span className="text-xs font-mono" style={{ color: colors.value }}>{selectedFile.replace(/\.jsonl$/, '')}</span>
                   <span className="text-[11px]" style={{ color: colors.dim }}>
-                    {preview.length} command{preview.length !== 1 ? 's' : ''}
+                    {preview.length} item{preview.length !== 1 ? 's' : ''}
                     {skipped > 0 && <span style={{ color: colors.warning }}> · {skipped} skipped</span>}
                   </span>
                 </div>
@@ -214,6 +214,11 @@ export function ImportDialog({ open, onClose, onImported, txColumns, disabled }:
                         <>
                           <MessageSquareText className="size-3 shrink-0" style={{ color: colors.dim }} />
                           <span className="italic truncate" style={{ color: colors.dim }}>{item.text}</span>
+                        </>
+                      ) : item.type === 'checkpoint' ? (
+                        <>
+                          <Shield className="size-3 shrink-0" style={{ color: colors.warning }} />
+                          <span className="truncate" style={{ color: colors.warning }}>checkpoint: {item.text}</span>
                         </>
                       ) : item.type === 'delay' ? (
                         <>
@@ -254,7 +259,7 @@ export function ImportDialog({ open, onClose, onImported, txColumns, disabled }:
                       style={{ backgroundColor: colors.success, color: colors.bgApp }}
                       title={disabled ? 'Send in progress — queueing paused' : undefined}
                     >
-                      {importing ? 'Importing...' : `Import ${preview.length} commands`}
+                      {importing ? 'Importing...' : `Import ${preview.length} items`}
                     </button>
                   </div>
                 )}

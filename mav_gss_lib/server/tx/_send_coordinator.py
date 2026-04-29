@@ -122,7 +122,25 @@ class _SendCoordinator:
         svc._pop_and_renumber()
         return _RunResult(aborted=False, sent_delta=0)
 
-    async def _run_guard_wait(self, item: QueueItem) -> bool:
+    async def _run_checkpoint_item(self, item: QueueItem, ctx: _SendContext) -> _RunResult:
+        """Pause the queue until the operator confirms the checkpoint."""
+        aborted = await self._run_guard_wait(
+            item,
+            kind="checkpoint",
+            label=item.get("text", "Confirm before continuing"),
+        )
+        if aborted:
+            return _RunResult(aborted=True, sent_delta=0)
+        self.service._pop_and_renumber()
+        return _RunResult(aborted=False, sent_delta=0)
+
+    async def _run_guard_wait(
+        self,
+        item: QueueItem,
+        *,
+        kind: str = "command",
+        label: str | None = None,
+    ) -> bool:
         """Broadcast guard prompt and block until approved or aborted.
 
         Uses asyncio.wait on both events so either approval or abort wakes
@@ -132,9 +150,12 @@ class _SendCoordinator:
         with svc.send_lock:
             svc.sending["guarding"] = True  # MUST be set before broadcast — tests assume the flag is already True.
         svc.guard_ok.clear()
+        prompt = label if label is not None else item.get("cmd_id", "")
         await svc.broadcast({
             "type": "guard_confirm", "index": 0,
-            "cmd_id": item.get("cmd_id", ""),
+            "cmd_id": prompt,
+            "kind": kind,
+            "text": prompt,
             "mission": item.get("mission", {}),
         })
         guard_task = asyncio.ensure_future(svc.guard_ok.wait())
@@ -447,5 +468,6 @@ _ItemHandler = Callable[[_SendCoordinator, dict, _SendContext], Awaitable[_RunRe
 _ITEM_DISPATCH: dict[str, _ItemHandler] = {
     "note":        _SendCoordinator._run_note_item,
     "delay":       _SendCoordinator._run_delay_item,
+    "checkpoint":  _SendCoordinator._run_checkpoint_item,
     "mission_cmd": _SendCoordinator._run_mission_cmd_item,
 }

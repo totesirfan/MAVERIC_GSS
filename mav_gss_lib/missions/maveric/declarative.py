@@ -23,6 +23,7 @@ from mav_gss_lib.platform.framing import DeclarativeFramer
 from mav_gss_lib.platform.spec import (
     Mission,
     ParseWarning,
+    StringParameterType,
     build_declarative_command_ops,
     parse_yaml,
 )
@@ -140,11 +141,15 @@ class _MaverCommandOpsWrapper:
             raise ValueError("empty command input")
         first_lower = parts[0].lower()
         if first_lower in self.mission.meta_commands:
-            # Shortcut: declarative inner already handles `cmd_id arg1 arg2 ...`.
             meta = self.mission.meta_commands[first_lower]
             if meta.rx_only:
                 raise ValueError(f"'{first_lower}' is receive-only")
-            return self.inner.parse_input(line)
+            payload: dict[str, Any] = {
+                "cmd_id": first_lower,
+                "args": self._parse_arg_tokens(meta.argument_list, parts[1:]),
+                "packet": {},
+            }
+            return self.inner.parse_input(self._canonicalize(payload))
         return self._parse_full_form(parts)
 
     def _parse_full_form(self, parts: list[str]) -> CommandDraft:
@@ -175,9 +180,7 @@ class _MaverCommandOpsWrapper:
             raise ValueError(f"Unknown command {cmd_id!r} — verify command name in schema")
         if meta.rx_only:
             raise ValueError(f"'{cmd_id}' is receive-only")
-        args_dict: dict[str, Any] = {}
-        for arg, token in zip(meta.argument_list, parts[cmd_idx + 1:]):
-            args_dict[arg.name] = _coerce_token(token)
+        args_dict = self._parse_arg_tokens(meta.argument_list, parts[cmd_idx + 1:])
         meta_packet = meta.packet
         allowed = meta.allowed_packet
         parsed_packet = {
@@ -193,6 +196,23 @@ class _MaverCommandOpsWrapper:
         }
         payload: dict[str, Any] = {"cmd_id": cmd_id, "args": args_dict, "packet": packet}
         return self.inner.parse_input(self._canonicalize(payload))
+
+    def _parse_arg_tokens(self, argument_list: tuple[Any, ...], tokens: list[str]) -> dict[str, Any]:
+        args: dict[str, Any] = {}
+        token_idx = 0
+        for arg_idx, arg in enumerate(argument_list):
+            if token_idx >= len(tokens):
+                break
+            if arg_idx == len(argument_list) - 1 and self._arg_consumes_to_end(arg.type_ref):
+                args[arg.name] = " ".join(tokens[token_idx:])
+                break
+            args[arg.name] = _coerce_token(tokens[token_idx])
+            token_idx += 1
+        return args
+
+    def _arg_consumes_to_end(self, type_ref: str) -> bool:
+        param_type = self.mission.parameter_types.get(type_ref)
+        return isinstance(param_type, StringParameterType) and param_type.encoding == "to_end"
 
     def _resolve_node_name(self, token: str, field: str) -> str:
         s = token.strip()

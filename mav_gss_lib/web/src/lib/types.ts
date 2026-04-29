@@ -149,11 +149,17 @@ export interface TxQueueNote {
   text: string
 }
 
-export type TxQueueItem = TxQueueCmd | TxQueueDelay | TxQueueNote
+export interface TxQueueCheckpoint {
+  type: 'checkpoint'
+  text: string
+}
+
+export type TxQueueItem = TxQueueCmd | TxQueueDelay | TxQueueNote | TxQueueCheckpoint
 
 export interface TxQueueSummary {
   cmds: number
   guards: number
+  checkpoints?: number
   est_time_s: number
 }
 
@@ -185,6 +191,8 @@ export interface GuardConfirm {
   index: number
   cmd_id: string
   mission?: MissionFacts
+  kind?: 'command' | 'checkpoint'
+  text?: string
 }
 
 // ---- Unified TX timeline ----

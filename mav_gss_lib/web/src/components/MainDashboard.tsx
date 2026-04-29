@@ -155,6 +155,7 @@ export function MainDashboard({ config, confirmSendSignal, confirmClearSignal }:
             deleteItem={tx.deleteItem} clearQueue={tx.clearQueue}
             undoLast={tx.undoLast} toggleGuard={tx.toggleGuard}
             reorder={tx.reorder} addDelay={tx.addDelay}
+            addCheckpoint={tx.addCheckpoint}
             editDelay={tx.editDelay} sendAll={tx.sendAll}
             abortSend={tx.abortSend} approveGuard={tx.approveGuard}
             rejectGuard={tx.rejectGuard}

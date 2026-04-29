@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mav_gss_lib.server.tx._send_coordinator as tx_service
-from mav_gss_lib.server.tx.queue import make_mission_cmd, sanitize_queue_items, validate_mission_cmd
+from mav_gss_lib.server.tx.queue import make_checkpoint, make_mission_cmd, sanitize_queue_items, validate_mission_cmd
 from mav_gss_lib.server.state import create_runtime
 
 
@@ -107,12 +107,60 @@ class TestTxRuntime(unittest.TestCase):
             "type": "mission_cmd",
             "payload": _make_payload("not_real", "REQ"),
         }
-        items, skipped = sanitize_queue_items([valid, {"type": "delay", "delay_ms": 250}, invalid], runtime=self.runtime)
+        checkpoint = {"type": "checkpoint", "text": "operator check"}
+        items, skipped = sanitize_queue_items([valid, {"type": "delay", "delay_ms": 250}, checkpoint, invalid], runtime=self.runtime)
         self.assertEqual(skipped, 1)
-        self.assertEqual(len(items), 2)
+        self.assertEqual(len(items), 3)
         self.assertEqual(items[0]["type"], "mission_cmd")
         self.assertEqual(items[0]["cmd_id"], "com_ping")
         self.assertEqual(items[1]["type"], "delay")
+        self.assertEqual(items[2]["type"], "checkpoint")
+
+    def test_run_send_waits_for_checkpoint_confirmation(self):
+        self.runtime.tx.queue = [
+            make_checkpoint("Confirm EPS bus"),
+            self._make_item("com_ping", ""),
+        ]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(active=True, idx=-1, total=2, guarding=False, sent_at=0, waiting=False)
+
+        async def _run():
+            task = asyncio.create_task(self.runtime.tx.run_send())
+            await asyncio.wait_for(self.guard_confirm_event.wait(), timeout=5.0)
+            await asyncio.sleep(0)
+            self.assertTrue(self.runtime.tx.sending["guarding"])
+            self.runtime.tx.guard_ok.set()
+            await task
+
+        asyncio.run(_run())
+
+        self.assertEqual(len(self.sent_payloads), 1)
+        self.assertEqual(self.runtime.tx.queue, [])
+        guard_msgs = [msg for msg in self.messages if isinstance(msg, dict) and msg.get("type") == "guard_confirm"]
+        self.assertTrue(guard_msgs)
+        self.assertEqual(guard_msgs[0].get("kind"), "checkpoint")
+
+    def test_run_send_abort_during_checkpoint_keeps_queue_item(self):
+        self.runtime.tx.queue = [
+            make_checkpoint("Confirm EPS bus"),
+            self._make_item("com_ping", ""),
+        ]
+        self.runtime.tx.renumber_queue()
+        self.runtime.tx.sending.update(active=True, idx=-1, total=2, guarding=False, sent_at=0, waiting=False)
+
+        async def _run():
+            task = asyncio.create_task(self.runtime.tx.run_send())
+            await asyncio.wait_for(self.guard_confirm_event.wait(), timeout=5.0)
+            await asyncio.sleep(0)
+            self.assertTrue(self.runtime.tx.sending["guarding"])
+            self.runtime.tx.abort.set()
+            await task
+
+        asyncio.run(_run())
+
+        self.assertEqual(len(self.sent_payloads), 0)
+        self.assertEqual(len(self.runtime.tx.queue), 2)
+        self.assertEqual(self.runtime.tx.queue[0]["type"], "checkpoint")
 
     def test_run_send_processes_delay_then_command(self):
         self.runtime.tx.queue = [

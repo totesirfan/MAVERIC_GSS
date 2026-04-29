@@ -94,10 +94,12 @@ class AdmitResults(unittest.TestCase):
         result, _ = tx.admit(_item())
         self.assertEqual(result, AdmitResult.ACCEPTED)
 
-    def test_note_or_delay_always_allowed_during_idle(self):
+    def test_non_command_items_allowed_during_idle(self):
         reg = VerifierRegistry()
         tx = _runtime_with(reg, active=False)
         result, _ = tx.admit({"type": "note", "text": "stage-break"})
+        self.assertEqual(result, AdmitResult.ACCEPTED)
+        result, _ = tx.admit({"type": "checkpoint", "text": "confirm state"})
         self.assertEqual(result, AdmitResult.ACCEPTED)
 
 

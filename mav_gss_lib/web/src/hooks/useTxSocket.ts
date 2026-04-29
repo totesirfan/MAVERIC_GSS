@@ -79,6 +79,8 @@ export function useTxSocket() {
               index: msg.index as number,
               cmd_id: (msg.cmd_id ?? '') as string,
               mission: msg.mission as MissionFacts | undefined,
+              kind: msg.kind as 'command' | 'checkpoint' | undefined,
+              text: msg.text as string | undefined,
             })
             break
           case 'error': {
@@ -161,6 +163,11 @@ export function useTxSocket() {
     send('add_delay', { index: q.length, delay_ms: ms })
   }, [send])
 
+  const addCheckpoint = useCallback((text: string) => {
+    const q = queueRef.current
+    send('add_checkpoint', { index: q.length, text })
+  }, [send])
+
   return {
     queue, summary, history, sendProgress, guardConfirm, error, connected,
     verification,
@@ -172,6 +179,7 @@ export function useTxSocket() {
     toggleGuard: useCallback((index: number) => send('guard', { index }), [send]),
     reorder,
     addDelay,
+    addCheckpoint,
     editDelay: useCallback((index: number, delayMs: number) => send('edit_delay', { index, delay_ms: delayMs }), [send]),
     sendAll: useCallback(() => send('send'), [send]),
     abortSend: useCallback(() => send('abort'), [send]),

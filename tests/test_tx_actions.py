@@ -268,6 +268,21 @@ class TestHandleAddDelay(unittest.TestCase):
         self.assertEqual([q["delay_ms"] for q in rt.tx.queue], [50, 100])
 
 
+class TestHandleAddCheckpoint(unittest.TestCase):
+    def test_add_checkpoint_appends(self):
+        rt = _stub_runtime()
+        ws = _RecordingWS()
+        asyncio.run(tx_actions.handle_add_checkpoint(rt, {"text": "confirm state"}, ws))
+        self.assertEqual(rt.tx.queue, [{"type": "checkpoint", "text": "confirm state"}])
+
+    def test_add_checkpoint_with_index_inserts(self):
+        rt = _stub_runtime()
+        rt.tx.queue = [{"type": "delay", "delay_ms": 100}]
+        ws = _RecordingWS()
+        asyncio.run(tx_actions.handle_add_checkpoint(rt, {"text": "confirm state", "index": 0}, ws))
+        self.assertEqual([q["type"] for q in rt.tx.queue], ["checkpoint", "delay"])
+
+
 class TestHandleEditDelay(unittest.TestCase):
     def test_edit_delay_changes_ms(self):
         rt = _stub_runtime()
@@ -348,7 +363,7 @@ class TestActionsTableCompleteness(unittest.TestCase):
     def test_every_action_has_handler_and_guard_list(self):
         expected = {
             "queue", "queue_mission_cmd", "delete", "clear", "undo", "guard",
-            "reorder", "add_delay", "edit_delay", "send", "abort",
+            "reorder", "add_delay", "edit_delay", "add_checkpoint", "send", "abort",
             "guard_approve", "guard_reject",
         }
         self.assertEqual(set(tx_actions.ACTIONS.keys()), expected)

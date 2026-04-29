@@ -33,6 +33,7 @@ interface TxPanelProps {
   toggleGuard: (index: number) => void
   reorder: (oldIndex: number, newIndex: number) => void
   addDelay: (ms: number) => void
+  addCheckpoint: (text: string) => void
   editDelay: (index: number, ms: number) => void
   sendAll: () => void
   abortSend: () => void
@@ -46,7 +47,7 @@ interface TxPanelProps {
 export function TxPanel({
   config, queue, summary, sendProgress, guardConfirm, connected,
   queueCommand, deleteItem, clearQueue,
-  toggleGuard, reorder, editDelay, addDelay,
+  toggleGuard, reorder, editDelay, addDelay, addCheckpoint,
   sendAll, abortSend, approveGuard, rejectGuard,
   queueTemplate,
   triggerConfirmSend, triggerConfirmClear,
@@ -107,7 +108,7 @@ export function TxPanel({
           summary={summary} sendProgress={sendProgress} isGuarding={!!guardConfirm}
           txColumns={txColumns}
           onToggleGuard={toggleGuard} onDelete={deleteItem}
-          onEditDelay={editDelay} onAddDelay={addDelay}
+          onEditDelay={editDelay} onAddDelay={addDelay} onAddCheckpoint={addCheckpoint}
           onClear={clearQueue} onSend={sendAll}
           onDuplicate={(idx) => {
             const item = queue[idx]
@@ -305,6 +306,10 @@ function GuardConfirmBlock({ guardConfirm, onApprove, onReject }: {
     { key: 'Escape', action: onReject },
   ], useTabActive())
 
+  const checkpoint = guardConfirm.kind === 'checkpoint'
+  const title = checkpoint ? 'CHECKPOINT - Confirm to continue' : 'GUARD - Confirm to send'
+  const detail = guardConfirm.text || guardConfirm.cmd_id
+
   return (
     <div
       className="rounded-lg border animate-pulse-warning h-[62px] flex overflow-hidden"
@@ -314,9 +319,9 @@ function GuardConfirmBlock({ guardConfirm, onApprove, onReject }: {
       <div className="flex-1 flex items-center gap-3 px-3">
         <ShieldCheck className="size-5 shrink-0 animate-pulse-text" style={{ color: colors.warning }} />
         <div className="min-w-0">
-          <div className="text-xs font-bold" style={{ color: colors.warning }}>GUARD — Confirm to send</div>
+          <div className="text-xs font-bold" style={{ color: colors.warning }}>{title}</div>
           <div className="text-[11px] truncate" style={{ color: colors.value }}>
-            {guardConfirm.cmd_id}
+            {detail}
           </div>
         </div>
       </div>
@@ -337,7 +342,7 @@ function GuardConfirmBlock({ guardConfirm, onApprove, onReject }: {
         style={{ backgroundColor: colors.warning, color: colors.bgApp }}
       >
         <ShieldCheck className="size-4" />
-        <span className="text-[11px] font-bold">Confirm ↵</span>
+        <span className="text-[11px] font-bold">Confirm Enter</span>
       </button>
     </div>
   )
