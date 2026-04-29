@@ -1,0 +1,1 @@
+import{o as e,t}from"./react-DtrESx-C.js";var n=e(t(),1);function r(){let[e,t]=(0,n.useState)(()=>Date.now());return(0,n.useEffect)(()=>{let e=window.setInterval(()=>t(Date.now()),1e3);return()=>window.clearInterval(e)},[]),e}export{r as t};
