@@ -77,6 +77,7 @@ _DEFAULTS = {
         "autostart": False,
         "script": "gnuradio/MAV_DUO.py",
         "log_lines": 1000,
+        "stop_timeout_s": 8.0,
     },
     "general": {
         "mission":      DEFAULT_MISSION,

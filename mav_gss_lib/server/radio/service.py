@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 DEFAULT_RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
 DEFAULT_LOG_LINES = 1000
-STOP_TIMEOUT_S = 5.0
+DEFAULT_STOP_TIMEOUT_S = 8.0
 
 
 class RadioService:
@@ -58,6 +58,8 @@ class RadioService:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_lock = threading.Lock()
         self._log: deque[str] = deque(maxlen=DEFAULT_LOG_LINES)
+        self.last_runtime_s: float = 0.0
+        self._command_snapshot: list[str] = []
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         with self._loop_lock:
@@ -81,6 +83,13 @@ class RadioService:
             return max(100, min(int(cfg.get("log_lines", DEFAULT_LOG_LINES)), 10000))
         except (TypeError, ValueError):
             return DEFAULT_LOG_LINES
+
+    def stop_timeout_s(self) -> float:
+        cfg = self.config()
+        try:
+            return max(1.0, min(float(cfg.get("stop_timeout_s", DEFAULT_STOP_TIMEOUT_S)), 120.0))
+        except (TypeError, ValueError):
+            return DEFAULT_STOP_TIMEOUT_S
 
     def _resize_log_if_needed(self) -> None:
         capacity = self.log_capacity()
@@ -116,6 +125,8 @@ class RadioService:
             last_error = self.last_error
             last_stop_expected = self.last_stop_expected
             stopping = self._stopping
+            last_runtime_s = self.last_runtime_s
+            command_snapshot = list(self._command_snapshot)
 
         running = proc is not None and proc.poll() is None
         if running:
@@ -143,8 +154,10 @@ class RadioService:
             "error": last_error,
             "script": str(script),
             "cwd": str(script.parent),
-            "command": self.command(),
+            "command": list(command_snapshot) if running and command_snapshot else self.command(),
             "log_lines": self.log_capacity(),
+            "last_runtime_s": float(last_runtime_s),
+            "stop_timeout_s": self.stop_timeout_s(),
         }
 
     def log_snapshot(self) -> list[str]:
@@ -267,6 +280,7 @@ class RadioService:
             self.last_error = ""
             self.last_stop_expected = False
             self._stopping = False
+            self._command_snapshot = list(cmd)
             self._resize_log_if_needed()
             self._log.clear()
 
@@ -275,13 +289,13 @@ class RadioService:
             target=self._reader,
             args=(proc,),
             daemon=True,
-            name=f"{self.runtime.mission_id}-radio-log",
+            name="radio-log",
         )
         self._wait_thread = threading.Thread(
             target=self._waiter,
             args=(proc,),
             daemon=True,
-            name=f"{self.runtime.mission_id}-radio-wait",
+            name="radio-wait",
         )
         self._reader_thread.start()
         self._wait_thread.start()
@@ -311,6 +325,8 @@ class RadioService:
         was_stopping = False
         with self._state_lock:
             if self.proc is proc:
+                runtime_s = max(0.0, time.time() - self.started_at) if self.started_at else 0.0
+                self.last_runtime_s = runtime_s
                 self.last_exit_code = code
                 self.proc = None
                 self.started_at = None
@@ -345,12 +361,12 @@ class RadioService:
         should_log_stop = False
         try:
             proc.send_signal(signal.SIGTERM)
-            code = proc.wait(timeout=STOP_TIMEOUT_S)
+            code = proc.wait(timeout=self.stop_timeout_s())
         except subprocess.TimeoutExpired:
             self._append_log("Radio process did not exit after SIGTERM; sending SIGKILL")
             proc.kill()
             try:
-                code = proc.wait(timeout=STOP_TIMEOUT_S)
+                code = proc.wait(timeout=self.stop_timeout_s())
             except subprocess.TimeoutExpired:
                 self._set_error("radio process did not exit after SIGKILL")
                 self._write_radio_event(
@@ -364,6 +380,7 @@ class RadioService:
         if code is not None:
             with self._state_lock:
                 if self.proc is proc:
+                    self.last_runtime_s = max(0.0, time.time() - self.started_at) if self.started_at else 0.0
                     self.last_exit_code = code
                     self.proc = None
                     self.started_at = None

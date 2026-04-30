@@ -114,5 +114,21 @@ class RadioServiceActionLockTests(unittest.TestCase):
         self.assertEqual(len(results), 8)
 
 
+class RadioServicePersistenceTests(unittest.TestCase):
+    def test_status_includes_last_runtime_s_field(self):
+        svc = RadioService(_fake_runtime())
+        status = svc.status()
+        self.assertIn("last_runtime_s", status)
+        self.assertEqual(status["last_runtime_s"], 0.0)
+
+    def test_stop_timeout_reads_from_config(self):
+        svc = RadioService(_fake_runtime({"enabled": True, "stop_timeout_s": 12.5}))
+        self.assertEqual(svc.stop_timeout_s(), 12.5)
+
+    def test_stop_timeout_default(self):
+        svc = RadioService(_fake_runtime())
+        self.assertEqual(svc.stop_timeout_s(), 8.0)
+
+
 if __name__ == "__main__":
     unittest.main()
