@@ -233,35 +233,41 @@ export function RadioPage() {
                 size="sm"
                 variant="outline"
                 disabled={!startEnabled}
+                aria-busy={busy === 'start'}
+                aria-disabled={!startEnabled}
                 onClick={() => void runAction('start')}
                 className="h-8 gap-1.5 text-xs font-bold btn-feedback"
                 style={btnTone(startEnabled, colors.active)}
               >
                 <Play data-icon="inline-start" />
-                Start
+                {busy === 'start' ? 'Starting…' : 'Start'}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 disabled={!stopEnabled}
+                aria-busy={busy === 'stop'}
+                aria-disabled={!stopEnabled}
                 onClick={() => void runAction('stop')}
                 className="h-8 gap-1.5 text-xs font-bold btn-feedback"
                 style={btnTone(stopEnabled, colors.danger)}
               >
                 <Square data-icon="inline-start" />
-                Stop
+                {busy === 'stop' ? 'Stopping…' : 'Stop'}
               </Button>
               {status.running && (
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={!restartEnabled}
+                  aria-busy={busy === 'restart'}
+                  aria-disabled={!restartEnabled}
                   onClick={() => void runAction('restart')}
                   className="h-8 gap-1.5 text-xs font-bold btn-feedback"
                   style={btnTone(restartEnabled, colors.info)}
                 >
                   <RotateCcw data-icon="inline-start" />
-                  Restart
+                  {busy === 'restart' ? 'Restarting…' : 'Restart'}
                 </Button>
               )}
             </div>
