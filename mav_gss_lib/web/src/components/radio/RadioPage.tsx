@@ -170,8 +170,15 @@ export function RadioPage() {
           </button>
         </div>
       )}
-      <div className="grid flex-1 min-h-0 grid-cols-[minmax(320px,0.72fr)_minmax(520px,1.28fr)] gap-3 max-[980px]:grid-cols-1 max-[980px]:overflow-y-auto">
-        <div className="flex min-h-0 flex-col gap-3">
+      <div
+        className={cn(
+          'flex-1 min-h-0 gap-3',
+          'grid grid-cols-[minmax(320px,0.62fr)_minmax(520px,1.38fr)]',
+          '2xl:grid-cols-[minmax(360px,0.45fr)_minmax(720px,1.55fr)]',
+          'max-[980px]:grid-cols-none max-[980px]:flex max-[980px]:flex-col max-[980px]:overflow-y-auto',
+        )}
+      >
+        <div className="flex min-h-0 flex-col gap-3 max-[980px]:order-2">
           <section className="flex flex-col rounded-lg border shadow-panel" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
             <PanelHeader
               icon={<Terminal className="size-3.5 shrink-0" style={{ color: colors.dim }} />}
@@ -288,7 +295,7 @@ export function RadioPage() {
           </section>
         </div>
 
-        <section className="flex min-h-0 flex-col rounded-lg border shadow-panel" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
+        <section className="flex min-h-0 flex-col rounded-lg border shadow-panel max-[980px]:order-1 max-[980px]:min-h-[40vh]" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
           <PanelHeader
             icon={<Terminal className="size-3.5 shrink-0" style={{ color: colors.dim }} />}
             title="GNU Radio Terminal"
