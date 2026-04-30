@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Monitor,
   Play,
@@ -6,53 +6,16 @@ import {
   RotateCcw,
   Square,
   Terminal,
+  X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { StatusDot } from '@/components/shared/atoms/StatusDot'
 import { useConfig } from '@/state/sessionHooks'
-import { authFetch } from '@/lib/auth'
-import { createSocket } from '@/lib/ws'
 import { colors } from '@/lib/colors'
 import { cn } from '@/lib/utils'
 import { lineColor } from './lineColor'
-
-interface RadioStatus {
-  enabled: boolean
-  autostart: boolean
-  state: 'stopped' | 'running' | 'stopping' | 'crashed'
-  running: boolean
-  pid: number | null
-  started_at_ms: number | null
-  uptime_s: number
-  exit_code: number | null
-  error: string
-  script: string
-  cwd: string
-  command: string[]
-  log_lines: number
-}
-
-interface ApiStatus {
-  zmq_rx?: string
-  zmq_tx?: string
-}
-
-const DEFAULT_STATUS: RadioStatus = {
-  enabled: false,
-  autostart: false,
-  state: 'stopped',
-  running: false,
-  pid: null,
-  started_at_ms: null,
-  uptime_s: 0,
-  exit_code: null,
-  error: '',
-  script: '',
-  cwd: '',
-  command: [],
-  log_lines: 1000,
-}
+import { useRadioSocket, type RadioStatus } from './useRadioSocket'
 
 function fmtUptime(startedAtMs: number | null, fallbackSeconds: number): string {
   const total = startedAtMs ? Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)) : Math.floor(fallbackSeconds)
@@ -116,92 +79,69 @@ function DataCell({
 
 export function RadioPage() {
   const { config } = useConfig()
-  const [status, setStatus] = useState<RadioStatus>(DEFAULT_STATUS)
-  const [apiStatus, setApiStatus] = useState<ApiStatus>({})
-  const [logs, setLogs] = useState<string[]>([])
-  const [connected, setConnected] = useState(false)
-  const [busy, setBusy] = useState<'start' | 'stop' | 'restart' | null>(null)
+  const { status, logs, connected, lastUpdateMs, busy, actionError, runAction, dismissError } = useRadioSocket()
+  const [apiStatus, setApiStatus] = useState<{ zmq_rx?: string; zmq_tx?: string }>({})
   const [, setNowTick] = useState(0)
+  const [mountedAtMs] = useState(() => Date.now())
   const logRef = useRef<HTMLDivElement>(null)
-  const logLimitRef = useRef(DEFAULT_STATUS.log_lines)
-
-  const refreshStatus = useCallback(() => {
-    fetch('/api/radio/status', { cache: 'no-store' })
-      .then(r => r.json())
-      .then((data: RadioStatus) => setStatus({ ...DEFAULT_STATUS, ...data }))
-      .catch(() => {})
-  }, [])
-
-  const refreshApiStatus = useCallback(() => {
-    fetch('/api/status', { cache: 'no-store' })
-      .then(r => r.json())
-      .then((data: ApiStatus) => setApiStatus(data))
-      .catch(() => {})
-  }, [])
+  const stickyRef = useRef(true)
 
   useEffect(() => {
-    logLimitRef.current = status.log_lines || DEFAULT_STATUS.log_lines
-  }, [status.log_lines])
-
-  useEffect(() => {
-    refreshStatus()
-    refreshApiStatus()
-    fetch('/api/radio/logs', { cache: 'no-store' })
-      .then(r => r.json())
-      .then((data: { lines?: string[] }) => setLogs(Array.isArray(data.lines) ? data.lines : []))
-      .catch(() => {})
-
-    const sock = createSocket('/ws/radio', (data) => {
-      const msg = data as Record<string, unknown>
-      if (msg.type === 'status' && msg.status && typeof msg.status === 'object') {
-        setStatus({ ...DEFAULT_STATUS, ...(msg.status as RadioStatus) })
-      } else if (msg.type === 'logs' && Array.isArray(msg.lines)) {
-        setLogs(msg.lines.map(String))
-      } else if (msg.type === 'log') {
-        const line = String(msg.line ?? '')
-        setLogs(prev => {
-          const limit = logLimitRef.current
-          return [...prev, line].slice(-limit)
-        })
-      } else if (msg.type === 'exit' && msg.status && typeof msg.status === 'object') {
-        setStatus({ ...DEFAULT_STATUS, ...(msg.status as RadioStatus) })
-      }
-    }, setConnected)
-
-    const statusTimer = window.setInterval(refreshApiStatus, 3000)
-    const clockTimer = window.setInterval(() => setNowTick(n => n + 1), 1000)
-    return () => {
-      sock.close()
-      window.clearInterval(statusTimer)
-      window.clearInterval(clockTimer)
+    let cancelled = false
+    const refreshApiStatus = async () => {
+      try {
+        const r = await fetch('/api/status', { cache: 'no-store' })
+        if (!r.ok) return
+        const data = await r.json()
+        if (cancelled) return
+        setApiStatus(data as { zmq_rx?: string; zmq_tx?: string })
+      } catch { /* ignore */ }
     }
-  }, [refreshApiStatus, refreshStatus])
+    refreshApiStatus()
+    const id = window.setInterval(refreshApiStatus, 3000)
+    return () => { cancelled = true; window.clearInterval(id) }
+  }, [])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(n => n + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const connState: 'connecting' | 'connected' | 'disconnected' =
+    !connected && Date.now() - mountedAtMs < 1500 ? 'connecting' : (connected ? 'connected' : 'disconnected')
+
+  const onLogScroll = () => {
+    const node = logRef.current
+    if (!node) return
+    stickyRef.current = node.scrollHeight - node.clientHeight - node.scrollTop < 32
+  }
 
   useEffect(() => {
     const node = logRef.current
-    if (node) node.scrollTop = node.scrollHeight
+    if (node && stickyRef.current) node.scrollTop = node.scrollHeight
   }, [logs])
 
-  const runAction = useCallback(async (action: 'start' | 'stop' | 'restart') => {
-    setBusy(action)
-    try {
-      const response = await authFetch(`/api/radio/${action}`, { method: 'POST' })
-      if (response.ok) {
-        const data = await response.json()
-        setStatus({ ...DEFAULT_STATUS, ...data })
-      }
-    } finally {
-      setBusy(null)
-    }
-  }, [])
-
   const dot = processDot(status)
-  const command = useMemo(() => status.command.join(' '), [status.command])
   const uptime = fmtUptime(status.started_at_ms, status.uptime_s)
 
+  void lastUpdateMs
+  void connState
+
   return (
-    <div className="flex-1 min-h-0 overflow-hidden p-4">
-      <div className="grid h-full min-h-0 grid-cols-[minmax(320px,0.72fr)_minmax(520px,1.28fr)] gap-3 max-[980px]:grid-cols-1 max-[980px]:overflow-y-auto">
+    <div className="flex h-full min-h-0 flex-col p-4">
+      {actionError && (
+        <div
+          className="mb-2 flex items-center justify-between gap-3 rounded-md border px-3 py-1.5 text-[11px]"
+          style={{ color: colors.danger, borderColor: `${colors.danger}66`, backgroundColor: colors.dangerFill }}
+          role="alert"
+        >
+          <span className="truncate">Action failed: {actionError}</span>
+          <button onClick={dismissError} className="shrink-0 opacity-80 hover:opacity-100" aria-label="Dismiss error">
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+      <div className="grid flex-1 min-h-0 grid-cols-[minmax(320px,0.72fr)_minmax(520px,1.28fr)] gap-3 max-[980px]:grid-cols-1 max-[980px]:overflow-y-auto">
         <div className="flex min-h-0 flex-col gap-3">
           <section className="flex flex-col rounded-lg border shadow-panel" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
             <PanelHeader
@@ -315,17 +255,17 @@ export function RadioPage() {
           />
           <div className="flex min-h-[32px] items-center gap-2 border-b px-3 py-1.5" style={{ borderColor: colors.borderSubtle }}>
             <span className="min-w-0 flex-1 truncate font-mono text-[11px]" style={{ color: colors.textMuted }}>
-              {command || status.script || 'No radio process has been started'}
+              {status.command.join(' ') || status.script || 'No radio process has been started'}
             </span>
           </div>
-          <div ref={logRef} className="flex-1 min-h-0 overflow-auto p-2 font-mono text-[11px] leading-relaxed" style={{ backgroundColor: '#070707' }}>
+          <div ref={logRef} onScroll={onLogScroll} className="flex-1 min-h-0 overflow-auto p-2 font-mono text-[11px] leading-relaxed" style={{ backgroundColor: '#070707' }}>
             {logs.length === 0 ? (
               <div className="flex h-full items-center justify-center" style={{ color: colors.textMuted }}>
                 No GNU Radio output yet
               </div>
-            ) : logs.map((line, idx) => (
-              <div key={`${idx}-${line}`} className="whitespace-pre-wrap break-words" style={{ color: lineColor(line), minHeight: line === '' ? '1.4em' : undefined }}>
-                {line || ' '}
+            ) : logs.map((entry) => (
+              <div key={entry.id} className="whitespace-pre-wrap break-words" style={{ color: lineColor(entry.text), minHeight: entry.text === '' ? '1.4em' : undefined }}>
+                {entry.text || ' '}
               </div>
             ))}
           </div>
