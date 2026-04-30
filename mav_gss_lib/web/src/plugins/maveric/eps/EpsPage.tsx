@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import './styles.css'
 import { useEpsLive } from './useEpsLive'
-import { alarmState, socFromVbat, thermalEta } from './derive'
+import { alarmState, batterySourceActive, socFromVbat, thermalEta } from './derive'
 import type { AlarmLevel, EpsFieldName } from './types'
 import { useNowMs } from '@/hooks/useNowMs'
 
@@ -79,6 +79,9 @@ export default function EpsPage() {
     if (typeof td !== 'number' || typeof tdPrev !== 'number') return null
     return thermalEta(td, tdPrev, tCur - tPrev, 60)
   }, [fields.T_DIE, prev_fields.T_DIE, field_t.T_DIE, prev_field_t.T_DIE])
+  const displayChargeDir = useMemo(() => (
+    batterySourceActive(fields) ? 'discharge' : chargeDir
+  ), [fields, chargeDir])
 
   const beaconT = useMemo(() => newestT(field_t, BEACON_KEYS), [field_t])
   const hkT     = useMemo(() => newestT(field_t, HK_ONLY_KEYS), [field_t])
@@ -135,7 +138,7 @@ export default function EpsPage() {
             <HeroCardBat
               V_BAT={pick(fields, 'V_BAT')} I_BAT={pick(fields, 'I_BAT')}
               prev_V_BAT={pick(prev_fields, 'V_BAT')}
-              chargeDir={chargeDir} soc={soc}
+              chargeDir={displayChargeDir} soc={soc}
               alarm={alarms.V_BAT as AlarmLevel ?? 'unknown'}
             />
             <HeroCardSys
@@ -167,7 +170,7 @@ export default function EpsPage() {
             />
           </div>
 
-          <PowerBalanceCard fields={fields} />
+          <PowerBalanceCard fields={fields} field_t={field_t} />
 
         </section>
 

@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
-from typing import Awaitable, Callable, Protocol
+from dataclasses import dataclass, field
+from threading import RLock
+from typing import Awaitable, Protocol
 
-from mav_gss_lib.platform.alarms.contract import AlarmChange
+from mav_gss_lib.platform.alarms.contract import AlarmChange, AlarmState, Severity
 from mav_gss_lib.platform.alarms.serialization import serialize_change
 
 
@@ -30,16 +31,35 @@ class BroadcastTarget(Protocol):
     def broadcast_text(self, text: str) -> Awaitable[None]: ...
 
 
+AUDIT_DETAIL_THROTTLE_MS = 60_000
+
+
+@dataclass(frozen=True, slots=True)
+class _AuditMark:
+    state: AlarmState
+    severity: Severity
+    detail: str
+    written_ms: int
+
+
 @dataclass(frozen=True, slots=True)
 class AlarmDispatch:
     audit_sink: AuditSink
     broadcast_target: BroadcastTarget
     loop: asyncio.AbstractEventLoop | None  # None disables broadcast (test mode)
+    audit_detail_throttle_ms: int = AUDIT_DETAIL_THROTTLE_MS
+    _last_audit: dict[str, _AuditMark] = field(
+        default_factory=dict, init=False, repr=False, compare=False,
+    )
+    _audit_lock: RLock = field(
+        default_factory=RLock, init=False, repr=False, compare=False,
+    )
 
     def emit(self, change: AlarmChange | None, now_ms: int) -> None:
         if change is None:
             return
-        self.audit_sink.write_alarm(change, now_ms)
+        if self._should_write_audit(change, now_ms):
+            self.audit_sink.write_alarm(change, now_ms)
         if self.loop is None:
             return
         text = json.dumps(serialize_change(change))
@@ -47,6 +67,35 @@ class AlarmDispatch:
             asyncio.ensure_future,
             self.broadcast_target.broadcast_text(text),
         )
+
+    def _should_write_audit(self, change: AlarmChange, now_ms: int) -> bool:
+        event = change.event
+        with self._audit_lock:
+            previous = self._last_audit.get(event.id)
+            should_write = (
+                previous is None
+                or change.removed
+                or bool(change.operator)
+                or previous.state != event.state
+                or previous.severity != event.severity
+                or (
+                    event.detail != previous.detail
+                    and now_ms - previous.written_ms >= self.audit_detail_throttle_ms
+                )
+            )
+
+            if not should_write:
+                return False
+            if change.removed:
+                self._last_audit.pop(event.id, None)
+            else:
+                self._last_audit[event.id] = _AuditMark(
+                    state=event.state,
+                    severity=event.severity,
+                    detail=event.detail,
+                    written_ms=now_ms,
+                )
+            return True
 
 
 def make_dispatch(

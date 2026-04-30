@@ -689,6 +689,12 @@
   box-shadow: inset 0 0 0 1px var(--state-success);
   color: var(--state-success);
 }
+.eps-page .pb-seg.stale {
+  --seg-accent: var(--state-warning);
+  background: rgba(232, 184, 58, 0.06);
+  box-shadow: inset 0 0 0 1px var(--state-warning);
+  color: var(--state-warning);
+}
 .eps-page .pb-arrow {
   display: grid; grid-template-columns: 96px 1fr 96px;
   align-items: center; gap: 12px; padding: 2px 0;
@@ -709,6 +715,7 @@
 .eps-page .pb-status .k   { color: var(--text-disabled); text-transform: uppercase; letter-spacing: 0.06em; }
 .eps-page .pb-status .v   { color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .eps-page .pb-status .v.muted { color: var(--text-muted); }
+.eps-page .pb-status .v.warn { color: var(--state-warning); }
 
 /* ═══════════════════════════════════════════════════════════════════
    Output row: Solar | Hot Rails | Switched Outputs | Deploy Burn

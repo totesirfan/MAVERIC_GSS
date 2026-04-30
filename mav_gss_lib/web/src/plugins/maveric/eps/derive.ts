@@ -1,4 +1,4 @@
-import type { AlarmLevel, ChargeDir, EpsFields, SourceId } from './types'
+import type { AlarmLevel, ChargeDir, EpsFieldName, EpsFields, SourceId } from './types'
 
 const isFiniteNumber = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v)
@@ -19,7 +19,9 @@ export function socFromVbat(v: number | null | undefined): number | null {
 
 const SOURCE_PRIORITY: readonly SourceId[] = ['V_AC2', 'V_AC1', 'VSIN1', 'VSIN2', 'VSIN3', 'BAT']
 const SOURCE_VOLTAGE_THRESHOLD = 1.0
+const SOURCE_POWER_THRESHOLD_W = 0.05
 const BAT_DISCHARGE_THRESHOLD = -0.010
+const BUS_LOAD_MISMATCH_TOLERANCE_W = 0.25
 
 export function activeSource(fields: EpsFields | Partial<EpsFields> | null | undefined): SourceId | null {
   if (!fields) return null
@@ -27,6 +29,7 @@ export function activeSource(fields: EpsFields | Partial<EpsFields> | null | und
     if (id === 'BAT') {
       const i = (fields as Partial<EpsFields>).I_BAT
       if (isFiniteNumber(i) && i < BAT_DISCHARGE_THRESHOLD) return 'BAT'
+      if (batterySourceActive(fields)) return 'BAT'
       continue
     }
     const v = (fields as Partial<EpsFields>)[id]
@@ -82,16 +85,8 @@ export function efficiency(
   if (!isFiniteNumber(V_BUS) || !isFiniteNumber(I_BUS)) return null
   const pBus = V_BUS * I_BUS
   if (pBus < 0.1) return null
-  const usefulKeys: ReadonlyArray<keyof EpsFields> = [
-    'P3V3', 'P5V0',
-    'POUT1', 'POUT2', 'POUT3', 'POUT4', 'POUT5', 'POUT6',
-    'PBRN1', 'PBRN2',
-  ]
-  let useful = 0
-  for (const k of usefulKeys) {
-    const v = f[k]
-    if (isFiniteNumber(v)) useful += v
-  }
+  const useful = measuredLoadPower(f)
+  if (useful > pBus + BUS_LOAD_MISMATCH_TOLERANCE_W) return null
   const ratio = useful / pBus
   if (!Number.isFinite(ratio)) return null
   return Math.max(0, Math.min(1, ratio))
@@ -261,12 +256,147 @@ export function formatAge(ageMs: number | null | undefined): string {
 }
 
 /**
+ * Measured output loads that are reported directly by EPS HK.
+ * Battery charging is intentionally excluded; it is handled as its own sink.
+ * Negative load powers are treated as sensor noise, not load generation.
+ */
+export const MEASURED_LOAD_KEYS: readonly EpsFieldName[] = [
+  'P3V3', 'P5V0',
+  'POUT1', 'POUT2', 'POUT3', 'POUT4', 'POUT5', 'POUT6',
+  'PBRN1', 'PBRN2',
+]
+
+export function measuredLoadPower(
+  fields: EpsFields | Partial<EpsFields> | null | undefined,
+): number {
+  if (!fields) return 0
+  const f = fields as Partial<EpsFields>
+  let total = 0
+  for (const k of MEASURED_LOAD_KEYS) {
+    const v = f[k]
+    if (isFiniteNumber(v) && v > 0) total += v
+  }
+  return total
+}
+
+export function batteryChargePower(
+  fields: EpsFields | Partial<EpsFields> | null | undefined,
+): number {
+  if (!fields) return 0
+  const { V_BAT, I_BAT } = fields as Partial<EpsFields>
+  if (!isFiniteNumber(V_BAT) || !isFiniteNumber(I_BAT) || V_BAT <= 0 || I_BAT <= 0) return 0
+  return V_BAT * I_BAT
+}
+
+export function batteryDischargePower(
+  fields: EpsFields | Partial<EpsFields> | null | undefined,
+): number {
+  if (!fields) return 0
+  const { V_BAT, I_BAT } = fields as Partial<EpsFields>
+  if (!isFiniteNumber(V_BAT) || !isFiniteNumber(I_BAT) || V_BAT <= 0 || I_BAT >= 0) return 0
+  return V_BAT * -I_BAT
+}
+
+export function busPower(
+  fields: EpsFields | Partial<EpsFields> | null | undefined,
+): number | null {
+  if (!fields) return null
+  const { V_BUS, I_BUS } = fields as Partial<EpsFields>
+  if (!isFiniteNumber(V_BUS) || !isFiniteNumber(I_BUS)) return null
+  const pBus = V_BUS * I_BUS
+  return Math.max(0, pBus)
+}
+
+function positivePower(v: number | null | undefined): number {
+  return isFiniteNumber(v) && v > 0 ? v : 0
+}
+
+function solarInputPower(fields: Partial<EpsFields>): number {
+  return positivePower(fields.PSIN1) + positivePower(fields.PSIN2) + positivePower(fields.PSIN3)
+}
+
+function externalSourcePresent(fields: Partial<EpsFields>): boolean {
+  if (isFiniteNumber(fields.V_AC1) && fields.V_AC1 > SOURCE_VOLTAGE_THRESHOLD) return true
+  if (isFiniteNumber(fields.V_AC2) && fields.V_AC2 > SOURCE_VOLTAGE_THRESHOLD) return true
+  if (solarInputPower(fields) > SOURCE_POWER_THRESHOLD_W) return true
+  return false
+}
+
+export function batterySourceActive(
+  fields: EpsFields | Partial<EpsFields> | null | undefined,
+): boolean {
+  if (!fields) return false
+  const f = fields as Partial<EpsFields>
+  if (!isFiniteNumber(f.V_BAT) || f.V_BAT <= SOURCE_VOLTAGE_THRESHOLD) return false
+  if (isFiniteNumber(f.I_BAT) && f.I_BAT < BAT_DISCHARGE_THRESHOLD) return true
+  if (externalSourcePresent(f)) return false
+
+  const pBus = busPower(f)
+  const sysPowered = isFiniteNumber(f.V_SYS) && f.V_SYS > SOURCE_VOLTAGE_THRESHOLD
+  const hasMeasuredLoads = measuredLoadPower(f) > SOURCE_POWER_THRESHOLD_W
+  const busSensorAtZero = pBus !== null && pBus <= SOURCE_POWER_THRESHOLD_W
+
+  return sysPowered || hasMeasuredLoads || busSensorAtZero
+}
+
+export interface BatteryInputPower {
+  watts: number
+  measuredWatts: number
+  derivedFromLoads: boolean
+}
+
+/**
+ * Battery current is useful for direction, but on battery-only bench/HK data it
+ * can be much smaller than the measured output rails. In that mode, use the HK
+ * load sum as the displayed source power and keep the raw VBAT*IBAT value as a
+ * diagnostic instead of drawing an impossible balance.
+ */
+export function batteryInputPower(
+  fields: EpsFields | Partial<EpsFields> | null | undefined,
+  requiredSinkPower = 0,
+): BatteryInputPower {
+  const measuredWatts = batteryDischargePower(fields)
+  if (!fields) return { watts: 0, measuredWatts, derivedFromLoads: false }
+
+  const f = fields as Partial<EpsFields>
+  const required = isFiniteNumber(requiredSinkPower) ? Math.max(0, requiredSinkPower) : 0
+  const pBus = busPower(fields)
+  const vBatPresent = isFiniteNumber(f.V_BAT) && f.V_BAT > SOURCE_VOLTAGE_THRESHOLD
+  const batteryOnlyLoads = vBatPresent
+    && !externalSourcePresent(f)
+    && pBus !== null
+    && pBus <= SOURCE_POWER_THRESHOLD_W
+    && required > SOURCE_POWER_THRESHOLD_W
+
+  if (batteryOnlyLoads && required > measuredWatts + SOURCE_POWER_THRESHOLD_W) {
+    return { watts: required, measuredWatts, derivedFromLoads: true }
+  }
+
+  return { watts: measuredWatts, measuredWatts, derivedFromLoads: false }
+}
+
+/**
+ * Residual EPS board/quiescent draw after direct loads and battery charge.
+ * P_BUS is treated as the bus demand reported by EPS, including charging
+ * current when the battery charger is active.
+ */
+export function deriveEpsBoardPower(
+  fields: EpsFields | Partial<EpsFields> | null | undefined,
+): number | null {
+  if (!fields) return null
+  const pBus = busPower(fields)
+  if (pBus === null) return null
+  return Math.max(0, pBus - measuredLoadPower(fields) - batteryChargePower(fields))
+}
+
+/**
  * Derive AC input power via energy conservation on the bus node.
- *   P_BUS = ΣPSIN + P_AC + P_bat_discharge − P_bat_charge
- * Rearranged: P_AC = P_BUS − ΣPSIN − (V_BAT × −I_BAT)
+ *   P_BUS = ΣPSIN + P_AC + P_bat_discharge
+ * Rearranged: P_AC = P_BUS − ΣPSIN − P_bat_discharge
  *
  * Discharge (I_BAT<0): battery adds to sources → subtract from P_BUS.
- * Charge   (I_BAT>0): battery is a sink → add back.
+ * Charge   (I_BAT>0): battery is a sink already included in P_BUS, so it
+ *                      must not be added into the source residual again.
  *
  * Returns null when V_BUS / I_BUS are not measured yet.
  */
@@ -274,17 +404,13 @@ export function derivePAC(
   fields: EpsFields | Partial<EpsFields> | null | undefined,
 ): number | null {
   if (!fields) return null
-  const { V_BUS, I_BUS, V_BAT, I_BAT, PSIN1, PSIN2, PSIN3 } = fields as Partial<EpsFields>
+  const { V_BUS, I_BUS, PSIN1, PSIN2, PSIN3 } = fields as Partial<EpsFields>
   if (!isFiniteNumber(V_BUS) || !isFiniteNumber(I_BUS)) return null
   const pBus = V_BUS * I_BUS
   const pSin = (isFiniteNumber(PSIN1) ? PSIN1 : 0)
     + (isFiniteNumber(PSIN2) ? PSIN2 : 0)
     + (isFiniteNumber(PSIN3) ? PSIN3 : 0)
-  let batTerm = 0
-  if (isFiniteNumber(V_BAT) && isFiniteNumber(I_BAT)) {
-    batTerm = V_BAT * -I_BAT
-  }
-  return pBus - pSin - batTerm
+  return pBus - pSin - batteryDischargePower(fields)
 }
 
 /**

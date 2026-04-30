@@ -60,9 +60,9 @@
   ],
   "derived": [
     { "name": "P_BUS",      "unit": "W", "digits": 2, "formula": "V_BUS * I_BUS" },
-    { "name": "P_AC",       "unit": "W", "digits": 2, "formula": "P_BUS - (PSIN1+PSIN2+PSIN3) - (V_BAT * -I_BAT)  // energy-conservation balance" },
-    { "name": "P_IN",       "unit": "W", "digits": 2, "formula": "PSIN1 + PSIN2 + PSIN3 + P_AC + (V_BAT * (-I_BAT) if I_BAT < 0 else 0)  // identically equals P_BUS by construction" },
-    { "name": "P_OUT",      "unit": "W", "digits": 2, "formula": "V_BUS * I_BUS" },
+    { "name": "P_AC",       "unit": "W", "digits": 2, "formula": "P_BUS - (PSIN1+PSIN2+PSIN3) - (V_BAT * -I_BAT if I_BAT < 0 else 0)  // charging is already included in P_BUS" },
+    { "name": "P_IN",       "unit": "W", "digits": 2, "formula": "solar + AC residual + battery source; battery-only balance derives BAT from HK loads when V_BUS is 0 and V_BAT*I_BAT under-reports" },
+    { "name": "P_OUT",      "unit": "W", "digits": 2, "formula": "P3V3 + P5V0 + POUT1..6 + PBRN1..2 + battery charge + EPS-board residual" },
     { "name": "EFFICIENCY", "unit": "",  "digits": 3, "formula": "(P3V3 + P5V0 + POUT1..6 + PBRN1..2) / P_BUS  // useful-output share; source-agnostic" }
   ],
   "groups": [
