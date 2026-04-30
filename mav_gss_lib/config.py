@@ -214,6 +214,9 @@ def split_to_persistable(platform_cfg: dict, mission_id: str, mission_cfg: dict)
     stations = persistable_platform.get("stations")
     if isinstance(stations, dict) and not stations:
         persistable_platform.pop("stations", None)
+    auth = persistable_platform.get("auth")
+    if isinstance(auth, dict) and not auth.get("require_token_for_reads"):
+        persistable_platform.pop("auth", None)
     return {
         "platform": persistable_platform,
         "mission": {

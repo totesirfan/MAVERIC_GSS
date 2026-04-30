@@ -9,9 +9,6 @@ export function lineColor(line: string): string {
   // Strip leading ISO timestamp the supervisor adds: "2026-04-30T17:35:42Z "
   const body = line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s/, '')
 
-  // Supervisor-emitted "Executing: ..." marker (one line at process start)
-  if (body.startsWith('Executing:')) return colors.textPrimary
-
   // GR canonical prefixes
   if (body.startsWith('[ERROR]') || body.startsWith('gr::log :ERROR')) return colors.danger
   if (body.startsWith('[WARNING]') || body.startsWith('gr::log :WARN')) return colors.warning
