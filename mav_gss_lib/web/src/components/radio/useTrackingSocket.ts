@@ -1,0 +1,88 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { authFetch } from '@/lib/auth'
+import { createSocket } from '@/lib/ws'
+import type {
+  DopplerCorrection,
+  DopplerMode,
+  TrackingWsMessage,
+} from '@/lib/types'
+
+export interface UseTrackingSocket {
+  doppler: DopplerCorrection | null
+  mode: DopplerMode
+  error: string
+  connected: boolean
+  busy: 'engage' | 'disengage' | null
+  actionError: string | null
+  engage: () => Promise<void>
+  disengage: () => Promise<void>
+  dismissError: () => void
+}
+
+export function useTrackingSocket(): UseTrackingSocket {
+  const [doppler, setDoppler] = useState<DopplerCorrection | null>(null)
+  const [mode, setMode] = useState<DopplerMode>('disconnected')
+  const [error, setError] = useState<string>('')
+  const [connected, setConnected] = useState<boolean>(false)
+  const [busy, setBusy] = useState<'engage' | 'disengage' | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const sockRef = useRef<{ close: () => void } | null>(null)
+
+  useEffect(() => {
+    const sock = createSocket(
+      '/ws/tracking',
+      (data) => {
+        const msg = data as TrackingWsMessage
+        if (msg.type === 'doppler') {
+          setDoppler(msg.doppler)
+          setMode(msg.doppler.mode)
+          setError('')
+        } else if (msg.type === 'status') {
+          setMode(msg.mode)
+          setError(msg.last_error || '')
+        } else if (msg.type === 'error') {
+          setError(msg.error)
+        }
+      },
+      setConnected,
+    )
+    sockRef.current = sock
+    return () => { sock.close() }
+  }, [])
+
+  const post = useCallback(async (path: string): Promise<void> => {
+    const r = await authFetch(path, { method: 'POST' })
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}))
+      throw new Error(typeof body.error === 'string' ? body.error : `HTTP ${r.status}`)
+    }
+  }, [])
+
+  const engage = useCallback(async () => {
+    setBusy('engage')
+    setActionError(null)
+    try {
+      await post('/api/tracking/doppler/connection/connect')
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }, [post])
+
+  const disengage = useCallback(async () => {
+    setBusy('disengage')
+    setActionError(null)
+    try {
+      await post('/api/tracking/doppler/connection/disconnect')
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }, [post])
+
+  const dismissError = useCallback(() => setActionError(null), [])
+
+  return { doppler, mode, error, connected, busy, actionError, engage, disengage, dismissError }
+}

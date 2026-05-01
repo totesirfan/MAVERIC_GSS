@@ -267,6 +267,34 @@ export interface CommandSchemaItem {
 // Native split shape returned by GET /api/config and accepted by PUT /api/config.
 // Matches the backend WebRuntime primary state: {platform_cfg, mission_id, mission_cfg}.
 
+export interface PlatformTrackingStation {
+  id: string
+  name: string
+  lat_deg: number
+  lon_deg: number
+  alt_m: number
+  min_elevation_deg: number
+}
+
+export interface PlatformTrackingConfig {
+  enabled: boolean
+  selected_station_id: string
+  stations: PlatformTrackingStation[]
+  tle: {
+    source: string
+    name: string
+    line1: string
+    line2: string
+  }
+  frequencies: {
+    rx_hz: number
+    tx_hz: number
+  }
+  display: {
+    day_night_map: boolean
+  }
+}
+
 export interface PlatformConfig {
   tx: {
     zmq_addr: string
@@ -285,6 +313,7 @@ export interface PlatformConfig {
     args?: string[]
     log_lines?: number
   }
+  tracking?: PlatformTrackingConfig
   general: {
     version: string
     build_sha?: string
@@ -395,3 +424,44 @@ export interface CommandInstance {
   outcomes: Record<string, VerifierOutcome>
   stage: InstanceStage
 }
+
+// ---- Doppler tracking ----
+
+export type DopplerMode = 'disconnected' | 'connected' | 'sim'
+
+export interface DopplerCorrection {
+  ts_ms: number
+  station_id: string
+  satellite: string
+  mode: DopplerMode
+  range_rate_mps: number
+  rx_hz: number
+  rx_shift_hz: number
+  rx_tune_hz: number
+  tx_hz: number
+  tx_shift_hz: number
+  tx_tune_hz: number
+}
+
+export interface TrackingStatusMessage {
+  type: 'status'
+  mode: DopplerMode
+  last_error: string
+  last_tick_ms: number
+}
+
+export interface TrackingDopplerMessage {
+  type: 'doppler'
+  doppler: DopplerCorrection
+  ts_ms: number
+}
+
+export interface TrackingErrorMessage {
+  type: 'error'
+  error: string
+}
+
+export type TrackingWsMessage =
+  | TrackingStatusMessage
+  | TrackingDopplerMessage
+  | TrackingErrorMessage
