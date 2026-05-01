@@ -223,56 +223,49 @@ export function RadioPage() {
                   {status.error}
                 </div>
               )}
-            </div>
-          </section>
-
-          <section className="flex flex-col rounded-lg border shadow-panel" style={{ borderColor: colors.borderSubtle, backgroundColor: colors.bgPanel }}>
-            <PanelHeader
-              icon={<RadioWave className="size-3.5 shrink-0" style={{ color: colors.dim }} />}
-              title="Runtime Control"
-            />
-            <div className={cn('grid gap-2 px-3 py-2', status.running ? 'grid-cols-3' : 'grid-cols-2')}>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!startEnabled}
-                aria-busy={busy === 'start'}
-                aria-disabled={!startEnabled}
-                onClick={() => void runAction('start')}
-                className="h-8 gap-1.5 text-xs font-bold btn-feedback"
-                style={btnTone(startEnabled, colors.active)}
-              >
-                <Play data-icon="inline-start" />
-                {busy === 'start' ? 'Starting…' : 'Start'}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!stopEnabled}
-                aria-busy={busy === 'stop'}
-                aria-disabled={!stopEnabled}
-                onClick={() => void runAction('stop')}
-                className="h-8 gap-1.5 text-xs font-bold btn-feedback"
-                style={btnTone(stopEnabled, colors.danger)}
-              >
-                <Square data-icon="inline-start" />
-                {busy === 'stop' ? 'Stopping…' : 'Stop'}
-              </Button>
-              {status.running && (
+              <div className={cn('mt-1 grid gap-2', status.running ? 'grid-cols-3' : 'grid-cols-2')}>
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!restartEnabled}
-                  aria-busy={busy === 'restart'}
-                  aria-disabled={!restartEnabled}
-                  onClick={() => void runAction('restart')}
+                  disabled={!startEnabled}
+                  aria-busy={busy === 'start'}
+                  aria-disabled={!startEnabled}
+                  onClick={() => void runAction('start')}
                   className="h-8 gap-1.5 text-xs font-bold btn-feedback"
-                  style={btnTone(restartEnabled, colors.info)}
+                  style={btnTone(startEnabled, colors.active)}
                 >
-                  <RotateCcw data-icon="inline-start" />
-                  {busy === 'restart' ? 'Restarting…' : 'Restart'}
+                  <Play data-icon="inline-start" />
+                  {busy === 'start' ? 'Starting…' : 'Start'}
                 </Button>
-              )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!stopEnabled}
+                  aria-busy={busy === 'stop'}
+                  aria-disabled={!stopEnabled}
+                  onClick={() => void runAction('stop')}
+                  className="h-8 gap-1.5 text-xs font-bold btn-feedback"
+                  style={btnTone(stopEnabled, colors.danger)}
+                >
+                  <Square data-icon="inline-start" />
+                  {busy === 'stop' ? 'Stopping…' : 'Stop'}
+                </Button>
+                {status.running && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!restartEnabled}
+                    aria-busy={busy === 'restart'}
+                    aria-disabled={!restartEnabled}
+                    onClick={() => void runAction('restart')}
+                    className="h-8 gap-1.5 text-xs font-bold btn-feedback"
+                    style={btnTone(restartEnabled, colors.info)}
+                  >
+                    <RotateCcw data-icon="inline-start" />
+                    {busy === 'restart' ? 'Restarting…' : 'Restart'}
+                  </Button>
+                )}
+              </div>
             </div>
           </section>
 
