@@ -24,6 +24,9 @@ ParameterTypeKind = Literal[
 ]
 
 
+IntegerWireFormat = Literal["single_token", "u8_tokens"]
+
+
 @dataclass(frozen=True, slots=True)
 class IntegerParameterType:
     name: str
@@ -34,6 +37,13 @@ class IntegerParameterType:
     unit: str = ""
     valid_range: tuple[float, float] | None = None
     description: str = ""
+    # Controls how the ascii_tokens layout sources the underlying integer.
+    # "single_token" (default): one decimal token == int value.
+    # "u8_tokens": size_bits/8 decimal u8 tokens packed in `byte_order`,
+    # then decoded as int — lets calibrator-backed multi-byte ints
+    # (BcdTime, BcdDate, AdcsTmp, FssTmp) decode identically under
+    # binary and ascii_tokens containers. Binary path is unaffected.
+    wire_format: IntegerWireFormat = "single_token"
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +187,7 @@ BUILT_IN_PARAMETER_TYPES: dict[str, ParameterType] = {
 __all__ = [
     "ParameterType",
     "ParameterTypeKind",
+    "IntegerWireFormat",
     "IntegerParameterType",
     "FloatParameterType",
     "StringParameterType",

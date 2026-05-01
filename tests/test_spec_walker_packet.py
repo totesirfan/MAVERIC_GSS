@@ -2,20 +2,23 @@ import unittest
 from dataclasses import dataclass
 
 from mav_gss_lib.platform.spec.bitfield import BitfieldEntry, BitfieldType
+from mav_gss_lib.platform.spec.calibrators import PythonCalibrator
 from mav_gss_lib.platform.spec.containers import (
     Comparison,
     ParameterRefEntry,
     RestrictionCriteria,
     SequenceContainer,
 )
+from mav_gss_lib.platform.spec.cursor import BitCursor, TokenCursor
 from mav_gss_lib.platform.spec.mission import Mission, MissionHeader
 from mav_gss_lib.platform.spec.parameter_types import (
     BUILT_IN_PARAMETER_TYPES,
     EnumeratedParameterType,
     EnumValue,
+    IntegerParameterType,
 )
 from mav_gss_lib.platform.spec.parameters import Parameter
-from mav_gss_lib.platform.spec.runtime import DeclarativeWalker
+from mav_gss_lib.platform.spec.runtime import DeclarativeWalker, TypeCodec
 from mav_gss_lib.platform.spec.walker_packet import WalkerPacket
 
 
@@ -267,6 +270,124 @@ class TestBitfieldDecodeUnderBothLayouts(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, r"MyReg"):
             list(walker.extract(bad_pkt, now_ms=0))
+
+
+class TestIntegerWireFormatU8Tokens(unittest.TestCase):
+    """Phase 2 of XTCE 1.3 alignment: IntegerParameterType opt-in
+    wire_format=u8_tokens decodes ascii_tokens layout as size_bits/8 u8
+    decimal tokens packed in declared byte_order. Binary layout
+    unchanged. Default (single_token) preserves the prior single-int
+    behavior.
+    """
+
+    def test_u8_tokens_decodes_same_int_under_both_layouts(self):
+        # 32-bit little-endian unsigned int with wire_format=u8_tokens.
+        # Document-order byte 0 is the LSB → register = 0x00002A29.
+        u32_packed = IntegerParameterType(
+            name="U32Packed",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+            wire_format="u8_tokens",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["U32Packed"] = u32_packed
+        codec = TypeCodec(types=types)
+
+        bin_cursor = BitCursor(b"\x29\x2A\x00\x00")
+        ascii_cursor = TokenCursor(b"41 42 0 0")
+        bin_value = codec.decode_binary("U32Packed", bin_cursor)
+        ascii_value = codec.decode_ascii("U32Packed", ascii_cursor)
+
+        self.assertEqual(bin_value, 0x00002A29)
+        self.assertEqual(ascii_value, 0x00002A29)
+        self.assertEqual(bin_value, ascii_value)
+
+    def test_calibrator_runs_on_decoded_int_under_both_layouts(self):
+        # Mirrors AdcsTmp shape: int kind, 32-bit LE unsigned, u8_tokens
+        # wire format, calibrator that returns (dict, unit). The same byte
+        # content (binary or ASCII) must produce the same calibrated dict.
+        def fake_calibrator(raw):
+            low = raw & 0xFFFF
+            return ({"brdtmp": low, "doubled": low * 2}, "°C")
+
+        adcs_like = IntegerParameterType(
+            name="AdcsLike",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+            calibrator=PythonCalibrator(callable_ref="fake.adcs", unit="°C"),
+            wire_format="u8_tokens",
+        )
+        param = Parameter(name="STAT", type_ref="AdcsLike", domain="adcs")
+        rc_binary = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="bin_pkt"),),
+        )
+        rc_ascii = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="ascii_pkt"),),
+        )
+        binary_container = SequenceContainer(
+            name="binary_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="AdcsLike"),),
+            restriction_criteria=rc_binary,
+            layout="binary",
+            domain="adcs",
+        )
+        ascii_container = SequenceContainer(
+            name="ascii_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="AdcsLike"),),
+            restriction_criteria=rc_ascii,
+            layout="ascii_tokens",
+            domain="adcs",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["AdcsLike"] = adcs_like
+        mission = Mission(
+            id="test_mission",
+            name="test_mission",
+            header=MissionHeader(version="0", date="2026-01-01"),
+            parameter_types=types,
+            parameters={param.name: param},
+            bitfield_types={},
+            sequence_containers={
+                binary_container.name: binary_container,
+                ascii_container.name: ascii_container,
+            },
+            meta_commands={},
+        )
+        walker = DeclarativeWalker(mission, plugins={"fake.adcs": fake_calibrator})
+
+        bin_pkt = _StubPacket(
+            args_raw=b"\x29\x2A\x00\x00", header={"cmd_id": "bin_pkt"},
+        )
+        ascii_pkt = _StubPacket(
+            args_raw=b"41 42 0 0", header={"cmd_id": "ascii_pkt"},
+        )
+        bin_updates = list(walker.extract(bin_pkt, now_ms=0))
+        ascii_updates = list(walker.extract(ascii_pkt, now_ms=0))
+
+        self.assertEqual(len(bin_updates), 1)
+        self.assertEqual(len(ascii_updates), 1)
+        expected = {"brdtmp": 0x2A29, "doubled": 0x2A29 * 2}
+        self.assertEqual(bin_updates[0].value, expected)
+        self.assertEqual(ascii_updates[0].value, expected)
+        self.assertEqual(bin_updates[0].unit, "°C")
+        self.assertEqual(ascii_updates[0].unit, "°C")
+
+    def test_default_wire_format_reads_single_token_as_int(self):
+        # Regression: an IntegerParameterType without wire_format declared
+        # must continue to read ONE ascii token as the integer value.
+        single = IntegerParameterType(
+            name="SingleU32",
+            size_bits=32,
+            signed=False,
+            byte_order="little",
+        )
+        types = dict(BUILT_IN_PARAMETER_TYPES)
+        types["SingleU32"] = single
+        codec = TypeCodec(types=types)
+        ascii_cursor = TokenCursor(b"123456")
+        self.assertEqual(codec.decode_ascii("SingleU32", ascii_cursor), 123456)
 
 
 if __name__ == "__main__":

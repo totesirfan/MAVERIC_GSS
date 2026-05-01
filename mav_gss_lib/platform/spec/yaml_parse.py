@@ -179,6 +179,7 @@ def _project_one_param_type(name: str, t) -> ParameterType:
             name=name, size_bits=t.size_bits, signed=t.signed,
             byte_order=t.byte_order, calibrator=_project_calibrator(t.calibrator),
             unit=t.unit, valid_range=t.valid_range, description=t.description,
+            wire_format=t.wire_format,
         )
     if kind == "float":
         return FloatParameterType(

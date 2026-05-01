@@ -42,6 +42,10 @@ class _IntegerType(_Strict):
     unit: str = ""
     valid_range: tuple[float, float] | None = None
     description: str = ""
+    # Default: ascii_tokens reads ONE decimal token per int. With
+    # `u8_tokens`, the ascii path reads size_bits/8 decimal u8 tokens
+    # and packs them in declared byte_order before decoding as int.
+    wire_format: Literal["single_token", "u8_tokens"] = "single_token"
 
 
 class _FloatType(_Strict):

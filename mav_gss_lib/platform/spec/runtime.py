@@ -54,6 +54,12 @@ class TypeCodec:
     def decode_ascii(self, type_ref: str, cursor: TokenCursor) -> Any:
         t = self._types[type_ref]
         if isinstance(t, IntegerParameterType):
+            if t.wire_format == "u8_tokens":
+                # Multi-byte int delivered as size_bits/8 decimal u8 tokens
+                # in document order; pack and decode in declared byte_order.
+                n = t.size_bits // 8
+                buf = bytes(_u8_from_token(cursor.read_token(), t.name) for _ in range(n))
+                return int.from_bytes(buf, t.byte_order, signed=t.signed)
             return int(cursor.read_token(), 10)
         if isinstance(t, FloatParameterType):
             return float(cursor.read_token())
@@ -331,16 +337,18 @@ class BitfieldDecoder:
         return out
 
 
-def _u8_from_token(token: str, bf_name: str) -> int:
-    """Parse one ascii_tokens decimal token as a u8 byte for bitfield packing.
+def _u8_from_token(token: str, owner_name: str) -> int:
+    """Parse one ascii_tokens decimal token as a u8 byte for multi-byte packing.
 
-    Out-of-range values are spacecraft-side bugs that should surface loudly,
-    not silently truncate to a low byte and corrupt the decoded register.
+    Used by both BitfieldDecoder (register packing) and TypeCodec
+    (IntegerParameterType wire_format=u8_tokens). Out-of-range values
+    are spacecraft-side bugs that should surface loudly, not silently
+    truncate to a low byte and corrupt the decoded value.
     """
     value = int(token, 10)
     if not 0 <= value <= 0xFF:
         raise ValueError(
-            f"BitfieldType {bf_name!r}: ascii token {token!r} out of u8 range [0, 255]"
+            f"{owner_name!r}: ascii token {token!r} out of u8 range [0, 255]"
         )
     return value
 
