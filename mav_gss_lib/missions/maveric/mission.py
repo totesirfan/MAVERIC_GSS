@@ -33,7 +33,8 @@ _CSP_DEFAULTS = {
     "dest_port": 0, "src_port": 0, "flags": 0, "csp_crc": True,
 }
 _IMAGING_DEFAULTS = {"thumb_prefix": "tn_"}
-_TX_DEFAULTS = {"frequency": "XXX.XX MHz"}
+_RX_DEFAULTS = {"frequency": "437.6 MHz"}
+_TX_DEFAULTS = {"frequency": "437.6 MHz"}
 
 
 def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
@@ -49,6 +50,10 @@ def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
         merged.update(existing)
         mission_cfg[key] = merged
     if isinstance(platform_cfg, dict):
+        rx_cfg = platform_cfg.setdefault("rx", {})
+        if isinstance(rx_cfg, dict):
+            for k, v in _RX_DEFAULTS.items():
+                rx_cfg.setdefault(k, v)
         tx_cfg = platform_cfg.setdefault("tx", {})
         if isinstance(tx_cfg, dict):
             for k, v in _TX_DEFAULTS.items():

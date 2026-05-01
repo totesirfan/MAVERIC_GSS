@@ -107,6 +107,7 @@ class TestWebRuntimePrimarySplitState(unittest.TestCase):
         self.assertEqual(rt.log_dir, rt.platform_cfg["general"].get("log_dir", "logs"))
         self.assertEqual(rt.version, rt.platform_cfg["general"].get("version", ""))
         self.assertEqual(rt.build_sha, rt.platform_cfg["general"].get("build_sha", ""))
+        self.assertEqual(rt.rx_frequency, rt.platform_cfg["rx"].get("frequency", ""))
         self.assertEqual(rt.tx_frequency, rt.platform_cfg["tx"].get("frequency", ""))
         self.assertEqual(rt.tx_delay_ms, int(rt.platform_cfg["tx"].get("delay_ms", 500)))
         self.assertEqual(

@@ -52,7 +52,23 @@ def _build_fixture(log_dir: Path) -> str:
         "wire_hex": "deadbeef", "wire_len": 4,
         "mission": {"id": "maveric", "cmd_id": "com_ping", "facts": {"header": {"cmd_id": "com_ping"}}},
     }
-    path.write_text("\n".join(json.dumps(x) for x in [rx, tel, tx]) + "\n")
+    trk = {
+        "event_id": "e3", "event_kind": "tracking",
+        "session_id": stem, "ts_ms": 1714053609500,
+        "ts_iso": "2026-04-23T14:00:09.500+00:00",
+        "seq": 0, "v": "5.7.0", "mission_id": "maveric",
+        "operator": "irfan", "station": "GS-0",
+        "tracking": {
+            "action": "connect",
+            "mode": "connected",
+            "prev_mode": "disconnected",
+            "station_id": "GS-0",
+            "rx_zmq_addr": "tcp://127.0.0.1:52003",
+            "tx_zmq_addr": "tcp://127.0.0.1:52004",
+            "detail": "",
+        },
+    }
+    path.write_text("\n".join(json.dumps(x) for x in [rx, tel, tx, trk]) + "\n")
     return stem
 
 
@@ -80,8 +96,10 @@ def test_entries_endpoint_defaults_exclude_parameters():
         assert r.status_code == 200
         data = r.json()
         kinds = {e["event_kind"] for e in data["entries"]}
-        assert kinds == {"rx_packet", "tx_command"}  # parameter records filtered out by default
-        assert len(data["entries"]) == 2
+        # parameter records are filtered out by default; rx, tx, and system
+        # audit events (radio, tracking) come through.
+        assert kinds == {"rx_packet", "tx_command", "tracking"}
+        assert len(data["entries"]) == 3
 
 
 def test_entries_endpoint_opt_in_parameters():
@@ -139,6 +157,23 @@ def test_parameters_endpoint_filters_by_name():
         assert len(entries) == 1
         assert entries[0]["value"] == 7.42
         assert entries[0]["unit"] == "V"
+
+
+def test_tracking_event_kind_is_filterable():
+    with tempfile.TemporaryDirectory() as tmp:
+        stem = _build_fixture(Path(tmp))
+        app = create_app()
+        app.state.runtime.platform_cfg.setdefault("general", {})["log_dir"] = tmp
+        with TestClient(app) as client:
+            r = client.get(f"/api/logs/{stem}?event_kind=tracking")
+        assert r.status_code == 200
+        entries = r.json()["entries"]
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["event_kind"] == "tracking"
+        assert entry["tracking"]["action"] == "connect"
+        assert entry["tracking"]["mode"] == "connected"
+        assert entry["tracking"]["prev_mode"] == "disconnected"
 
 
 def test_missing_session_returns_404():

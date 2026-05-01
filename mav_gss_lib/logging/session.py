@@ -165,3 +165,36 @@ class SessionLog(_BaseLog):
             detail=detail,
             expected=expected,
         ))
+
+    def write_tracking_event(
+        self,
+        action: str,
+        *,
+        mode: str = "",
+        prev_mode: str = "",
+        station_id: str = "",
+        rx_zmq_addr: str = "",
+        tx_zmq_addr: str = "",
+        detail: str = "",
+        ts_ms: int | None = None,
+    ) -> None:
+        """Append one tracking-subsystem lifecycle event (Doppler engage / disengage)."""
+        from mav_gss_lib.platform.log_records import tracking_event_record
+        import time as _time
+
+        stamp = ts_ms if ts_ms is not None else int(_time.time() * 1000)
+        self.write_jsonl(tracking_event_record(
+            action,
+            session_id=self.session_id,
+            ts_ms=stamp,
+            version=self._version,
+            mission_id=self._mission_id,
+            operator=self._operator,
+            station=self._station,
+            mode=mode,
+            prev_mode=prev_mode,
+            station_id=station_id,
+            rx_zmq_addr=rx_zmq_addr,
+            tx_zmq_addr=tx_zmq_addr,
+            detail=detail,
+        ))

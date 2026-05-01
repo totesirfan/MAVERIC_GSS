@@ -10,6 +10,7 @@ contracts.
 from __future__ import annotations
 
 import copy
+import logging
 import threading
 import time
 from dataclasses import asdict
@@ -89,6 +90,7 @@ class TrackingService:
         with self._sink_lock:
             if self._doppler_mode == "connected":
                 return self._doppler_mode
+            prev_mode = self._doppler_mode
         control = self._control_config()
         sink = self._sink_factory(
             rx_addr=control["rx_zmq_addr"],
@@ -98,19 +100,73 @@ class TrackingService:
             self._sink = sink
             self._doppler_mode = "connected"
             self._last_error = ""
+        self._write_tracking_event(
+            "connect",
+            mode=self._doppler_mode,
+            prev_mode=prev_mode,
+            rx_zmq_addr=control["rx_zmq_addr"],
+            tx_zmq_addr=control["tx_zmq_addr"],
+        )
         return self._doppler_mode
 
     def disengage(self) -> DopplerMode:
         previous: DopplerSink | None = None
+        prev_mode: DopplerMode = "disconnected"
         with self._sink_lock:
             if self._doppler_mode == "disconnected":
                 return self._doppler_mode
+            prev_mode = self._doppler_mode
             previous = self._sink
             self._sink = NullDopplerSink()
             self._doppler_mode = "disconnected"
         if previous is not None:
             previous.close()
+        self._write_tracking_event(
+            "disconnect",
+            mode=self._doppler_mode,
+            prev_mode=prev_mode,
+        )
         return self._doppler_mode
+
+    def _write_tracking_event(
+        self,
+        action: str,
+        *,
+        mode: str = "",
+        prev_mode: str = "",
+        rx_zmq_addr: str = "",
+        tx_zmq_addr: str = "",
+        detail: str = "",
+    ) -> None:
+        """Append one tracking lifecycle event to the unified session log.
+
+        Best-effort: a missing or unwritable session log must not abort the
+        engage/disengage operation. The selected station id is captured from
+        live config so post-pass review can correlate the engagement with the
+        ground site that was active at the time.
+        """
+        log = getattr(getattr(self.runtime, "rx", None), "log", None)
+        if log is None:
+            log = getattr(getattr(self.runtime, "tx", None), "log", None)
+        if log is None or not hasattr(log, "write_tracking_event"):
+            return
+        station_id = ""
+        try:
+            station_id = str(self.config_model().selected_station.id)
+        except Exception:
+            station_id = ""
+        try:
+            log.write_tracking_event(
+                action,
+                mode=mode,
+                prev_mode=prev_mode,
+                station_id=station_id,
+                rx_zmq_addr=rx_zmq_addr,
+                tx_zmq_addr=tx_zmq_addr,
+                detail=detail,
+            )
+        except Exception:
+            logging.exception("tracking lifecycle log failed")
 
     def _control_config(self) -> dict:
         with self.runtime.cfg_lock:

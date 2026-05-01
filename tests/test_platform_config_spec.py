@@ -24,12 +24,13 @@ class TestDefaultPlatformSpec(unittest.TestCase):
     def test_tx_and_rx_updates_merge_in(self):
         platform = {"tx": {"zmq_addr": "old"}, "rx": {"zmq_addr": "rx_old"}}
         apply_platform_config_update(platform, {
-            "tx": {"delay_ms": 100, "frequency": "437.25 MHz"},
-            "rx": {"tx_blackout_ms": 250},
+            "tx": {"delay_ms": 100, "frequency": "437.6 MHz"},
+            "rx": {"frequency": "437.7 MHz", "tx_blackout_ms": 250},
         })
         self.assertEqual(platform["tx"]["delay_ms"], 100)
-        self.assertEqual(platform["tx"]["frequency"], "437.25 MHz")
+        self.assertEqual(platform["tx"]["frequency"], "437.6 MHz")
         self.assertEqual(platform["tx"]["zmq_addr"], "old")  # deep-merged
+        self.assertEqual(platform["rx"]["frequency"], "437.7 MHz")
         self.assertEqual(platform["rx"]["tx_blackout_ms"], 250)
 
     def test_retired_tx_keys_are_dropped(self):

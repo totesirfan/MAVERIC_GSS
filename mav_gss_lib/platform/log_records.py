@@ -177,3 +177,49 @@ def radio_event_record(
             "expected": expected,
         },
     }
+
+
+def tracking_event_record(
+    action: str,
+    *,
+    session_id: str,
+    ts_ms: int,
+    version: str,
+    mission_id: str = "",
+    operator: str = "",
+    station: str = "",
+    mode: str = "",
+    prev_mode: str = "",
+    station_id: str = "",
+    rx_zmq_addr: str = "",
+    tx_zmq_addr: str = "",
+    detail: str = "",
+    event_id: str | None = None,
+) -> dict[str, Any]:
+    """Build one tracking-subsystem lifecycle event record.
+
+    Used to audit operator-initiated Doppler engagements (connect / disconnect)
+    so post-pass review can correlate uplink/downlink frequency corrections
+    with the moment the tuner sink was bound or torn down.
+    """
+    return {
+        "event_id": event_id or new_event_id(),
+        "event_kind": "tracking",
+        "session_id": session_id,
+        "ts_ms": ts_ms,
+        "ts_iso": ts_iso(ts_ms),
+        "seq": 0,
+        "v": version,
+        "mission_id": mission_id,
+        "operator": operator,
+        "station": station,
+        "tracking": {
+            "action": action,
+            "mode": mode,
+            "prev_mode": prev_mode,
+            "station_id": station_id,
+            "rx_zmq_addr": rx_zmq_addr,
+            "tx_zmq_addr": tx_zmq_addr,
+            "detail": detail,
+        },
+    }

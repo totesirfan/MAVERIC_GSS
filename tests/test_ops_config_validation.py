@@ -2,7 +2,7 @@
 
 Verifies:
   1. MAVERIC build(ctx) seeds mission_cfg with operator-overridable defaults
-     (csp/imaging) and gap-fills tx defaults onto platform_cfg.
+     (csp/imaging) and gap-fills RX/TX frequency defaults onto platform_cfg.
   2. Operator-supplied values in gss.yml win over mission defaults.
   3. Platform _DEFAULTS stay mission-free.
   4. load_mission_spec_from_split + build(ctx) produce a populated MissionSpec.
@@ -33,7 +33,7 @@ class TestMissionDefaultsSeeding(unittest.TestCase):
     """Verify MAVERIC defaults seeding into split state."""
 
     def test_seed_fills_missing_keys(self):
-        platform_cfg: dict = {"tx": {}}
+        platform_cfg: dict = {"tx": {}, "rx": {}}
         mission_cfg: dict = {}
         _seed(mission_cfg, platform_cfg)
 
@@ -43,7 +43,8 @@ class TestMissionDefaultsSeeding(unittest.TestCase):
         self.assertEqual(mission_cfg["imaging"]["thumb_prefix"], "tn_")
         self.assertEqual(mission_cfg["csp"]["dest_port"], 0)
 
-        # tx defaults gap-fill onto platform_cfg.
+        # RX/TX defaults gap-fill onto platform_cfg.
+        self.assertIn("frequency", platform_cfg["rx"])
         self.assertIn("frequency", platform_cfg["tx"])
 
     def test_seed_respects_operator_overrides(self):
@@ -53,12 +54,13 @@ class TestMissionDefaultsSeeding(unittest.TestCase):
             "csp": {"dest_port": 24},
             "imaging": {"thumb_prefix": "thumb_"},
         }
-        platform_cfg = {"tx": {"frequency": "437.6 MHz"}}
+        platform_cfg = {"rx": {"frequency": "437.7 MHz"}, "tx": {"frequency": "437.6 MHz"}}
         _seed(mission_cfg, platform_cfg)
 
         # Operator values preserved.
         self.assertEqual(mission_cfg["csp"]["dest_port"], 24)
         self.assertEqual(mission_cfg["imaging"]["thumb_prefix"], "thumb_")
+        self.assertEqual(platform_cfg["rx"]["frequency"], "437.7 MHz")
         self.assertEqual(platform_cfg["tx"]["frequency"], "437.6 MHz")
 
         # Default fills the gap on the same dict.

@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
 import shutil
 import subprocess
@@ -37,6 +38,28 @@ if TYPE_CHECKING:
 DEFAULT_RADIO_SCRIPT = "gnuradio/MAV_DUO.py"
 DEFAULT_LOG_LINES = 1000
 DEFAULT_STOP_TIMEOUT_S = 8.0
+_FREQ_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(ghz|mhz|khz|hz)?\s*$", re.IGNORECASE)
+
+
+def _parse_frequency_hz(value: Any, fallback: float | None = None) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value) if value > 0 else fallback
+    if not isinstance(value, str):
+        return fallback
+    match = _FREQ_RE.match(value)
+    if not match:
+        return fallback
+    numeric = float(match.group(1))
+    unit = (match.group(2) or "").lower()
+    if unit == "ghz":
+        scale = 1_000_000_000
+    elif unit == "mhz" or (not unit and numeric < 10_000):
+        scale = 1_000_000
+    elif unit == "khz":
+        scale = 1_000
+    else:
+        scale = 1
+    return numeric * scale
 
 
 class RadioService:
@@ -119,6 +142,22 @@ class RadioService:
         if not isinstance(raw_args, list):
             return []
         return [str(arg) for arg in raw_args]
+
+    def _frequency_env(self) -> dict[str, str]:
+        with self.runtime.cfg_lock:
+            platform_cfg = self.runtime.platform_cfg
+            rx_cfg = platform_cfg.get("rx") if isinstance(platform_cfg.get("rx"), dict) else {}
+            tx_cfg = platform_cfg.get("tx") if isinstance(platform_cfg.get("tx"), dict) else {}
+            tracking = platform_cfg.get("tracking") if isinstance(platform_cfg.get("tracking"), dict) else {}
+            frequencies = tracking.get("frequencies") if isinstance(tracking.get("frequencies"), dict) else {}
+            rx_hz = _parse_frequency_hz(rx_cfg.get("frequency"), _parse_frequency_hz(frequencies.get("rx_hz")))
+            tx_hz = _parse_frequency_hz(tx_cfg.get("frequency"), _parse_frequency_hz(frequencies.get("tx_hz")))
+        env: dict[str, str] = {}
+        if rx_hz is not None:
+            env["MAVERIC_RX_FREQ_HZ"] = str(rx_hz)
+        if tx_hz is not None:
+            env["MAVERIC_TX_FREQ_HZ"] = str(tx_hz)
+        return env
 
     def command(self) -> list[str]:
         return [self._python_path(), "-u", str(self._script_path()), *self._args()]
@@ -262,6 +301,7 @@ class RadioService:
         cmd = [python, "-u", str(script), *self._args()]
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+        env.update(self._frequency_env())
         command_text = " ".join(cmd)
 
         try:

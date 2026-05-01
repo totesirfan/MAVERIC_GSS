@@ -49,7 +49,7 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   stationLonDeg: DEFAULT_TRACKING_STATION.lonDeg,
   stationAltM: DEFAULT_TRACKING_STATION.altM,
   minElevationDeg: DEFAULT_TRACKING_STATION.minElevationDeg,
-  downlinkHz: '437500000',
+  downlinkHz: '437600000',
   uplinkHz: '437600000',
   tleSource: 'MAVERIC local TLE',
   tleText: MAVERIC_TLE,

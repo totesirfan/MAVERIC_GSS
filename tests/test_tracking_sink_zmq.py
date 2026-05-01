@@ -15,7 +15,7 @@ def _correction(rx_tune: float, tx_tune: float) -> DopplerCorrection:
         satellite="MAVERIC",
         mode="connected",
         range_rate_mps=-1234.5,
-        rx_hz=437_500_000.0,
+        rx_hz=437_600_000.0,
         rx_shift_hz=-200.0,
         rx_tune_hz=rx_tune,
         tx_hz=437_600_000.0,
@@ -41,7 +41,7 @@ class ZmqDopplerSinkTests(unittest.TestCase):
             tx_sub.connect(sink.tx_endpoint)
             time.sleep(0.2)  # PUB/SUB slow joiner
 
-            sink.publish(_correction(rx_tune=437_499_800.0, tx_tune=437_600_210.0))
+            sink.publish(_correction(rx_tune=437_599_800.0, tx_tune=437_600_210.0))
 
             rx_sub.RCVTIMEO = 1500
             tx_sub.RCVTIMEO = 1500
@@ -49,7 +49,7 @@ class ZmqDopplerSinkTests(unittest.TestCase):
             tx_msg = pmt.deserialize_str(tx_sub.recv())
             self.assertAlmostEqual(
                 pmt.to_double(pmt.dict_ref(rx_msg, pmt.intern("freq"), pmt.PMT_NIL)),
-                437_499_800.0,
+                437_599_800.0,
             )
             self.assertAlmostEqual(
                 pmt.to_double(pmt.dict_ref(tx_msg, pmt.intern("freq"), pmt.PMT_NIL)),

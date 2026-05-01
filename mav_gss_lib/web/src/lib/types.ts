@@ -303,6 +303,7 @@ export interface PlatformConfig {
   }
   rx: {
     zmq_addr: string
+    frequency?: string
     tx_blackout_ms?: number
   }
   radio?: {

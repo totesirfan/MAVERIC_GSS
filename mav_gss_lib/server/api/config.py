@@ -60,6 +60,8 @@ async def api_status(request: Request) -> dict[str, Any]:
         "zmq_tx": runtime.tx.status.get(),
         "frame_label": runtime.frame_label,
         "frequency": runtime.tx_frequency,
+        "rx_frequency": runtime.rx_frequency,
+        "tx_frequency": runtime.tx_frequency,
         "schema_path": _mission_meta(runtime, "command_defs_resolved")
             or _mission_meta(runtime, "command_defs"),
         "schema_count": _schema_count(runtime),

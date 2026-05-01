@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { colors } from '@/lib/colors'
-import type { GssConfig } from '@/lib/types'
+import type { GssConfig, PlatformTrackingConfig } from '@/lib/types'
 import { X, FileText, Database } from 'lucide-react'
 import { authFetch } from '@/lib/auth'
 import { GssInput } from '@/components/ui/gss-input'
 
 const springConfig = { type: 'spring' as const, stiffness: 500, damping: 30, mass: 0.8 }
+const DEFAULT_DOPPLER_HZ = 437_600_000
 let hasLoadedConfigSidebar = false
 
 function diffConfig(current: GssConfig, base: GssConfig): Partial<GssConfig> | undefined
@@ -100,6 +101,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function configLabel(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+type TrackingFrequencyKey = 'rx_hz' | 'tx_hz'
+type RadioDirection = 'rx' | 'tx'
+
+function parseFrequencyHz(value: string): number | null {
+  const match = value.trim().toLowerCase().match(/^([0-9]+(?:\.[0-9]+)?)\s*(ghz|mhz|khz|hz)?$/)
+  if (!match) return null
+  const numeric = Number(match[1])
+  if (!Number.isFinite(numeric)) return null
+  const unit = match[2]
+  const scale = unit === 'ghz'
+    ? 1_000_000_000
+    : unit === 'mhz' || (!unit && numeric < 10_000)
+      ? 1_000_000
+      : unit === 'khz'
+        ? 1_000
+        : 1
+  return Math.round(numeric * scale)
+}
+
+function formatFrequencyLabel(hz: number): string {
+  const mhz = hz / 1_000_000
+  return `${Number(mhz.toFixed(6))} MHz`
+}
+
+function trackingFrequencyValue(config: GssConfig, key: TrackingFrequencyKey): number {
+  const value = config.platform.tracking?.frequencies?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_DOPPLER_HZ
+}
+
+function radioFrequencyValue(config: GssConfig, direction: RadioDirection): string {
+  const configured = direction === 'rx' ? config.platform.rx.frequency : config.platform.tx.frequency
+  if (typeof configured === 'string' && configured.trim()) return configured
+  return formatFrequencyLabel(trackingFrequencyValue(config, direction === 'rx' ? 'rx_hz' : 'tx_hz'))
 }
 
 function MissionValueField({
@@ -222,21 +258,26 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
       .catch(() => {})
   }, [open])
 
-  const handleSave = useCallback(() => {
-    if (!cfg || !initialRef.current) return
+  const handleSave = useCallback(async () => {
+    if (!cfg || !initialRef.current) return false
     const update = diffConfig(cfg, initialRef.current) ?? {}
     if (Object.keys(update).length === 0) {
       setDirty(false)
-      return
+      return true
     }
-    authFetch('/api/config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(update),
-    }).then(() => {
+    try {
+      const response = await authFetch('/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(update),
+      })
+      if (!response.ok) return false
       initialRef.current = JSON.parse(JSON.stringify(cfg))
       setDirty(false)
-    }).catch(() => {})
+      return true
+    } catch {
+      return false
+    }
   }, [cfg])
 
   const handleCancel = useCallback(() => {
@@ -256,6 +297,33 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
         ...prev,
         platform: { ...prev.platform, [section]: { ...prev.platform[section], [key]: value } },
       }
+      setDirty(true)
+      return next
+    })
+  }, [])
+
+  const updateRadioFrequency = useCallback((direction: RadioDirection, value: string) => {
+    setCfg((prev) => {
+      if (!prev) return prev
+      const hz = parseFrequencyHz(value)
+      const tracking = prev.platform.tracking
+      const frequencies = tracking?.frequencies
+      const nextPlatform = { ...prev.platform }
+      if (direction === 'rx') {
+        nextPlatform.rx = { ...prev.platform.rx, frequency: value }
+      } else {
+        nextPlatform.tx = { ...prev.platform.tx, frequency: value }
+      }
+      if (hz !== null) {
+        nextPlatform.tracking = {
+          ...(tracking ?? {}),
+          frequencies: {
+            ...(frequencies ?? {}),
+            [direction === 'rx' ? 'rx_hz' : 'tx_hz']: hz,
+          },
+        } as PlatformTrackingConfig
+      }
+      const next = { ...prev, platform: nextPlatform }
       setDirty(true)
       return next
     })
@@ -369,8 +437,10 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
 
                 {/* System */}
                 <Section title="System">
-                  <TextField label="Frequency" value={cfg.platform.tx.frequency} onChange={(v) => updatePlatform('tx', 'frequency', v)} />
-                  <TextField label="ZMQ Address" value={cfg.platform.tx.zmq_addr} onChange={(v) => updatePlatform('tx', 'zmq_addr', v)} />
+                  <TextField label="RX Frequency" value={radioFrequencyValue(cfg, 'rx')} onChange={(v) => updateRadioFrequency('rx', v)} />
+                  <TextField label="TX Frequency" value={radioFrequencyValue(cfg, 'tx')} onChange={(v) => updateRadioFrequency('tx', v)} />
+                  <TextField label="RX ZMQ Address" value={cfg.platform.rx.zmq_addr} onChange={(v) => updatePlatform('rx', 'zmq_addr', v)} />
+                  <TextField label="TX ZMQ Address" value={cfg.platform.tx.zmq_addr} onChange={(v) => updatePlatform('tx', 'zmq_addr', v)} />
                   <NumberField label="TX Delay (ms)" value={cfg.platform.tx.delay_ms} onChange={(v) => updatePlatform('tx', 'delay_ms', v)} />
                   <NumberField label="TX→RX Blackout (ms)" value={cfg.platform.rx.tx_blackout_ms ?? 0} onChange={(v) => updatePlatform('rx', 'tx_blackout_ms', v)} />
                 </Section>
@@ -396,7 +466,7 @@ export function ConfigSidebar({ open, onClose }: ConfigSidebarProps) {
                     Cancel
                   </button>
                   <button
-                    onClick={() => { handleSave(); onClose() }}
+                    onClick={() => { void handleSave().then((saved) => { if (saved) onClose() }) }}
                     disabled={!dirty}
                     className="flex-1 px-3 py-1.5 rounded text-xs font-bold disabled:opacity-30 btn-feedback"
                     style={{ backgroundColor: dirty ? colors.success : colors.borderSubtle, color: colors.bgApp }}

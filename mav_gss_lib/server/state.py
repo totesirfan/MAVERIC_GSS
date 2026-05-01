@@ -84,7 +84,7 @@ class WebRuntime:
         # `mission_id` is NOT mirrored into `platform_cfg["general"]` — that
         # would be a platform/mission boundary leak.
         # Split runtime state is primary. Mission defaults (nodes, ptypes,
-        # mission-declared TX params, ax25/csp placeholders, ui titles) are
+        # mission-declared RX/TX params, ax25/csp placeholders, ui titles) are
         # seeded by the mission's own `build(ctx)` inside `from_split(...)` —
         # operator values in gss.yml win. The platform does not merge mission
         # YAML any more; missions own their defaults in code.
@@ -199,6 +199,11 @@ class WebRuntime:
         spec_root = getattr(self.mission, "spec_root", None)
         framing = getattr(spec_root, "framing", None) if spec_root is not None else None
         return getattr(framing, "uplink_label", None) or "raw"
+
+    @property
+    def rx_frequency(self) -> str:
+        rx = self.platform_cfg.get("rx") or {}
+        return str(rx.get("frequency", ""))
 
     @property
     def tx_frequency(self) -> str:

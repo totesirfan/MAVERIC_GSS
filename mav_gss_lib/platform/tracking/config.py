@@ -69,7 +69,7 @@ def default_tracking_config() -> TrackingConfig:
             line1=MAVERIC_TLE_LINE1,
             line2=MAVERIC_TLE_LINE2,
         ),
-        frequencies=TrackingFrequencies(rx_hz=437_500_000.0, tx_hz=437_600_000.0),
+        frequencies=TrackingFrequencies(rx_hz=437_600_000.0, tx_hz=437_600_000.0),
         display=TrackingDisplay(day_night_map=True),
     )
 

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   X, ChevronDown, ChevronRight, AlertTriangle, Binary,
-  ArrowUpFromLine, ClipboardCopy, Braces,
+  ArrowUpFromLine, ClipboardCopy, Braces, Cpu,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Calendar } from '@/components/ui/calendar'

@@ -24,7 +24,7 @@ class _FakeRuntime:
                     "line1": "1 99999U 26001A   26182.53800926  .00000000  00000-0  15000-3 0  9999",
                     "line2": "2 99999  97.8250 154.7171 0058009 348.1000 351.9980 14.91466332000019",
                 },
-                "frequencies": {"rx_hz": 437_500_000.0, "tx_hz": 437_600_000.0},
+                "frequencies": {"rx_hz": 437_600_000.0, "tx_hz": 437_600_000.0},
                 "display": {"day_night_map": True},
                 "control": control or {
                     "rx_zmq_addr": "tcp://127.0.0.1:0",
@@ -104,6 +104,58 @@ class TrackingEngageTests(unittest.TestCase):
         active_sink.publish.assert_called_once()
         published: DopplerCorrection = active_sink.publish.call_args.args[0]
         self.assertEqual(published.station_id, "usc")
+
+    def test_engage_disengage_emit_tracking_log_events(self) -> None:
+        runtime = _FakeRuntime()
+        log = MagicMock()
+        runtime.rx = MagicMock(log=log)
+        active_sink = MagicMock()
+        service = TrackingService(runtime, sink_factory=lambda **_: active_sink)
+
+        service.engage()
+        service.disengage()
+
+        calls = log.write_tracking_event.call_args_list
+        self.assertEqual(len(calls), 2)
+
+        connect_args = calls[0].kwargs
+        self.assertEqual(calls[0].args, ("connect",))
+        self.assertEqual(connect_args["mode"], "connected")
+        self.assertEqual(connect_args["prev_mode"], "disconnected")
+        self.assertEqual(connect_args["station_id"], "usc")
+        self.assertEqual(connect_args["rx_zmq_addr"], "tcp://127.0.0.1:0")
+        self.assertEqual(connect_args["tx_zmq_addr"], "tcp://127.0.0.1:0")
+
+        disconnect_args = calls[1].kwargs
+        self.assertEqual(calls[1].args, ("disconnect",))
+        self.assertEqual(disconnect_args["mode"], "disconnected")
+        self.assertEqual(disconnect_args["prev_mode"], "connected")
+        self.assertEqual(disconnect_args["station_id"], "usc")
+
+    def test_idempotent_engage_does_not_duplicate_log_event(self) -> None:
+        runtime = _FakeRuntime()
+        log = MagicMock()
+        runtime.rx = MagicMock(log=log)
+        service = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+
+        service.engage()
+        service.engage()  # second engage is a no-op
+        service.disengage()
+        service.disengage()  # second disengage is a no-op
+
+        actions = [c.args[0] for c in log.write_tracking_event.call_args_list]
+        self.assertEqual(actions, ["connect", "disconnect"])
+
+    def test_log_write_failure_does_not_break_engage(self) -> None:
+        runtime = _FakeRuntime()
+        log = MagicMock()
+        log.write_tracking_event.side_effect = RuntimeError("disk full")
+        runtime.rx = MagicMock(log=log)
+        service = TrackingService(runtime, sink_factory=lambda **_: MagicMock())
+
+        # Must not raise — engage/disengage are best-effort about logging.
+        self.assertEqual(service.engage(), "connected")
+        self.assertEqual(service.disengage(), "disconnected")
 
 
 if __name__ == "__main__":

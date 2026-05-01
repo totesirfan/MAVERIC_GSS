@@ -14,11 +14,14 @@ platform:
   tx:
     zmq_addr: tcp://127.0.0.1:52002
     delay_ms: 500
-    # Mission-declared defaults (frequency) are seeded by the active mission
-    # at startup; override here if needed.
-    # frequency: 437.25 MHz
+    # Uplink/base TX frequency. Doppler live tuning uses
+    # platform.tracking.frequencies.tx_hz.
+    frequency: 437.6 MHz
   rx:
     zmq_addr: tcp://127.0.0.1:52001
+    # Downlink/base RX frequency. Doppler live tuning uses
+    # platform.tracking.frequencies.rx_hz.
+    frequency: 437.6 MHz
     tx_blackout_ms: 0
   radio:
     enabled: true

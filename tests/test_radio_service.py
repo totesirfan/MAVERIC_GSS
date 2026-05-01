@@ -18,7 +18,13 @@ from mav_gss_lib.server.radio.service import RadioService
 def _fake_runtime(radio_cfg=None):
     radio_cfg = radio_cfg or {"enabled": True, "script": "gnuradio/MAV_DUO.py"}
     return SimpleNamespace(
-        platform_cfg={"radio": radio_cfg},
+        platform_cfg={
+            "radio": radio_cfg,
+            "rx": {"frequency": "437.6 MHz"},
+            "tx": {"frequency": "437600000"},
+            "tracking": {"frequencies": {"rx_hz": 437_600_000.0, "tx_hz": 437_600_000.0}},
+        },
+        cfg_lock=threading.Lock(),
         mission_id="maveric",
         rx=SimpleNamespace(log=None),
         tx=SimpleNamespace(log=None),
@@ -64,6 +70,26 @@ class RadioServiceConfigTests(unittest.TestCase):
         result = svc.start()
         self.assertEqual(result["state"], "stopped")
         self.assertIn("disabled", result["error"].lower())
+
+    def test_frequency_env_reads_split_rx_tx_config(self):
+        rt = _fake_runtime({"enabled": True})
+        rt.platform_cfg["rx"]["frequency"] = "437.7 MHz"
+        rt.platform_cfg["tx"]["frequency"] = "437800000"
+        svc = RadioService(rt)
+        self.assertEqual(svc._frequency_env()["MAVERIC_RX_FREQ_HZ"], "437700000.0")
+        self.assertEqual(svc._frequency_env()["MAVERIC_TX_FREQ_HZ"], "437800000.0")
+
+    def test_frequency_env_falls_back_to_tracking_base(self):
+        rt = _fake_runtime({"enabled": True})
+        rt.platform_cfg["rx"].pop("frequency")
+        rt.platform_cfg["tx"].pop("frequency")
+        rt.platform_cfg["tracking"]["frequencies"] = {
+            "rx_hz": 437_610_000.0,
+            "tx_hz": 437_620_000.0,
+        }
+        svc = RadioService(rt)
+        self.assertEqual(svc._frequency_env()["MAVERIC_RX_FREQ_HZ"], "437610000.0")
+        self.assertEqual(svc._frequency_env()["MAVERIC_TX_FREQ_HZ"], "437620000.0")
 
 
 class RadioServiceLoopBindingTests(unittest.TestCase):

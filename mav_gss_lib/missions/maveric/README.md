@@ -128,8 +128,8 @@ Identity-shape keys (mission name, nodes, ptypes, …) live in `mission.yml`
 extensions. The codec is the runtime protection — there is no separate
 `MissionConfigSpec.protected_paths` set.
 
-Mission-declared TX defaults (`tx.frequency`) are seeded on
-`platform_cfg["tx"]` at build time and can be overridden in `gss.yml`.
+Mission-declared RX/TX defaults (`rx.frequency`, `tx.frequency`) are seeded on
+`platform_cfg` at build time and can be overridden in `gss.yml`.
 The imaging output directory is read at mission build time from
 `mission.config.imaging.dir`, legacy `mission.config.image_dir`, or `images`.
 

@@ -30,13 +30,14 @@ class TestApplyPlatformUpdate(unittest.TestCase):
     def test_merges_tx_rx_sections(self):
         platform_cfg = {"tx": {"zmq_addr": "tcp://old", "delay_ms": 500}, "rx": {"zmq_addr": "tcp://old-rx"}}
         _apply_platform_update(platform_cfg, {
-            "tx": {"zmq_addr": "tcp://new", "frequency": "437.25 MHz"},
-            "rx": {"tx_blackout_ms": 750},
+            "tx": {"zmq_addr": "tcp://new", "frequency": "437.6 MHz"},
+            "rx": {"frequency": "437.7 MHz", "tx_blackout_ms": 750},
         })
         self.assertEqual(platform_cfg["tx"]["zmq_addr"], "tcp://new")
         self.assertEqual(platform_cfg["tx"]["delay_ms"], 500)
-        self.assertEqual(platform_cfg["tx"]["frequency"], "437.25 MHz")
+        self.assertEqual(platform_cfg["tx"]["frequency"], "437.6 MHz")
         self.assertEqual(platform_cfg["rx"]["zmq_addr"], "tcp://old-rx")
+        self.assertEqual(platform_cfg["rx"]["frequency"], "437.7 MHz")
         self.assertEqual(platform_cfg["rx"]["tx_blackout_ms"], 750)
 
     def test_drops_retired_tx_uplink_mode(self):
@@ -136,8 +137,8 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
                     "generated_commands_dir": "generated_commands",
                     "version": "5.0.0",
                 },
-                "tx": {"zmq_addr": "tcp://127.0.0.1:52002", "delay_ms": 500, "frequency": "437.25 MHz"},
-                "rx": {"zmq_addr": "tcp://127.0.0.1:52001"},
+                "tx": {"zmq_addr": "tcp://127.0.0.1:52002", "delay_ms": 500, "frequency": "437.6 MHz"},
+                "rx": {"zmq_addr": "tcp://127.0.0.1:52001", "frequency": "437.7 MHz"},
                 "stations": {},
             }
             mission_cfg = {
@@ -195,7 +196,8 @@ class TestConfigEndpointRoundTrip(unittest.TestCase):
 
             # Persisted in native {platform, mission} shape.
             self.assertEqual(persisted["mission"]["id"], "maveric")
-            self.assertEqual(persisted["platform"]["tx"]["frequency"], "437.25 MHz")
+            self.assertEqual(persisted["platform"]["rx"]["frequency"], "437.7 MHz")
+            self.assertEqual(persisted["platform"]["tx"]["frequency"], "437.6 MHz")
             self.assertEqual(persisted["platform"]["tx"]["delay_ms"], 600)
             self.assertEqual(persisted["mission"]["config"]["csp"]["priority"], 3)
             self.assertEqual(persisted["mission"]["config"]["csp"]["destination"], 8)

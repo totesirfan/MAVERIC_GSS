@@ -28,7 +28,7 @@ _ENVELOPE_KEYS = {
     "seq", "v", "mission_id", "operator", "station",
 }
 
-_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm", "radio"}
+_ALLOWED_KINDS = {"rx_packet", "tx_command", "parameter", "alarm", "radio", "tracking"}
 
 
 def _assert_envelope(rec: dict) -> None:
@@ -220,3 +220,47 @@ def test_radio_event_envelope_shape():
     assert rec["radio"]["state"] == "running"
     assert rec["radio"]["pid"] == 1234
     assert rec["radio"]["command"] == ["python", "-u", "gnuradio/MAV_DUO.py"]
+
+
+def test_tracking_event_envelope_shape():
+    with tempfile.TemporaryDirectory() as tmp:
+        log = SessionLog(tmp, zmq_addr="tcp://127.0.0.1:52002", version="5.7.0",
+                    mission_id="maveric", station="GS-0", operator="irfan")
+        try:
+            log.write_tracking_event(
+                "connect",
+                mode="connected",
+                prev_mode="disconnected",
+                station_id="GS-0",
+                rx_zmq_addr="tcp://127.0.0.1:52003",
+                tx_zmq_addr="tcp://127.0.0.1:52004",
+            )
+            log.write_tracking_event(
+                "disconnect",
+                mode="disconnected",
+                prev_mode="connected",
+                station_id="GS-0",
+            )
+        finally:
+            log.close()
+
+        with open(log.jsonl_path) as f:
+            lines = [json.loads(l) for l in f if l.strip()]
+
+    assert len(lines) == 2
+    for rec in lines:
+        _assert_envelope(rec)
+        assert rec["event_kind"] == "tracking"
+        assert rec["mission_id"] == "maveric"
+        assert rec["station"] == "GS-0"
+        assert rec["seq"] == 0
+        assert rec["tracking"]["station_id"] == "GS-0"
+
+    assert lines[0]["tracking"]["action"] == "connect"
+    assert lines[0]["tracking"]["mode"] == "connected"
+    assert lines[0]["tracking"]["prev_mode"] == "disconnected"
+    assert lines[0]["tracking"]["rx_zmq_addr"] == "tcp://127.0.0.1:52003"
+    assert lines[0]["tracking"]["tx_zmq_addr"] == "tcp://127.0.0.1:52004"
+    assert lines[1]["tracking"]["action"] == "disconnect"
+    assert lines[1]["tracking"]["mode"] == "disconnected"
+    assert lines[1]["tracking"]["prev_mode"] == "connected"
