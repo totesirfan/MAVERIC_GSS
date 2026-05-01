@@ -86,6 +86,10 @@ async def api_tracking_doppler_connection(state: str, request: Request) -> dict[
         result = runtime.tracking.set_doppler_connected(connected)
     except (TrackingError, OSError, RuntimeError) as exc:
         return JSONResponse(status_code=422, content={"error": str(exc)})
+    # Broadcast unconditionally (even on idempotent no-op) so a subscriber that
+    # missed the original transition catches up immediately instead of waiting
+    # for the next 1 Hz doppler tick to carry the mode forward.
+    await runtime.doppler_broadcaster.publish({"type": "status", **runtime.tracking.status()})
     return {"connected": connected, "mode": result}
 
 

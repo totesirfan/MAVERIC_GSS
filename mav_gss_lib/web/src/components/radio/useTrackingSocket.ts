@@ -50,19 +50,25 @@ export function useTrackingSocket(): UseTrackingSocket {
     return () => { sock.close() }
   }, [])
 
-  const post = useCallback(async (path: string): Promise<void> => {
+  // Reads the response body on success so the button label can flip even
+  // when the WS is momentarily disconnected (the server-side broadcast would
+  // reach no subscribers in that window). The WS push remains the source of
+  // truth in steady state — this is just an optimistic top-up.
+  const post = useCallback(async (path: string): Promise<{ mode?: string }> => {
     const r = await authFetch(path, { method: 'POST' })
+    const body = await r.json().catch(() => ({}))
     if (!r.ok) {
-      const body = await r.json().catch(() => ({}))
       throw new Error(typeof body.error === 'string' ? body.error : `HTTP ${r.status}`)
     }
+    return body
   }, [])
 
   const engage = useCallback(async () => {
     setBusy('engage')
     setActionError(null)
     try {
-      await post('/api/tracking/doppler/connection/connect')
+      const body = await post('/api/tracking/doppler/connection/connect')
+      if (body.mode === 'connected' || body.mode === 'disconnected') setMode(body.mode)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -74,7 +80,8 @@ export function useTrackingSocket(): UseTrackingSocket {
     setBusy('disengage')
     setActionError(null)
     try {
-      await post('/api/tracking/doppler/connection/disconnect')
+      const body = await post('/api/tracking/doppler/connection/disconnect')
+      if (body.mode === 'connected' || body.mode === 'disconnected') setMode(body.mode)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e))
     } finally {

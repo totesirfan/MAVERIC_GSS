@@ -63,6 +63,11 @@ async def doppler_tick_loop(
     while True:
         try:
             correction = await asyncio.to_thread(runtime.tracking.doppler)
+            # Re-stamp mode at publish time. The tick reads `_doppler_mode`
+            # at the start of the Skyfield computation; if a disengage HTTP
+            # broadcast lands during that window, the in-flight tick would
+            # otherwise publish a stale `connected` frame after it.
+            correction["mode"] = runtime.tracking.doppler_mode
             await broadcaster.publish({
                 "type": "doppler",
                 "doppler": correction,
