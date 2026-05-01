@@ -212,3 +212,66 @@ class ImageKindAdapter:
 
         pairs.sort(key=lambda p: (-(p["last_activity_ms"] or 0), p["source"] or "", p["stem"]))
         return {"files": pairs}
+
+
+# ── AiiKindAdapter ─────────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class AiiKindAdapter:
+    """JSON inventory kind: single-seed, validate on complete, no pairing.
+
+    The events watcher writes the ``valid`` flag returned by
+    ``on_complete`` into ``store.set_extras(...)`` once per completion.
+    ``status_view`` reads it back from extras — no file I/O per call.
+    """
+
+    kind: str = "aii"
+    cnt_cmd: str = "aii_cnt_chunks"
+    get_cmd: str = "aii_get_chunks"
+    capture_cmd: str | None = None
+    media_type: str = "application/json"
+
+    def seed_from_cnt(self, args: dict[str, Any]) -> Iterable[tuple[str, int]]:
+        return _single_seed(args)
+
+    def seed_from_capture(self, args: dict[str, Any]) -> Iterable[tuple[str, int]]:
+        return []
+
+    def partial_repair(self, path: str) -> None:
+        return None
+
+    def on_complete(self, path: str) -> dict[str, Any]:
+        from mav_gss_lib.missions.maveric.files.repair import json_validate
+        return json_validate(path)
+
+    def status_view(self, store: ChunkFileStore) -> dict[str, Any]:
+        files: list[dict[str, Any]] = []
+        for ref in store.known_files(kind=self.kind):
+            received, total = store.progress(ref)
+            extras = store.get_extras(ref)
+            files.append({
+                "id": ref.id,
+                "kind": ref.kind,
+                "source": ref.source,
+                "filename": ref.filename,
+                "received": received,
+                "total": total,
+                "complete": store.is_complete(ref),
+                "chunk_size": store.chunk_size(ref),
+                "last_activity_ms": store.meta_mtime_ms(ref),
+                "valid": extras.get("valid"),
+            })
+        files.sort(key=lambda p: (-(p["last_activity_ms"] or 0), p["source"] or "", p["filename"]))
+        return {"files": files}
+
+
+def _single_seed(args: dict[str, Any]) -> list[tuple[str, int]]:
+    filename = str(args.get("filename", ""))
+    if not filename:
+        return []
+    try:
+        total = int(args.get("num_chunks", ""))
+    except (ValueError, TypeError):
+        return []
+    return [(filename, total)]
