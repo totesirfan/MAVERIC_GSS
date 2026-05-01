@@ -76,12 +76,13 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         ##################################################
         self.zmq_port_tx = zmq_port_tx = "52002"
         self.zmq_port_rx = zmq_port_rx = "52001"
+        self.tx_freq = tx_freq = 437.6e6
         self.tx_amp = tx_amp = 0.7
         self.samp_ratetx = samp_ratetx = 2400000
         self.samp_rate = samp_rate = 1000000
+        self.rx_freq = rx_freq = 437.5e6
         self.rf_gain = rf_gain = 50
         self.modindex = modindex = 1/1.5
-        self.freq = freq = 437.6e6
         self.baud = baud = 9600
         self.band = band = 25000
 
@@ -103,6 +104,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
             self.top_grid_layout.setRowStretch(r, 1)
         for c in range(1, 2):
             self.top_grid_layout.setColumnStretch(c, 1)
+        self.zeromq_sub_msg_source_txcmd = zeromq.sub_msg_source("tcp://127.0.0.1:52004", 100, False)
+        self.zeromq_sub_msg_source_rxcmd = zeromq.sub_msg_source("tcp://127.0.0.1:52003", 100, False)
         self.zeromq_sub_msg_source_0 = zeromq.sub_msg_source(f"tcp://127.0.0.1:{zmq_port_tx}", 200, False)
         self.zeromq_pub_msg_sink_0 = zeromq.pub_msg_sink(f"tcp://127.0.0.1:{zmq_port_rx}", 100, True)
         self.uhd_usrp_source_0 = uhd.usrp_source(
@@ -117,7 +120,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.uhd_usrp_source_0.set_samp_rate(samp_rate)
         # No synchronization enforced.
 
-        self.uhd_usrp_source_0.set_center_freq(freq, 0)
+        self.uhd_usrp_source_0.set_center_freq(rx_freq, 0)
         self.uhd_usrp_source_0.set_antenna("RX2", 0)
         self.uhd_usrp_source_0.set_gain(40, 0)
         self.uhd_usrp_sink_0 = uhd.usrp_sink(
@@ -133,7 +136,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.uhd_usrp_sink_0.set_samp_rate(samp_ratetx)
         # No synchronization enforced.
 
-        self.uhd_usrp_sink_0.set_center_freq(freq, 0)
+        self.uhd_usrp_sink_0.set_center_freq(tx_freq, 0)
         self.uhd_usrp_sink_0.set_antenna('TX/RX', 0)
         self.uhd_usrp_sink_0.set_gain(rf_gain, 0)
         self.satellites_satellite_decoder_0 = satellites.core.gr_satellites_flowgraph(file = 'MAVERIC_DECODER.yml', samp_rate = 200000, grc_block = True, iq = True, options = "")
@@ -220,7 +223,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.qtgui_freq_sink_x_0 = qtgui.freq_sink_c(
             2048, #size
             window.WIN_BLACKMAN_hARRIS, #wintype
-            freq, #fc
+            tx_freq, #fc
             samp_ratetx, #bw
             "MAVERIC TX (ASM+Golay Mode 5)", #name
             1,
@@ -284,6 +287,8 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.msg_connect((self.satellites_satellite_decoder_0, 'out'), (self.zeromq_pub_msg_sink_0, 'in'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.pdu_pdu_to_tagged_stream_0, 'pdus'))
         self.msg_connect((self.zeromq_sub_msg_source_0, 'out'), (self.satellites_hexdump_sink_0_0, 'in'))
+        self.msg_connect((self.zeromq_sub_msg_source_rxcmd, 'out'), (self.uhd_usrp_source_0, 'command'))
+        self.msg_connect((self.zeromq_sub_msg_source_txcmd, 'out'), (self.uhd_usrp_sink_0, 'command'))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.qtgui_freq_sink_x_0, 0))
         self.connect((self.blocks_multiply_const_vxx_0, 0), (self.uhd_usrp_sink_0, 0))
         self.connect((self.digital_gfsk_mod_0, 0), (self.blocks_multiply_const_vxx_0, 0))
@@ -314,6 +319,14 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
     def set_zmq_port_rx(self, zmq_port_rx):
         self.zmq_port_rx = zmq_port_rx
 
+    def get_tx_freq(self):
+        return self.tx_freq
+
+    def set_tx_freq(self, tx_freq):
+        self.tx_freq = tx_freq
+        self.qtgui_freq_sink_x_0.set_frequency_range(self.tx_freq, self.samp_ratetx)
+        self.uhd_usrp_sink_0.set_center_freq(self.tx_freq, 0)
+
     def get_tx_amp(self):
         return self.tx_amp
 
@@ -326,7 +339,7 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_samp_ratetx(self, samp_ratetx):
         self.samp_ratetx = samp_ratetx
-        self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_ratetx)
+        self.qtgui_freq_sink_x_0.set_frequency_range(self.tx_freq, self.samp_ratetx)
         self.uhd_usrp_sink_0.set_samp_rate(self.samp_ratetx)
 
     def get_samp_rate(self):
@@ -337,6 +350,13 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
         self.qtgui_freq_sink_x_1.set_frequency_range(0, self.samp_rate)
         self.qtgui_waterfall_sink_x_0.set_frequency_range(0, self.samp_rate)
         self.uhd_usrp_source_0.set_samp_rate(self.samp_rate)
+
+    def get_rx_freq(self):
+        return self.rx_freq
+
+    def set_rx_freq(self, rx_freq):
+        self.rx_freq = rx_freq
+        self.uhd_usrp_source_0.set_center_freq(self.rx_freq, 0)
 
     def get_rf_gain(self):
         return self.rf_gain
@@ -350,15 +370,6 @@ class MAV_DUO(gr.top_block, Qt.QWidget):
 
     def set_modindex(self, modindex):
         self.modindex = modindex
-
-    def get_freq(self):
-        return self.freq
-
-    def set_freq(self, freq):
-        self.freq = freq
-        self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_ratetx)
-        self.uhd_usrp_sink_0.set_center_freq(self.freq, 0)
-        self.uhd_usrp_source_0.set_center_freq(self.freq, 0)
 
     def get_baud(self):
         return self.baud

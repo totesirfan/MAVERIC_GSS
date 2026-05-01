@@ -57,16 +57,28 @@ blocks:
     coordinate: [360, 408.0]
     rotation: 0
     state: enabled
-- name: freq
+- name: rx_freq
   id: variable
   parameters:
-    comment: ''
-    value: 437.6e6
+    comment: RX center frequency (overridden at runtime by /ws/tracking doppler)
+    value: 437.5e6
   states:
     bus_sink: false
     bus_source: false
     bus_structure: null
     coordinate: [296, 408.0]
+    rotation: 0
+    state: enabled
+- name: tx_freq
+  id: variable
+  parameters:
+    comment: TX center frequency (overridden at runtime by /ws/tracking doppler)
+    value: 437.6e6
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [216, 408.0]
     rotation: 0
     state: enabled
 - name: modindex
@@ -347,7 +359,7 @@ blocks:
     color9: '"dark green"'
     comment: ''
     ctrlpanel: 'False'
-    fc: freq
+    fc: tx_freq
     fftsize: '2048'
     freqhalf: 'True'
     grid: 'True'
@@ -658,7 +670,7 @@ blocks:
     bw7: '0'
     bw8: '0'
     bw9: '0'
-    center_freq0: freq
+    center_freq0: tx_freq
     center_freq1: '0'
     center_freq10: '0'
     center_freq11: '0'
@@ -935,7 +947,7 @@ blocks:
     bw7: '0'
     bw8: '0'
     bw9: '0'
-    center_freq0: freq
+    center_freq0: rx_freq
     center_freq1: '0'
     center_freq10: '0'
     center_freq11: '0'
@@ -1336,6 +1348,42 @@ blocks:
     coordinate: [248, 504.0]
     rotation: 0
     state: enabled
+- name: zeromq_sub_msg_source_rxcmd
+  id: zeromq_sub_msg_source
+  parameters:
+    address: '"tcp://127.0.0.1:52003"'
+    affinity: ''
+    alias: ''
+    bind: 'False'
+    comment: Doppler RX center freq commands from GSS
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    timeout: '100'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 16.0]
+    rotation: 0
+    state: enabled
+- name: zeromq_sub_msg_source_txcmd
+  id: zeromq_sub_msg_source
+  parameters:
+    address: '"tcp://127.0.0.1:52004"'
+    affinity: ''
+    alias: ''
+    bind: 'False'
+    comment: Doppler TX center freq commands from GSS
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    timeout: '100'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 96.0]
+    rotation: 0
+    state: enabled
 
 connections:
 - [blocks_float_to_complex_0, '0', blocks_throttle2_0, '0']
@@ -1354,6 +1402,8 @@ connections:
 - [uhd_usrp_source_0, '0', fir_filter_xxx_1, '0']
 - [zeromq_sub_msg_source_0, out, pdu_pdu_to_tagged_stream_0, pdus]
 - [zeromq_sub_msg_source_0, out, satellites_hexdump_sink_0_0, in]
+- [zeromq_sub_msg_source_rxcmd, out, uhd_usrp_source_0, command]
+- [zeromq_sub_msg_source_txcmd, out, uhd_usrp_sink_0, command]
 
 metadata:
   file_format: 1
