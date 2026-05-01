@@ -89,6 +89,25 @@ class WebRuntime:
         # operator values in gss.yml win. The platform does not merge mission
         # YAML any more; missions own their defaults in code.
         self.platform_cfg, self.mission_id, self.mission_cfg = load_split_config()
+
+        # Ephemeral mode: redirect every disk-write path to a tempdir
+        # BEFORE the platform runtime resolves log_dir / data_dir, and
+        # block the gss.yml / mission.yml save-back. Operator opt-in via
+        # MAVERIC_EPHEMERAL=1 or `MAV_WEB.py --ephemeral`.
+        from mav_gss_lib.server import ephemeral as _ephemeral
+        self.config_save_disabled: bool = False
+        self._ephemeral_root = None
+        self._ephemeral_cleanup = None
+        if _ephemeral.is_active():
+            self._ephemeral_root, self._ephemeral_cleanup = _ephemeral.apply(
+                self.platform_cfg
+            )
+            self.config_save_disabled = True
+            print(
+                f"EPHEMERAL MODE: writes redirected to {self._ephemeral_root}/, "
+                f"config save-back disabled"
+            )
+
         self.operator = capture_operator()
         self.host = capture_host()
         self.station = capture_station(self.platform_cfg, self.host)

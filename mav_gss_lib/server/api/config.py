@@ -185,13 +185,18 @@ async def api_config_put(update: dict[str, Any], request: Request) -> dict[str, 
         mission_persistable = persist_mission_config(
             runtime.mission_cfg, runtime.mission.config,
         )
-        save_operator_config(
-            split_to_persistable(
-                runtime.platform_cfg,
-                runtime.mission_id,
-                mission_persistable,
+        # Ephemeral mode (MAVERIC_EPHEMERAL=1) keeps mutations in-memory so
+        # the operator's real gss.yml / mission.yml stay untouched during
+        # a fake_flight test session. The next non-ephemeral start sees
+        # the original on-disk values.
+        if not getattr(runtime, "config_save_disabled", False):
+            save_operator_config(
+                split_to_persistable(
+                    runtime.platform_cfg,
+                    runtime.mission_id,
+                    mission_persistable,
+                )
             )
-        )
         new_rx_addr = get_rx_zmq_addr(runtime.platform_cfg)
         new_tx_addr = get_tx_zmq_addr(runtime.platform_cfg)
 

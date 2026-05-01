@@ -3,10 +3,33 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import socket
 import threading
 import time
+
+
+def _parse_cli_into_env() -> None:
+    """Translate CLI flags into env vars consumed deeper in the stack.
+
+    Runs before ``create_app()`` so any flag that affects server-side
+    construction (e.g. ``--ephemeral``, which redirects every disk-write
+    path to a tempdir) takes effect on the first runtime build.
+    """
+    parser = argparse.ArgumentParser(prog="MAV_WEB", description=__doc__)
+    parser.add_argument(
+        "--ephemeral", action="store_true",
+        help="Redirect all disk writes to a tempdir (cleaned on exit) and "
+             "block gss.yml / mission.yml save-back. Use for fake_flight "
+             "test sessions when you want zero-trace operations state.",
+    )
+    args, _ = parser.parse_known_args()
+    if args.ephemeral:
+        os.environ["MAVERIC_EPHEMERAL"] = "1"
+
+
+_parse_cli_into_env()
 
 # Bootstrap runtime dependencies BEFORE any non-stdlib import.
 # If any critical dep is missing, this call self-installs and os.execv's.
