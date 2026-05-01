@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Camera, Compass, BatteryCharging } from 'lucide-react'
+import { Camera, Compass, BatteryCharging, FileDown } from 'lucide-react'
 import type { PluginPageDef } from '@/plugins/registry'
 
 const plugins: PluginPageDef[] = [
@@ -11,6 +11,15 @@ const plugins: PluginPageDef[] = [
     category: 'mission',
     order: 10,
     component: lazy(() => import('./ImagingPage')),
+  },
+  {
+    id: 'files',
+    name: 'Files',
+    description: 'AII inventory + magnetometer downlinks',
+    icon: FileDown,
+    category: 'mission',
+    order: 11,
+    component: lazy(() => import('./files/FilesPage')),
   },
   {
     id: 'gnc',
