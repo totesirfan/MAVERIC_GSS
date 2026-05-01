@@ -48,6 +48,8 @@ from mav_gss_lib.platform.alarms.evaluators.platform import (
     PlatformAlarmInputs, evaluate_platform,
 )
 from mav_gss_lib.platform.alarms.setup import build_alarm_environment
+from mav_gss_lib.server.api.tracking_ws import register_tracking_ws
+from mav_gss_lib.server.tracking._tick import DopplerBroadcaster, doppler_tick_loop
 from mav_gss_lib.server.ws.alarms import WebRuntimeBroadcastTarget
 from .state import WEB_DIR, create_runtime, get_runtime
 from ._task_utils import log_task_exception
@@ -75,6 +77,11 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
     tx_addr = get_tx_zmq_addr(runtime.platform_cfg)
     runtime.tx.restart_pub(tx_addr)
     runtime.radio.bind_loop(asyncio.get_running_loop())
+    runtime._doppler_tick_task = asyncio.create_task(
+        doppler_tick_loop(runtime, runtime.doppler_broadcaster),
+        name="doppler-tick",
+    )
+    runtime._doppler_tick_task.add_done_callback(log_task_exception("doppler-tick"))
 
     rx_addr = get_rx_zmq_addr(runtime.platform_cfg)
     runtime.rx.log = SessionLog(
@@ -176,6 +183,17 @@ async def _shutdown_runtime(runtime: "WebRuntime") -> None:
             await tick
         except (asyncio.CancelledError, Exception):
             pass
+    doppler_task = getattr(runtime, "_doppler_tick_task", None)
+    if doppler_task is not None:
+        doppler_task.cancel()
+        try:
+            await doppler_task
+        except (asyncio.CancelledError, Exception):
+            pass
+    try:
+        runtime.tracking.disengage()
+    except Exception:
+        logging.exception("tracking disengage")
     try:
         runtime.parameter_cache.flush()
     except Exception:
@@ -299,6 +317,12 @@ def create_app() -> FastAPI:
     runtime = create_runtime()
     app = FastAPI(title=f"{runtime.mission_name} GSS Web", lifespan=lifespan)
     app.state.runtime = runtime
+    runtime.doppler_broadcaster = DopplerBroadcaster()
+    register_tracking_ws(
+        app,
+        get_broadcaster=lambda: runtime.doppler_broadcaster,
+        get_tracking=lambda: runtime.tracking,
+    )
 
     if WEB_DIR.exists() and (WEB_DIR / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
