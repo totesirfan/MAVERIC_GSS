@@ -111,7 +111,7 @@ export function DopplerSection(props: DopplerSectionProps) {
           />
         </div>
 
-        <div className="grid grid-cols-4 gap-x-4 gap-y-1">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <DataCell label="RX Shift" value={doppler ? `${fmtSigned(doppler.rx_shift_hz, 0)} Hz` : '--'} />
           <DataCell label="RX Tune"  value={doppler ? `${fmtHz(doppler.rx_tune_hz)} Hz` : '--'} />
           <DataCell label="TX Shift" value={doppler ? `${fmtSigned(doppler.tx_shift_hz, 0)} Hz` : '--'} />
