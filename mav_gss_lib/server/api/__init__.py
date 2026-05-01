@@ -19,6 +19,7 @@ from .session import router as _session_router
 from .identity import router as _identity_router
 from .radio import router as _radio_router
 from .rx import router as _rx_router
+from .tracking import router as _tracking_router
 
 router = APIRouter()
 
@@ -30,3 +31,4 @@ router.include_router(_session_router)
 router.include_router(_identity_router)
 router.include_router(_radio_router)
 router.include_router(_rx_router)
+router.include_router(_tracking_router)

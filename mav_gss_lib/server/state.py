@@ -45,6 +45,7 @@ from mav_gss_lib.platform.parameter_cache import ParameterCache
 from ._atomics import AtomicStatus
 from .radio import RadioService
 from .rx.service import RxService
+from .tracking.service import TrackingService
 from .tx.service import TxService
 
 if TYPE_CHECKING:
@@ -153,6 +154,8 @@ class WebRuntime:
         self.rx = RxService(self)
         self.tx = TxService(self)
         self.radio = RadioService(self)
+        self.tracking = TrackingService(self)
+        self.doppler_broadcaster = None  # set by create_app at startup
 
     def queue_file(self) -> Path:
         return Path(self.log_dir) / ".pending_queue.jsonl"
