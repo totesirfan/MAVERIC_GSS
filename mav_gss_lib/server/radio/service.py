@@ -22,9 +22,9 @@ import sys
 import threading
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from mav_gss_lib.config import resolve_project_path
 
@@ -61,6 +61,11 @@ class RadioService:
         self._log: deque[str] = deque(maxlen=DEFAULT_LOG_LINES)
         self.last_runtime_s: float = 0.0
         self._command_snapshot: list[str] = []
+        self._exit_callbacks: list[Callable[[], None]] = []
+
+    def add_exit_callback(self, cb: Callable[[], None]) -> None:
+        with self._state_lock:
+            self._exit_callbacks.append(cb)
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         with self._loop_lock:
@@ -167,7 +172,7 @@ class RadioService:
             return list(self._log)
 
     def _append_log(self, line: str) -> None:
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts = datetime.now().strftime("%H:%M:%S")
         stamped = f"{ts} {line}" if line else ts
         with self._state_lock:
             self._resize_log_if_needed()
@@ -343,6 +348,13 @@ class RadioService:
             action = "stop" if was_stopping else ("exit" if code in (0, None) else "crash")
             self._write_radio_event(action, status=status, expected=was_stopping)
         self._schedule_broadcast({"type": "exit", "code": code, "status": status})
+        with self._state_lock:
+            callbacks = list(self._exit_callbacks)
+        for cb in callbacks:
+            try:
+                cb()
+            except Exception:
+                logging.exception("radio exit callback failed")
 
     def _stop_locked(self) -> dict[str, Any]:
         already_stopped = False

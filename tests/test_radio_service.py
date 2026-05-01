@@ -25,6 +25,33 @@ def _fake_runtime(radio_cfg=None):
     )
 
 
+class RadioServiceExitCallbackTests(unittest.TestCase):
+    def test_exit_callbacks_fire_on_process_exit(self) -> None:
+        svc = RadioService(_fake_runtime())
+        fired: list[str] = []
+        svc.add_exit_callback(lambda: fired.append("called"))
+
+        fake_proc = SimpleNamespace(poll=lambda: 0, wait=lambda: 0)
+        svc.proc = fake_proc
+        svc.started_at = 0.0
+        svc._waiter(fake_proc)
+
+        self.assertEqual(fired, ["called"])
+
+    def test_exit_callback_failure_is_logged_not_raised(self) -> None:
+        svc = RadioService(_fake_runtime())
+
+        def boom() -> None:
+            raise RuntimeError("callback exploded")
+
+        svc.add_exit_callback(boom)
+
+        fake_proc = SimpleNamespace(poll=lambda: 0, wait=lambda: 0)
+        svc.proc = fake_proc
+        svc.started_at = 0.0
+        svc._waiter(fake_proc)  # must not raise
+
+
 class RadioServiceConfigTests(unittest.TestCase):
     def test_log_capacity_clamped(self):
         rt = _fake_runtime({"log_lines": 50})
@@ -136,8 +163,8 @@ class RadioServiceLogPrefixTests(unittest.TestCase):
         svc._append_log("hello world")
         snapshot = svc.log_snapshot()
         self.assertEqual(len(snapshot), 1)
-        # ISO-8601 to seconds: 2026-04-30T17:35:42Z
-        self.assertRegex(snapshot[0], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s")
+        # Local time, seconds resolution: HH:MM:SS
+        self.assertRegex(snapshot[0], r"^\d{2}:\d{2}:\d{2}\s")
         self.assertTrue(snapshot[0].endswith("hello world"))
 
 
