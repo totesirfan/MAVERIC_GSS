@@ -331,6 +331,20 @@ class BitfieldDecoder:
         return out
 
 
+def _u8_from_token(token: str, bf_name: str) -> int:
+    """Parse one ascii_tokens decimal token as a u8 byte for bitfield packing.
+
+    Out-of-range values are spacecraft-side bugs that should surface loudly,
+    not silently truncate to a low byte and corrupt the decoded register.
+    """
+    value = int(token, 10)
+    if not 0 <= value <= 0xFF:
+        raise ValueError(
+            f"BitfieldType {bf_name!r}: ascii token {token!r} out of u8 range [0, 255]"
+        )
+    return value
+
+
 class EntryDecoder:
     """Walks a container's entry_list, emitting ParamUpdate per
     ParameterRefEntry (when emit=True), per RepeatEntry iteration, or per
@@ -403,7 +417,7 @@ class EntryDecoder:
                 # Pack them into a buffer and run the existing bitfield decode
                 # — bitfield interpretation is layout-agnostic.
                 n = bf.size_bits // 8
-                buf = bytes(int(cursor.read_token(), 10) & 0xFF for _ in range(n))
+                buf = bytes(_u8_from_token(cursor.read_token(), bf.name) for _ in range(n))
                 bit_cursor = BitCursor(buf)
             value: Any = BitfieldDecoder(types=self._types).decode(bf, bit_cursor)
             unit = ""

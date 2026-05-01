@@ -221,6 +221,53 @@ class TestBitfieldDecodeUnderBothLayouts(unittest.TestCase):
         self.assertEqual(ascii_updates[0].value, expected)
         self.assertEqual(bin_updates[0].value, ascii_updates[0].value)
 
+    def test_ascii_bitfield_token_out_of_u8_range_raises(self):
+        # An ascii_tokens register should not silently truncate `256` or `-1`
+        # to a low byte — that hides spacecraft-side bugs. The walker must
+        # raise ValueError naming the offending bitfield.
+        bf = BitfieldType(
+            name="MyReg",
+            size_bits=32,
+            byte_order="little",
+            entry_list=(
+                BitfieldEntry(name="MODE", bits=(0, 6), kind="uint"),
+            ),
+        )
+        param = Parameter(name="STAT", type_ref="MyReg", domain="reg")
+        rc_binary = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="bin_pkt"),),
+        )
+        rc_ascii = RestrictionCriteria(
+            packet=(Comparison(parameter_ref="cmd_id", value="ascii_pkt"),),
+        )
+        binary_container = SequenceContainer(
+            name="binary_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="MyReg"),),
+            restriction_criteria=rc_binary,
+            layout="binary",
+            domain="reg",
+        )
+        ascii_container = SequenceContainer(
+            name="ascii_container",
+            entry_list=(ParameterRefEntry(name="STAT", type_ref="MyReg"),),
+            restriction_criteria=rc_ascii,
+            layout="ascii_tokens",
+            domain="reg",
+        )
+        mission = _build_mission(
+            bitfield=bf,
+            parameter=param,
+            binary_container=binary_container,
+            ascii_container=ascii_container,
+        )
+        walker = DeclarativeWalker(mission, plugins={})
+
+        bad_pkt = _StubPacket(
+            args_raw=b"256 0 0 0", header={"cmd_id": "ascii_pkt"},
+        )
+        with self.assertRaisesRegex(ValueError, r"MyReg"):
+            list(walker.extract(bad_pkt, now_ms=0))
+
 
 if __name__ == "__main__":
     unittest.main()
