@@ -1,6 +1,15 @@
 // MAVERIC imaging-panel shared helpers, constants, and types.
+//
+// API-compatible with the pre-redesign helpers; routes through the new
+// /api/plugins/files surface under the hood (kind=image).
+//
+// `PairedFile` is the legacy name for `ImagePair` and lives in
+// `./types` (the imaging-page-local re-export). Everything else lives
+// in `../files/types`.
 
-import type { PairedFile, FileLeaf, MissingRange } from './types';
+import { filesEndpoint } from '../files/helpers';
+import type { ImageStatusResponse } from '../files/types';
+import type { FileLeaf, MissingRange, PairedFile } from './types';
 
 export type { PairedFile, FileLeaf, MissingRange };
 
@@ -8,29 +17,30 @@ export type { PairedFile, FileLeaf, MissingRange };
 export const withJpg = (s: string): string =>
   /\.jpe?g$/i.test(s) ? s : `${s}.jpg`;
 
-/** Fetch `/api/plugins/imaging/status` and return the paired files array. */
+/** Fetch status (paired image view) and return the paired files array. */
 export async function fetchImagingStatus(): Promise<PairedFile[]> {
   try {
-    const r = await fetch('/api/plugins/imaging/status');
+    const r = await fetch(filesEndpoint('status', 'image'));
     if (!r.ok) return [];
-    const data = await r.json();
-    return (data.files ?? []) as PairedFile[];
+    const data = (await r.json()) as ImageStatusResponse;
+    return data.files ?? [];
   } catch {
     return [];
   }
 }
 
+/** Image-page endpoint helper — always pins kind='image'. Legacy
+ *  signature: ``imagingFileEndpoint(action, leaf)`` taking a leaf
+ *  with ``filename`` and ``source``. */
 export function imagingFileEndpoint(
-  kind: 'chunks' | 'file' | 'preview',
+  action: 'chunks' | 'file' | 'preview',
   leaf: Pick<FileLeaf, 'filename' | 'source'>,
 ): string {
-  const params = new URLSearchParams();
-  if (leaf.source) params.set('source', leaf.source);
-  const query = params.toString();
-  return `/api/plugins/imaging/${kind}/${encodeURIComponent(leaf.filename)}${query ? `?${query}` : ''}`;
+  return filesEndpoint(action, 'image', leaf.filename, leaf.source);
 }
 
-/** Collapse a sorted list of missing chunk indices into contiguous ranges. */
+/** Collapse a sorted list of missing chunk indices into contiguous ranges.
+ *  Unchanged from the legacy implementation — only imaging consumes it. */
 export function computeMissingRanges(
   total: number | null,
   received: Set<number>,

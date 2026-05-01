@@ -20,10 +20,10 @@
  * is needed here.
  */
 import type { ComponentType, PropsWithChildren } from 'react'
-import { ImagingProvider } from './imaging/ImagingProvider'
+import { FileChunkProvider } from './files/FileChunkProvider'
 
 const providers: ComponentType<PropsWithChildren>[] = [
-  ImagingProvider,
+  FileChunkProvider,
 ]
 
 export default providers

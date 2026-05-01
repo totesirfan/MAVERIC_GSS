@@ -16,7 +16,7 @@ interface PreviewPanelProps {
 
 /**
  * Preview with [Thumb] [Full] tabs. The active tab selects which
- * filename is fetched from /api/plugins/imaging/preview. If the pair
+ * filename is fetched from /api/plugins/files/preview?kind=image. If the pair
  * has no thumb side, the tabs are hidden and only the full image is
  * shown. Chunk size and byte count live in the header next to the
  * filename — no separate metadata strip.

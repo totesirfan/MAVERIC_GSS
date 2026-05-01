@@ -18,7 +18,7 @@ import { TxControlsPanel } from './imaging/TxControlsPanel';
 import { ProgressPanel } from './imaging/ProgressPanel';
 import { PreviewPanel } from './imaging/PreviewPanel';
 import { QueuePanel } from './imaging/QueuePanel';
-import { useImaging } from './imaging/ImagingContext';
+import { useImageFiles } from './files/FileChunkContext';
 import type { FileLeaf, MissingRange } from './imaging/types';
 import { imagingFileEndpoint } from './imaging/helpers';
 
@@ -48,7 +48,7 @@ export default function ImagingPage() {
     setPreviewTab,
     setDestNode,
     refetch,
-  } = useImaging();
+  } = useImageFiles();
 
   const nowMs = useNowMs();
 
