@@ -10,8 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from mav_gss_lib.missions.maveric.declarative import build_declarative_capabilities
-from mav_gss_lib.missions.maveric.imaging.events import MavericImagingEvents
-from mav_gss_lib.missions.maveric.imaging import ImageAssembler, get_imaging_router
+from mav_gss_lib.missions.maveric.files.events import MavericFileChunkEvents
+from mav_gss_lib.missions.maveric.files.registry import (
+    build_file_kind_adapters,
+    validate_against_mission,
+)
+from mav_gss_lib.missions.maveric.files.router import get_files_router
+from mav_gss_lib.missions.maveric.files.store import ChunkFileStore
 from mav_gss_lib.missions.maveric.packets import DeclarativePacketsAdapter
 from mav_gss_lib.missions.maveric.alarm_predicates import PLUGINS as ALARM_PLUGINS
 from mav_gss_lib.missions.maveric.plugin_tx_builder import get_tx_builder_route
@@ -50,9 +55,13 @@ def _seed(mission_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
                 tx_cfg.setdefault(k, v)
 
 
-def _image_dir(mission_cfg: dict[str, Any]) -> str:
-    imaging = mission_cfg.get("imaging") or {}
-    return str(imaging.get("dir") or mission_cfg.get("image_dir") or "images")
+def _files_root(ctx: MissionContext) -> str:
+    """File artifacts live under <log_dir>/files/.
+
+    ``ctx.data_dir`` is the resolved log_dir (set by
+    ``PlatformRuntime.from_split`` when constructing the MissionSpec).
+    """
+    return str(ctx.data_dir / "files")
 
 
 def build(ctx: MissionContext) -> MissionSpec:
@@ -63,12 +72,11 @@ def build(ctx: MissionContext) -> MissionSpec:
         mission_cfg=ctx.mission_config,
     )
 
-    image_assembler = ImageAssembler(_image_dir(ctx.mission_config))
-    # Accessor closes over the live `ctx.mission_config` reference so
-    # /api/config edits to `imaging.thumb_prefix` reach the imaging router
-    # without a MissionSpec rebuild.
+    validate_against_mission(capabilities.mission)
+    file_store = ChunkFileStore(_files_root(ctx))
+    file_adapters = build_file_kind_adapters(ctx.mission_config)
     routers = [
-        get_imaging_router(image_assembler, config_accessor=lambda: ctx.mission_config),
+        get_files_router(file_store, file_adapters),
         get_tx_builder_route(capabilities.packet_codec, capabilities.mission),
     ]
 
@@ -89,9 +97,9 @@ def build(ctx: MissionContext) -> MissionSpec:
         spec_root=capabilities.mission,
         spec_plugins=capabilities.plugins,
         alarm_plugins=ALARM_PLUGINS,
-        events=EventOps(sources=[MavericImagingEvents(
-            codec=capabilities.packet_codec,
-            image_assembler=image_assembler,
+        events=EventOps(sources=[MavericFileChunkEvents(
+            store=file_store,
+            adapters=file_adapters,
         )]),
         http=HttpOps(routers=routers),
         config=MissionConfigSpec(
