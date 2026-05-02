@@ -19,6 +19,7 @@ from typing import Any, Callable, Iterable, Mapping
 from mav_gss_lib.platform.contract.commands import (
     CommandDraft,
     CommandOps,
+    CommandSchemaItem,
     EncodedCommand,
     FramedCommand,
     ValidationIssue,
@@ -331,14 +332,14 @@ class DeclarativeCommandOpsAdapter:
         header = facts.get("header") if isinstance(facts, dict) else None
         return (encoded.cmd_id, _hashable_json(header or {}))
 
-    def schema(self) -> dict[str, Any]:
+    def schema(self) -> Mapping[str, CommandSchemaItem]:
         # Final shape: bare {cmd_id: CommandSchemaItem}. Same `tx_args`
         # inlining as MAVERIC's wrapper (via inline_argument_metadata),
         # minus the MAVERIC routing extension (dest/echo/ptype/nodes —
         # those are mission-specific and live in
         # missions/maveric/declarative.py::schema()).
         from mav_gss_lib.platform.spec.schema_helpers import inline_argument_metadata
-        out: dict[str, Any] = {}
+        out: dict[str, CommandSchemaItem] = {}
         for cmd_id, meta in self._meta_by_id.items():
             out[cmd_id] = {
                 "tx_args": inline_argument_metadata(self._mission, meta),
