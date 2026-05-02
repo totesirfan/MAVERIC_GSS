@@ -130,6 +130,38 @@ _ParameterTypeYaml = (
 )
 
 
+class _IntegerArgumentTypeYaml(_Strict):
+    kind: Literal["int"]
+    size_bits: Literal[8, 16, 32, 64]
+    signed: bool = False
+    byte_order: Literal["little", "big"] = "little"
+    description: str = ""
+    valid_range: tuple[float, float] | None = None
+    valid_values: list[int] | None = None
+
+
+class _FloatArgumentTypeYaml(_Strict):
+    kind: Literal["float"]
+    size_bits: Literal[32, 64] = 32
+    byte_order: Literal["little", "big"] = "little"
+    description: str = ""
+    valid_range: tuple[float, float] | None = None
+    valid_values: list[float] | None = None
+
+
+class _StringArgumentTypeYaml(_Strict):
+    kind: Literal["string"]
+    encoding: Literal["ascii_token", "to_end"] = "ascii_token"
+    description: str = ""
+
+
+_ArgumentTypeYaml = (
+    _IntegerArgumentTypeYaml
+    | _FloatArgumentTypeYaml
+    | _StringArgumentTypeYaml
+)
+
+
 class _BitfieldEntry(_Strict):
     name: str
     bits: tuple[int, int]
@@ -250,6 +282,7 @@ class MissionDocument(_Strict):
     extensions: dict[str, Any] = Field(default_factory=dict)
 
     parameter_types: dict[str, _ParameterTypeYaml] = Field(default_factory=dict)
+    argument_types: dict[str, _ArgumentTypeYaml] = Field(default_factory=dict)
     parameters: dict[str, _Parameter] = Field(default_factory=dict)
     bitfield_types: dict[str, _BitfieldType] = Field(default_factory=dict)
     sequence_containers: dict[str, _SequenceContainer] = Field(default_factory=dict)

@@ -8,6 +8,7 @@ import logging
 import unittest
 from unittest.mock import MagicMock
 
+from mav_gss_lib.platform.spec.argument_types import BUILT_IN_ARGUMENT_TYPES
 from mav_gss_lib.platform.spec.mission import (
     ContainerShadow,
     Mission,
@@ -24,7 +25,9 @@ class TestParseWarningForwarding(unittest.TestCase):
         m = Mission(
             id="m", name="m",
             header=MissionHeader(version="1.0.0", date="2026-04-25"),
-            parameter_types={}, parameters={}, bitfield_types={},
+            parameter_types={},
+            argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
+            parameters={}, bitfield_types={},
             sequence_containers={}, meta_commands={},
             parse_warnings=(
                 ContainerShadow(broader="A", specific="B"),

@@ -24,6 +24,13 @@ from typing import Any, Callable, Mapping
 
 import yaml
 
+from .argument_types import (
+    ArgumentType,
+    BUILT_IN_ARGUMENT_TYPES,
+    FloatArgumentType,
+    IntegerArgumentType,
+    StringArgumentType,
+)
 from .bitfield import BitfieldEntry, BitfieldType
 from .calibrators import (
     Calibrator,
@@ -98,6 +105,14 @@ def _parse(
     doc = MissionDocument.model_validate(raw)
 
     parameter_types = _project_parameter_types(doc)
+    argument_types: dict[str, ArgumentType] = dict(BUILT_IN_ARGUMENT_TYPES)
+    for name, t in (doc.argument_types or {}).items():
+        if name in BUILT_IN_ARGUMENT_TYPES:
+            raise ParseError(
+                f"argument_types {name!r} redeclares a built-in primitive; "
+                f"choose a distinct name (e.g., {name}_t)"
+            )
+        argument_types[name] = _build_argument_type(name, t)
     bitfield_types = _project_bitfield_types(doc, parameter_types)
     parameters = {
         name: Parameter(name=name, type_ref=p.type,
@@ -111,7 +126,9 @@ def _parse(
     verifier_rules = _project_verifier_rules(doc)
 
     # Cross-reference checks
-    _check_type_refs(parameter_types, bitfield_types, parameters, sequence_containers, meta_commands)
+    _check_type_refs(parameter_types, argument_types, bitfield_types,
+                     parameters, sequence_containers, meta_commands)
+    _check_to_end_args_are_last(meta_commands, argument_types)
     _check_type_graph_cycles(parameter_types)
     _check_base_container_refs(sequence_containers)
     _check_parent_args_keys(sequence_containers)
@@ -140,6 +157,7 @@ def _parse(
     return Mission(
         id=doc.id, name=doc.name, header=header,
         parameter_types=parameter_types,
+        argument_types=argument_types,
         parameters=parameters,
         bitfield_types=bitfield_types,
         sequence_containers=sequence_containers,
@@ -151,6 +169,66 @@ def _parse(
         framing=framing,
         ui=ui,
     )
+
+
+def _representable_int_range(size_bits: int, signed: bool) -> tuple[int, int]:
+    if signed:
+        return (-(2 ** (size_bits - 1)), (2 ** (size_bits - 1)) - 1)
+    return (0, (2 ** size_bits) - 1)
+
+
+def _build_argument_type(name: str, t) -> ArgumentType:
+    kind = t.kind
+    if kind == "int":
+        if t.valid_range is not None:
+            lo, hi = t.valid_range
+            r_lo, r_hi = _representable_int_range(t.size_bits, t.signed)
+            if lo < r_lo or hi > r_hi:
+                raise ParseError(
+                    f"argument_type {name!r}: valid_range [{lo}, {hi}] exceeds "
+                    f"representable range [{r_lo}, {r_hi}] for "
+                    f"size_bits={t.size_bits}, signed={t.signed}. "
+                    f"Either widen size_bits or narrow valid_range."
+                )
+            if lo > hi:
+                raise ParseError(
+                    f"argument_type {name!r}: valid_range [{lo}, {hi}] is "
+                    f"inverted (lo > hi)"
+                )
+        if t.valid_values is not None:
+            r_lo, r_hi = _representable_int_range(t.size_bits, t.signed)
+            out_of_range = [v for v in t.valid_values if not (r_lo <= v <= r_hi)]
+            if out_of_range:
+                raise ParseError(
+                    f"argument_type {name!r}: valid_values {out_of_range} outside "
+                    f"representable range [{r_lo}, {r_hi}] for "
+                    f"size_bits={t.size_bits}, signed={t.signed}"
+                )
+        return IntegerArgumentType(
+            name=name, size_bits=t.size_bits, signed=t.signed,
+            byte_order=t.byte_order, description=t.description,
+            valid_range=t.valid_range,
+            valid_values=tuple(t.valid_values) if t.valid_values is not None else None,
+        )
+    if kind == "float":
+        if t.valid_range is not None:
+            lo, hi = t.valid_range
+            if lo > hi:
+                raise ParseError(
+                    f"argument_type {name!r}: valid_range [{lo}, {hi}] is "
+                    f"inverted (lo > hi)"
+                )
+        return FloatArgumentType(
+            name=name, size_bits=t.size_bits, byte_order=t.byte_order,
+            description=t.description, valid_range=t.valid_range,
+            valid_values=tuple(t.valid_values) if t.valid_values is not None else None,
+        )
+    if kind == "string":
+        return StringArgumentType(
+            name=name, encoding=t.encoding,
+            description=t.description,
+        )
+    raise ValueError(f"unknown argument_type kind {kind!r} for {name!r}")
 
 
 def _project_calibrator(c) -> Calibrator:
@@ -536,54 +614,78 @@ def _check_verifier_refs(
 # ---- Cross-reference / graph checks ----
 
 
-def _check_type_refs(parameter_types, bitfield_types, parameters, containers, meta_commands):
-    legal = set(parameter_types) | set(bitfield_types)
-    # Top-level parameter refs
+def _check_type_refs(parameter_types, argument_types, bitfield_types,
+                     parameters, containers, meta_commands):
+    tm_legal = set(parameter_types) | set(bitfield_types)
+    tc_legal = set(argument_types)
+    # Top-level parameter refs — TM side
     for p in parameters.values():
-        if p.type_ref not in legal:
+        if p.type_ref not in tm_legal:
             raise UnknownTypeRef(p.type_ref, source=f"parameters.{p.name}.type")
-    # Container entry refs (incl. inner refs of repeat entries)
+    # Container entry refs — TM side (incl. inner refs of repeat entries)
     for c in containers.values():
         for e in c.entry_list:
             if isinstance(e, ParameterRefEntry):
-                if e.type_ref not in legal:
-                    raise UnknownTypeRef(e.type_ref, source=f"sequence_containers.{c.name}.entry_list[{e.name}].type")
+                if e.type_ref not in tm_legal:
+                    raise UnknownTypeRef(
+                        e.type_ref,
+                        source=f"sequence_containers.{c.name}.entry_list[{e.name}].type",
+                    )
             elif isinstance(e, RepeatEntry):
                 inner = e.entry
-                if inner.type_ref not in legal:
+                if inner.type_ref not in tm_legal:
                     raise UnknownTypeRef(
                         inner.type_ref,
                         source=f"sequence_containers.{c.name}.entry_list[{inner.name}@repeat].type",
                     )
-    # Command argument refs
+    # Command argument refs — TC side
     for m in meta_commands.values():
         for a in m.argument_list:
-            if a.type_ref not in legal:
-                raise UnknownTypeRef(a.type_ref, source=f"meta_commands.{m.id}.argument_list[{a.name}].type")
-    # Aggregate member refs
+            if a.type_ref not in tc_legal:
+                raise UnknownTypeRef(
+                    a.type_ref,
+                    source=f"meta_commands.{m.id}.argument_list[{a.name}].type",
+                )
+    # Aggregate member + Array element refs — TM side
     for tname, t in parameter_types.items():
         if isinstance(t, AggregateParameterType):
             for m in t.member_list:
-                if m.type_ref not in legal:
+                if m.type_ref not in tm_legal:
                     raise UnknownTypeRef(
                         m.type_ref,
                         source=f"parameter_types.{tname}.member_list[{m.name}].type",
                     )
         elif isinstance(t, ArrayParameterType):
-            if t.array_type_ref not in legal:
+            if t.array_type_ref not in tm_legal:
                 raise UnknownTypeRef(
                     t.array_type_ref,
                     source=f"parameter_types.{tname}.array_type_ref",
                 )
-    # Bitfield enum refs
+    # Bitfield enum refs — TM side
     for bname, bf in bitfield_types.items():
         for e in bf.entry_list:
             if e.kind == "enum" and e.enum_ref is not None:
-                if e.enum_ref not in legal:
+                if e.enum_ref not in tm_legal:
                     raise UnknownTypeRef(
                         e.enum_ref,
                         source=f"bitfield_types.{bname}.entry_list[{e.name}].enum_ref",
                     )
+
+
+def _check_to_end_args_are_last(meta_commands, argument_types):
+    for m in meta_commands.values():
+        for i, a in enumerate(m.argument_list):
+            t = argument_types.get(a.type_ref)
+            if not isinstance(t, StringArgumentType):
+                continue
+            if t.encoding != "to_end":
+                continue
+            if i != len(m.argument_list) - 1:
+                raise ParseError(
+                    f"meta_command {m.id!r} argument {a.name!r} (type {a.type_ref!r}, "
+                    f"encoding=to_end) must be the LAST arg in argument_list — "
+                    f"to_end consumes the rest of the input and would drop trailing args"
+                )
 
 
 def _check_base_container_refs(containers: Mapping[str, SequenceContainer]) -> None:

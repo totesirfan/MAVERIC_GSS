@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping
 
+from .argument_types import ArgumentType
 from .bitfield import BitfieldType
 from .commands import MetaCommand
 from .containers import SequenceContainer
@@ -76,6 +77,7 @@ class Mission:
     header: MissionHeader
 
     parameter_types: Mapping[str, ParameterType]
+    argument_types: Mapping[str, ArgumentType]
     parameters: Mapping[str, Parameter]
     bitfield_types: Mapping[str, BitfieldType]
     sequence_containers: Mapping[str, SequenceContainer]

@@ -1,6 +1,10 @@
 import unittest
 from dataclasses import dataclass
 
+from mav_gss_lib.platform.spec.argument_types import (
+    BUILT_IN_ARGUMENT_TYPES,
+    StringArgumentType,
+)
 from mav_gss_lib.platform.spec.commands import Argument, MetaCommand
 from mav_gss_lib.platform.spec.containers import (
     Comparison,
@@ -59,7 +63,9 @@ def _mission(**overrides):
     }
     return Mission(
         id="testmission", name="Test", header=MissionHeader(version="1.0.0", date="2026-04-25"),
-        parameter_types=types, parameters=params, bitfield_types={},
+        parameter_types=types,
+        argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
+        parameters=params, bitfield_types={},
         sequence_containers=containers, meta_commands=cmds,
     )
 
@@ -109,6 +115,9 @@ class TestDeclarativeWalker(unittest.TestCase):
         types = dict(BUILT_IN_PARAMETER_TYPES)
         types["S3"] = StringParameterType(name="S3", encoding="fixed", fixed_size_bytes=3)
         types["S5"] = StringParameterType(name="S5", encoding="fixed", fixed_size_bytes=5)
+        arg_types = dict(BUILT_IN_ARGUMENT_TYPES)
+        arg_types["S3"] = StringArgumentType(name="S3", encoding="ascii_token")
+        arg_types["S5"] = StringArgumentType(name="S5", encoding="ascii_token")
         cmds = {
             "two_strs": MetaCommand(
                 id="two_strs",
@@ -121,7 +130,9 @@ class TestDeclarativeWalker(unittest.TestCase):
         }
         m = Mission(
             id="m", name="m", header=MissionHeader(version="1.0.0", date="2026-04-25"),
-            parameter_types=types, parameters={}, bitfield_types={},
+            parameter_types=types,
+            argument_types=arg_types,
+            parameters={}, bitfield_types={},
             sequence_containers={}, meta_commands=cmds,
         )
         walker = DeclarativeWalker(m, plugins={})

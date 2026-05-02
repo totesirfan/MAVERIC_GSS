@@ -1,5 +1,6 @@
 import unittest
 
+from mav_gss_lib.platform.spec.argument_types import BUILT_IN_ARGUMENT_TYPES
 from mav_gss_lib.platform.spec.commands import MetaCommand
 from mav_gss_lib.platform.spec.containers import SequenceContainer
 from mav_gss_lib.platform.spec.mission import (
@@ -26,7 +27,9 @@ class TestMissionRoot(unittest.TestCase):
     def test_mission_holds_typed_maps(self):
         m = Mission(
             id="maveric", name="MAVERIC CubeSat", header=self.header,
-            parameter_types=self.types, parameters=self.params,
+            parameter_types=self.types,
+            argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
+            parameters=self.params,
             bitfield_types={}, sequence_containers=self.containers,
             meta_commands=self.cmds,
         )
@@ -36,7 +39,9 @@ class TestMissionRoot(unittest.TestCase):
     def test_parse_warnings_default_empty(self):
         m = Mission(
             id="maveric", name="MAVERIC CubeSat", header=self.header,
-            parameter_types={}, parameters={},
+            parameter_types={},
+            argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
+            parameters={},
             bitfield_types={}, sequence_containers={},
             meta_commands={},
         )

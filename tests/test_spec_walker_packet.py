@@ -1,6 +1,7 @@
 import unittest
 from dataclasses import dataclass
 
+from mav_gss_lib.platform.spec.argument_types import BUILT_IN_ARGUMENT_TYPES
 from mav_gss_lib.platform.spec.bitfield import BitfieldEntry, BitfieldType
 from mav_gss_lib.platform.spec.calibrators import PythonCalibrator
 from mav_gss_lib.platform.spec.containers import (
@@ -57,6 +58,7 @@ def _build_mission(
         name="test_mission",
         header=MissionHeader(version="0", date="2026-01-01"),
         parameter_types=types,
+        argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
         parameters={parameter.name: parameter},
         bitfield_types={bitfield.name: bitfield},
         sequence_containers={
@@ -347,6 +349,7 @@ class TestIntegerWireFormatU8Tokens(unittest.TestCase):
             name="test_mission",
             header=MissionHeader(version="0", date="2026-01-01"),
             parameter_types=types,
+            argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
             parameters={param.name: param},
             bitfield_types={},
             sequence_containers={
@@ -507,6 +510,7 @@ class TestCalibratorBackedAggregateType(unittest.TestCase):
             name="test_mission",
             header=MissionHeader(version="0", date="2026-01-01"),
             parameter_types=types,
+            argument_types=dict(BUILT_IN_ARGUMENT_TYPES),
             parameters={param.name: param},
             bitfield_types={},
             sequence_containers={

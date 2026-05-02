@@ -107,5 +107,319 @@ class TestParameterArgumentBuiltInParity(unittest.TestCase):
             self.assertEqual(tm.byte_order, tc.byte_order, name)
 
 
+class TestYamlArgumentTypeRoundTrip(unittest.TestCase):
+    """Round-trips through public parse_yaml so the test is decoupled
+    from internal helper names.
+    """
+
+    def _write_minimal_mission(self, tmp_path, *, argument_types: dict) -> str:
+        import yaml as _yaml
+        doc = {
+            "schema_version": 1,
+            "id": "test_mission",
+            "name": "test_mission",
+            "header": {"version": "0", "date": "2026-01-01"},
+            "parameter_types": {},
+            "argument_types": argument_types,
+            "parameters": {},
+            "bitfield_types": {},
+            "sequence_containers": {},
+            "meta_commands": {},
+        }
+        path = tmp_path / "mission.yml"
+        path.write_text(_yaml.safe_dump(doc))
+        return str(path)
+
+    def test_integer_argument_type_round_trips(self):
+        import tempfile
+        from pathlib import Path
+        from mav_gss_lib.platform.spec.argument_types import IntegerArgumentType
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            mp = self._write_minimal_mission(Path(td), argument_types={
+                "year_2digit_t": {
+                    "kind": "int", "size_bits": 8,
+                    "valid_range": [0, 99],
+                    "description": "2-digit year (e.g. 26 for 2026)",
+                },
+            })
+            mission = parse_yaml(Path(mp), plugins={})
+            t = mission.argument_types["year_2digit_t"]
+            self.assertIsInstance(t, IntegerArgumentType)
+            self.assertEqual(t.size_bits, 8)
+            self.assertEqual(t.valid_range, (0.0, 99.0))
+            self.assertIn("2-digit", t.description)
+
+    def test_argument_type_with_valid_values(self):
+        import tempfile
+        from pathlib import Path
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            mp = self._write_minimal_mission(Path(td), argument_types={
+                "ops_stage_t": {
+                    "kind": "int", "size_bits": 8,
+                    "valid_values": [0, 1, 2],
+                },
+            })
+            mission = parse_yaml(Path(mp), plugins={})
+            t = mission.argument_types["ops_stage_t"]
+            self.assertEqual(t.valid_values, (0, 1, 2))
+
+    def test_built_in_argument_types_present_after_parse(self):
+        import tempfile
+        from pathlib import Path
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            mp = self._write_minimal_mission(Path(td), argument_types={})
+            mission = parse_yaml(Path(mp), plugins={})
+            for name in ("u8", "u16", "u32", "ascii_token"):
+                self.assertIn(name, mission.argument_types,
+                              f"built-in {name} missing from argument_types after parse")
+
+    def test_to_end_string_arg_must_be_last(self):
+        import tempfile, yaml as _yaml
+        from pathlib import Path
+        from mav_gss_lib.platform.spec.errors import ParseError
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            doc = {
+                "schema_version": 1,
+                "id": "t", "name": "t",
+                "header": {"version": "0", "date": "2026-01-01"},
+                "parameter_types": {},
+                "argument_types": {"BlobArg": {"kind": "string", "encoding": "to_end"}},
+                "parameters": {},
+                "bitfield_types": {},
+                "sequence_containers": {},
+                "meta_commands": {"bad_cmd": {
+                    "packet": {"echo": "NONE", "ptype": "CMD"},
+                    "argument_list": [
+                        {"name": "blob", "type": "BlobArg"},
+                        {"name": "trailing", "type": "u8"},
+                    ],
+                }},
+            }
+            p = Path(td) / "mission.yml"
+            p.write_text(_yaml.safe_dump(doc))
+            with self.assertRaises(ParseError) as ctx:
+                parse_yaml(p, plugins={})
+            self.assertIn("to_end", str(ctx.exception))
+            self.assertIn("LAST", str(ctx.exception))
+
+
+def _write_mission_with_arg_type(td: str, arg_type_def: dict):
+    """Helper for ParseError tests — minimal mission with one custom arg type."""
+    import yaml as _yaml
+    from pathlib import Path
+    doc = {
+        "schema_version": 1,
+        "id": "t", "name": "t",
+        "header": {"version": "0", "date": "2026-01-01"},
+        "parameter_types": {},
+        "argument_types": {"BadArg": arg_type_def},
+        "parameters": {},
+        "bitfield_types": {},
+        "sequence_containers": {},
+        "meta_commands": {},
+    }
+    p = Path(td) / "mission.yml"
+    p.write_text(_yaml.safe_dump(doc))
+    return p
+
+
+class TestValidRangeBoundedBySizeBits(unittest.TestCase):
+    """Parse-time guard: valid_range must be a SUBSET of the representable
+    range derived from size_bits/signed. Otherwise the type would silently
+    accept values that overflow at encode.
+    """
+
+    def test_valid_range_outside_unsigned_size_bits_rejected(self):
+        import tempfile
+        from mav_gss_lib.platform.spec.errors import ParseError
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            p = _write_mission_with_arg_type(
+                td, {"kind": "int", "size_bits": 8, "valid_range": [0, 1000]},
+            )
+            with self.assertRaises(ParseError) as ctx:
+                parse_yaml(p, plugins={})
+            msg = str(ctx.exception)
+            self.assertIn("BadArg", msg)
+            self.assertIn("valid_range", msg)
+            self.assertIn("[0, 255]", msg)
+
+    def test_valid_range_outside_signed_size_bits_rejected(self):
+        import tempfile
+        from mav_gss_lib.platform.spec.errors import ParseError
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            p = _write_mission_with_arg_type(
+                td, {"kind": "int", "size_bits": 8, "signed": True,
+                     "valid_range": [-200, 50]},
+            )
+            with self.assertRaises(ParseError) as ctx:
+                parse_yaml(p, plugins={})
+            self.assertIn("[-128, 127]", str(ctx.exception))
+
+    def test_valid_range_within_size_bits_accepted(self):
+        import tempfile
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            p = _write_mission_with_arg_type(
+                td, {"kind": "int", "size_bits": 8, "valid_range": [0, 99]},
+            )
+            mission = parse_yaml(p, plugins={})
+            self.assertIn("BadArg", mission.argument_types)
+
+    def test_inverted_valid_range_rejected(self):
+        import tempfile
+        from mav_gss_lib.platform.spec.errors import ParseError
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            p = _write_mission_with_arg_type(
+                td, {"kind": "int", "size_bits": 8, "valid_range": [50, 10]},
+            )
+            with self.assertRaises(ParseError) as ctx:
+                parse_yaml(p, plugins={})
+            self.assertIn("inverted", str(ctx.exception).lower())
+
+    def test_valid_values_outside_size_bits_rejected(self):
+        import tempfile
+        from mav_gss_lib.platform.spec.errors import ParseError
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            p = _write_mission_with_arg_type(
+                td, {"kind": "int", "size_bits": 8, "valid_values": [0, 1, 999]},
+            )
+            with self.assertRaises(ParseError) as ctx:
+                parse_yaml(p, plugins={})
+            msg = str(ctx.exception)
+            self.assertIn("999", msg)
+            self.assertIn("[0, 255]", msg)
+
+    def test_inverted_float_valid_range_rejected(self):
+        import tempfile
+        from mav_gss_lib.platform.spec.errors import ParseError
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            p = _write_mission_with_arg_type(
+                td, {"kind": "float", "size_bits": 32, "valid_range": [1.5, -1.5]},
+            )
+            with self.assertRaises(ParseError) as ctx:
+                parse_yaml(p, plugins={})
+            self.assertIn("inverted", str(ctx.exception).lower())
+
+    def test_well_formed_float_valid_range_accepted(self):
+        import tempfile
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            p = _write_mission_with_arg_type(
+                td, {"kind": "float", "size_bits": 32, "valid_range": [-1.0, 1.0]},
+            )
+            mission = parse_yaml(p, plugins={})
+            self.assertIn("BadArg", mission.argument_types)
+
+
+class TestCommandArgTypeRefValidation(unittest.TestCase):
+    def _write_mission(self, tmp_path, *, parameter_types, argument_types, meta_commands):
+        import yaml as _yaml
+        doc = {
+            "schema_version": 1,
+            "id": "t", "name": "t",
+            "header": {"version": "0", "date": "2026-01-01"},
+            "parameter_types": parameter_types,
+            "argument_types": argument_types,
+            "parameters": {},
+            "bitfield_types": {},
+            "sequence_containers": {},
+            "meta_commands": meta_commands,
+        }
+        path = tmp_path / "mission.yml"
+        path.write_text(_yaml.safe_dump(doc))
+        return str(path)
+
+    def test_command_arg_referencing_parameter_only_type_is_rejected(self):
+        import tempfile
+        from pathlib import Path
+        from mav_gss_lib.platform.spec.errors import UnknownTypeRef
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            mp = self._write_mission(Path(td),
+                parameter_types={"only_tm_t": {"kind": "int", "size_bits": 8}},
+                argument_types={},
+                meta_commands={"bad_cmd": {
+                    "packet": {"echo": "NONE", "ptype": "CMD"},
+                    "argument_list": [{"name": "x", "type": "only_tm_t"}],
+                }},
+            )
+            with self.assertRaises(UnknownTypeRef):
+                parse_yaml(Path(mp), plugins={})
+
+    def test_command_arg_referencing_built_in_argument_type_passes(self):
+        import tempfile
+        from pathlib import Path
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            mp = self._write_mission(Path(td),
+                parameter_types={},
+                argument_types={},
+                meta_commands={"good_cmd": {
+                    "packet": {"echo": "NONE", "ptype": "CMD"},
+                    "argument_list": [
+                        {"name": "x", "type": "u8"},
+                        {"name": "tag", "type": "ascii_token"},
+                    ],
+                }},
+            )
+            mission = parse_yaml(Path(mp), plugins={})
+            self.assertIn("good_cmd", mission.meta_commands)
+
+    def test_argument_type_redeclaring_built_in_is_rejected(self):
+        import tempfile
+        from pathlib import Path
+        from mav_gss_lib.platform.spec.errors import ParseError
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            mp = self._write_mission(Path(td),
+                parameter_types={},
+                argument_types={"u8": {"kind": "int", "size_bits": 8, "valid_range": [0, 5]}},
+                meta_commands={},
+            )
+            with self.assertRaises(ParseError) as ctx:
+                parse_yaml(Path(mp), plugins={})
+            self.assertIn("u8", str(ctx.exception))
+
+    def test_command_arg_typed_as_bitfield_is_rejected(self):
+        import tempfile
+        from pathlib import Path
+        from mav_gss_lib.platform.spec.errors import UnknownTypeRef
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        import yaml as _yaml
+        with tempfile.TemporaryDirectory() as td:
+            doc = {
+                "schema_version": 1,
+                "id": "t", "name": "t",
+                "header": {"version": "0", "date": "2026-01-01"},
+                "parameter_types": {},
+                "argument_types": {},
+                "parameters": {},
+                "bitfield_types": {
+                    "MyReg": {
+                        "size_bits": 32, "byte_order": "little",
+                        "entry_list": [{"name": "MODE", "bits": [0, 6], "kind": "uint"}],
+                    },
+                },
+                "sequence_containers": {},
+                "meta_commands": {"bad_cmd": {
+                    "packet": {"echo": "NONE", "ptype": "CMD"},
+                    "argument_list": [{"name": "reg", "type": "MyReg"}],
+                }},
+            }
+            path = Path(td) / "mission.yml"
+            path.write_text(_yaml.safe_dump(doc))
+            with self.assertRaises(UnknownTypeRef):
+                parse_yaml(path, plugins={})
+
+
 if __name__ == "__main__":
     unittest.main()
