@@ -5,6 +5,11 @@ class TestPublicApi(unittest.TestCase):
     def test_top_level_imports_resolve(self):
         from mav_gss_lib.platform.spec import (
             BUILT_IN_PARAMETER_TYPES,
+            BUILT_IN_ARGUMENT_TYPES,
+            ArgumentType,
+            IntegerArgumentType,
+            FloatArgumentType,
+            StringArgumentType,
             CommandHeader,
             DeclarativeWalker,
             Mission,
@@ -18,6 +23,11 @@ class TestPublicApi(unittest.TestCase):
         self.assertTrue(callable(parse_yaml))
         self.assertTrue(callable(parse_yaml_for_tooling))
         self.assertTrue(callable(build_declarative_command_ops))
+        # ArgumentType should be a usable union (Python's `|` syntax in 3.10+)
+        self.assertIsNotNone(ArgumentType)
+        # Built-ins should be a non-empty mapping
+        self.assertIn("u8", BUILT_IN_ARGUMENT_TYPES)
+        self.assertIn("ascii_token", BUILT_IN_ARGUMENT_TYPES)
 
     def test_platform_exposes_spec_namespace(self):
         from mav_gss_lib.platform import spec

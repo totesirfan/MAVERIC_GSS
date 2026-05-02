@@ -68,6 +68,13 @@ from .parameter_types import (
     ParameterTypeKind,
     StringParameterType,
 )
+from .argument_types import (
+    BUILT_IN_ARGUMENT_TYPES,
+    ArgumentType,
+    FloatArgumentType,
+    IntegerArgumentType,
+    StringArgumentType,
+)
 from .runtime import (
     BitfieldDecoder,
     CommandEncoder,
@@ -114,6 +121,9 @@ __all__ = [
     "BinaryParameterType", "EnumeratedParameterType", "EnumValue",
     "AbsoluteTimeParameterType", "AggregateMember", "AggregateParameterType",
     "ArrayParameterType",
+    # Argument types (XTCE-lite TC side; mirror of ParameterType)
+    "ArgumentType", "BUILT_IN_ARGUMENT_TYPES",
+    "IntegerArgumentType", "FloatArgumentType", "StringArgumentType",
     # Bitfields
     "BitfieldEntry", "BitfieldType",
     # Parameters
