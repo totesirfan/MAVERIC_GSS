@@ -9,15 +9,15 @@ gitignored MAVERIC mission.yml).
 
 from __future__ import annotations
 
-from typing import Any
+from mav_gss_lib.platform.contract.commands import TxArgSchema
 
 from .commands import MetaCommand
 from .mission import Mission
 
 
-def inline_argument_metadata(mission: Mission, meta: MetaCommand) -> list[dict[str, Any]]:
+def inline_argument_metadata(mission: Mission, meta: MetaCommand) -> list[TxArgSchema]:
     arg_types = mission.argument_types
-    out: list[dict[str, Any]] = []
+    out: list[TxArgSchema] = []
     for a in meta.argument_list:
         t = arg_types.get(a.type_ref)
         type_desc = getattr(t, "description", "") if t is not None else ""

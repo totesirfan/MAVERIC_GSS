@@ -5,10 +5,61 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, NotRequired, Protocol, Required, TypedDict
 
 from .parameters import ParamUpdate
+
+
+class TxArgSchema(TypedDict):
+    """Single TX argument as exposed by /api/schema. Mirrored on the TS
+    side as `lib/types.ts::TxArgSchema`.
+
+    `name` and `type` are unconditionally required by the runtime;
+    everything else is type-driven metadata that may be absent for
+    primitive ArgumentTypes. Required/NotRequired makes that invariant
+    enforceable by mypy — `total=False` would let typecheckers accept
+    a value with no `name`, which contradicts what Task 8's
+    `inline_argument_metadata` actually emits.
+    """
+    name: Required[str]
+    type: Required[str]
+    description: NotRequired[str]
+    important: NotRequired[bool]
+    optional: NotRequired[bool]
+    valid_range: NotRequired[list[float] | None]
+    valid_values: NotRequired[list[float | int | str] | None]
+
+
+class CommandSchemaItem(TypedDict):
+    """Mission-agnostic /api/schema item. Carries ONLY platform-level
+    fields — no routing/transport concepts. Missions extend this for
+    their own routing surfaces (see e.g.
+    `missions/maveric/schema_types.py::MavericCommandSchemaItem`,
+    which adds `dest`/`echo`/`ptype`/`nodes`).
+
+    Why not put MAVERIC routing here: per the Mission/Platform
+    boundary (CLAUDE.md), command grammar/routing is mission-owned.
+    The platform contract advertises only the universal TX surface;
+    routing concepts that are mission-specific (CSP-style dest/echo
+    /ptype, node directories) belong to that mission's TypedDict
+    extension. Adding them to the platform contract would couple
+    every future deployment-target mission to MAVERIC's transport
+    shape.
+
+    `tx_args` is required (Task 8 always emits it, possibly empty).
+    Everything else is optional UX/contract metadata.
+    """
+    tx_args: Required[list[TxArgSchema]]
+    description: NotRequired[str]
+    title: NotRequired[str]
+    label: NotRequired[str]
+    variadic: NotRequired[bool]
+    guard: NotRequired[bool]
+    rx_only: NotRequired[bool]
+    deprecated: NotRequired[bool]
+    verifiers: NotRequired[dict[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,4 +150,4 @@ class CommandOps(Protocol):
     are commonly excluded so admission can block at per-target granularity.
     """
 
-    def schema(self) -> dict[str, Any]: ...
+    def schema(self) -> Mapping[str, CommandSchemaItem]: ...

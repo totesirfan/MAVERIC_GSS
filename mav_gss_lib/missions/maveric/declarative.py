@@ -30,6 +30,7 @@ from mav_gss_lib.platform.spec import (
 
 from mav_gss_lib.missions.maveric.codec import MaverPacketCodec
 from mav_gss_lib.missions.maveric.calibrators import CALIBRATORS
+from mav_gss_lib.missions.maveric.schema_types import MavericCommandSchemaItem
 
 
 _HEADER_FIELDS = ("dest", "echo", "ptype", "src")
@@ -108,9 +109,9 @@ class _MaverCommandOpsWrapper:
             return self.inner.parse_input(self._canonicalize(value))
         return self._parse_cli(value)
 
-    def schema(self) -> dict[str, Any]:
+    def schema(self) -> dict[str, MavericCommandSchemaItem]:
         from mav_gss_lib.platform.spec.schema_helpers import inline_argument_metadata
-        out: dict[str, Any] = {}
+        out: dict[str, MavericCommandSchemaItem] = {}
         for cmd_id, meta in self.mission.meta_commands.items():
             allowed_dest = meta.allowed_packet.get("dest")
             fixed_dest = meta.packet.get("dest")
