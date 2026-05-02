@@ -14,7 +14,13 @@ from __future__ import annotations
 import struct
 from typing import Any, Mapping
 
-from .cursor import BitCursor, TokenCursor
+from .cursor import BitCursor, MarkerBoundedTokenCursor, TokenCursor
+from .argument_types import (
+    ArgumentType,
+    FloatArgumentType,
+    IntegerArgumentType,
+    StringArgumentType,
+)
 from .parameter_types import (
     AbsoluteTimeParameterType,
     AggregateParameterType,
@@ -209,6 +215,41 @@ class TypeCodec:
         raise TypeError(
             f"TypeCodec.encode_binary: type {type_ref!r} of kind "
             f"{type(t).__name__} unsupported"
+        )
+
+
+class AsciiArgumentEncoder:
+    """ASCII-token encoder for command arguments (TC side).
+
+    Peer of `TypeCodec` for the TX path. Bound to a `Mapping[str,
+    ArgumentType]`; intentionally has NO `decode_ascii` because RX
+    never sees ArgumentType variants (EntryDecoder consumes
+    `parameter_types`). Constructing this with `parameter_types`
+    would still "work" for primitives but would silently misbehave
+    for enum/array/aggregate refs — so the type annotation is the
+    contract.
+    """
+
+    def __init__(self, *, types: Mapping[str, ArgumentType]) -> None:
+        self._types = types
+
+    def encode_ascii(self, type_ref: str, value: Any) -> str:
+        t = self._types[type_ref]
+        if isinstance(t, IntegerArgumentType):
+            return str(int(value))
+        if isinstance(t, FloatArgumentType):
+            return repr(float(value))
+        if isinstance(t, StringArgumentType):
+            # ascii_token: validate() (Task 5) has already rejected
+            # whitespace; here we trust the value. to_end: caller
+            # passes a (possibly multi-token) string and we emit it
+            # verbatim. CommandEncoder joins arg-encodings with single
+            # spaces, so to_end MUST be the last arg (enforced at
+            # YAML-parse time by Task 2 Step 5a).
+            return str(value)
+        raise TypeError(
+            f"AsciiArgumentEncoder.encode_ascii: type {type_ref!r} of kind "
+            f"{type(t).__name__} is not a supported argument type"
         )
 
 
@@ -629,7 +670,18 @@ class EntryDecoder:
                         ts_ms=now_ms,
                     )
                 continue
-            yield from self.walk(child, cursor, now_ms=now_ms, decoded_into={}, matcher=matcher)
+            # Bound the child's view of the cursor to its own register payload:
+            # any token containing `marker_separator` is the next register's
+            # marker and must not be consumed as numeric data. If the FSW
+            # under-supplies payload, honor the child's on_short_payload.
+            bounded = MarkerBoundedTokenCursor(cursor, entry.marker_separator)
+            try:
+                yield from self.walk(child, bounded, now_ms=now_ms, decoded_into={}, matcher=matcher)
+            except IndexError:
+                if child.on_short_payload == "raise":
+                    raise
+                # "skip" / "emit_partial": already-yielded ParamUpdates have
+                # reached the caller; resume the outer loop at the next marker.
 
 
 import logging
@@ -645,17 +697,17 @@ class CommandEncoder:
     wraps this output with whatever envelope its wire format requires.
     """
 
-    __slots__ = ("_meta", "_codec", "_types")
+    __slots__ = ("_meta", "_encoder", "_types")
 
     def __init__(
         self,
         *,
         meta_commands: Mapping[str, MetaCommand],
-        codec: TypeCodec,
-        types: Mapping[str, ParameterType],
+        encoder: AsciiArgumentEncoder,
+        types: Mapping[str, ArgumentType],
     ) -> None:
         self._meta = meta_commands
-        self._codec = codec
+        self._encoder = encoder
         self._types = types
 
     def encode_args(self, cmd_id: str, args: Mapping[str, Any]) -> bytes:
@@ -667,36 +719,27 @@ class CommandEncoder:
         tokens: list[str] = []
         for arg in meta.argument_list:
             value = args.get(arg.name)
-            tokens.append(self._codec.encode_ascii(arg.type_ref, value))
+            tokens.append(self._encoder.encode_ascii(arg.type_ref, value))
         return " ".join(tokens).encode("ascii")
 
     def arg_run_size(self, cmd_id: str) -> int | None:
         meta = self._meta[cmd_id]
         if not meta.argument_list:
             return 0
-        total = 0
         for arg in meta.argument_list:
             t = self._types[arg.type_ref]
-            if isinstance(t, IntegerParameterType) or isinstance(t, FloatParameterType):
-                # ASCII width is dynamic
+            if isinstance(
+                t,
+                (IntegerArgumentType, FloatArgumentType, StringArgumentType),
+            ):
+                # ASCII width is dynamic for every supported TC arg type
+                # (int/float stringify to variable-length decimal; strings
+                # are ascii_token or to_end). Caller treats None as
+                # "unknown size".
                 return None
-            if isinstance(t, EnumeratedParameterType):
-                return None
-            if isinstance(t, StringParameterType):
-                if t.encoding == "fixed" and t.fixed_size_bytes is not None:
-                    total += t.fixed_size_bytes
-                else:
-                    return None
-            elif isinstance(t, BinaryParameterType):
-                if t.size_kind == "fixed" and t.fixed_size_bytes is not None:
-                    total += t.fixed_size_bytes
-                else:
-                    return None
-            else:
-                return None
-        # N-1 single-space separators
-        total += max(0, len(meta.argument_list) - 1)
-        return total
+            # Unknown / unsupported ArgumentType — sizing is undefined.
+            return None
+        return None
 
 
 class DeclarativeWalker:
@@ -721,8 +764,8 @@ class DeclarativeWalker:
         )
         self._cmd_encoder = CommandEncoder(
             meta_commands=mission.meta_commands,
-            codec=self._codec,
-            types=mission.parameter_types,
+            encoder=AsciiArgumentEncoder(types=mission.argument_types),
+            types=mission.argument_types,
         )
         self.log = logging.getLogger("mav_gss_lib.platform.spec.runtime")
 
@@ -783,6 +826,7 @@ class DeclarativeWalker:
 
 __all__ = [
     "TypeCodec",
+    "AsciiArgumentEncoder",
     "ContainerMatcher",
     "BitfieldDecoder",
     "EntryDecoder",

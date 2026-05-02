@@ -4,6 +4,7 @@ import unittest
 class TestPublicApi(unittest.TestCase):
     def test_top_level_imports_resolve(self):
         from mav_gss_lib.platform.spec import (
+            AsciiArgumentEncoder,
             BUILT_IN_PARAMETER_TYPES,
             BUILT_IN_ARGUMENT_TYPES,
             ArgumentType,
@@ -28,6 +29,9 @@ class TestPublicApi(unittest.TestCase):
         # Built-ins should be a non-empty mapping
         self.assertIn("u8", BUILT_IN_ARGUMENT_TYPES)
         self.assertIn("ascii_token", BUILT_IN_ARGUMENT_TYPES)
+        self.assertTrue(hasattr(AsciiArgumentEncoder(types={}), "encode_ascii"))
+        self.assertFalse(hasattr(AsciiArgumentEncoder(types={}), "decode_ascii"),
+                         "AsciiArgumentEncoder must be encode-only by design")
 
     def test_platform_exposes_spec_namespace(self):
         from mav_gss_lib.platform import spec

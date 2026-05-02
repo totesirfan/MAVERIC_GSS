@@ -76,6 +76,7 @@ from .argument_types import (
     StringArgumentType,
 )
 from .runtime import (
+    AsciiArgumentEncoder,
     BitfieldDecoder,
     CommandEncoder,
     ContainerMatcher,
@@ -142,7 +143,7 @@ __all__ = [
     # Time codec
     "encode_millis_u64", "decode_millis_u64",
     # Runtime
-    "TypeCodec", "ContainerMatcher", "BitfieldDecoder",
+    "TypeCodec", "AsciiArgumentEncoder", "ContainerMatcher", "BitfieldDecoder",
     "EntryDecoder", "CommandEncoder", "DeclarativeWalker",
     # Factories
     "build_declarative_command_ops", "DeclarativeCommandOpsAdapter",
