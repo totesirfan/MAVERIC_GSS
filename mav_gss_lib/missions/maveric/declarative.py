@@ -13,6 +13,7 @@ Author:  Irfan Annuar - USC ISI SERC
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -32,6 +33,16 @@ from mav_gss_lib.missions.maveric.calibrators import CALIBRATORS
 
 
 _HEADER_FIELDS = ("dest", "echo", "ptype", "src")
+
+# Per-command argument-name deprecation aliases. When an inbound payload
+# carries an old key, _canonicalize remaps it to the new key (warn-once
+# via logger) so external operator scripts that haven't migrated yet
+# don't silently drop the value. Entries stay for one release cycle.
+_DEPRECATED_ARG_ALIASES: dict[str, dict[str, str]] = {
+    "ppm_sched_cmd": {"start_delay": "start_delay_ms"},
+}
+
+_LOGGER = logging.getLogger("mav_gss_lib.missions.maveric")
 
 
 def _coerce_token(token: str) -> Any:
@@ -305,7 +316,20 @@ class _MaverCommandOpsWrapper:
         args = payload.get("args", {})
         if not isinstance(args, dict):
             raise ValueError("'args' must be an object")
-        canonical["args"] = args
+        # Take a fresh copy so alias remapping (and any future canonical
+        # rewrites) don't mutate the caller's payload dict — retry queues
+        # and history viewers may hold the original reference.
+        canonical["args"] = dict(args)
+        cmd_id = canonical["cmd_id"]
+        aliases = _DEPRECATED_ARG_ALIASES.get(cmd_id, {})
+        for old, new in aliases.items():
+            if old in canonical["args"] and new not in canonical["args"]:
+                _LOGGER.warning(
+                    "deprecated arg name %r in %s; remap to %r "
+                    "(will be removed in next release)",
+                    old, cmd_id, new,
+                )
+                canonical["args"][new] = canonical["args"].pop(old)
         packet = payload.get("packet")
         canonical["packet"] = dict(packet) if isinstance(packet, dict) else {}
         return canonical

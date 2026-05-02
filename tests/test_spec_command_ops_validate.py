@@ -450,5 +450,98 @@ class TestCliParserConsumesToEndForStringArgs(unittest.TestCase):
         self.assertEqual(draft.payload["args"]["tle"], expected)
 
 
+class TestDeprecatedArgAliasRemap(unittest.TestCase):
+    """Per-command deprecation alias: ppm_sched_cmd.start_delay was
+    renamed to start_delay_ms. _MaverCommandOpsWrapper._canonicalize must
+    remap the old key to the new key (with a logger warning) so external
+    operator scripts that haven't migrated yet don't silently drop the
+    value. The remap must NOT mutate the caller's payload dict.
+    """
+
+    def setUp(self):
+        from mav_gss_lib.missions.maveric.declarative import _MaverCommandOpsWrapper
+        from mav_gss_lib.platform.spec.argument_types import (
+            BUILT_IN_ARGUMENT_TYPES, IntegerArgumentType,
+        )
+        from mav_gss_lib.platform.spec.parameter_types import BUILT_IN_PARAMETER_TYPES
+
+        arg_types = dict(BUILT_IN_ARGUMENT_TYPES)
+        arg_types["duration_ms_t"] = IntegerArgumentType(
+            name="duration_ms_t", size_bits=32,
+        )
+        meta = MetaCommand(
+            id="ppm_sched_cmd",
+            packet={"echo": "NONE", "ptype": "CMD"},
+            argument_list=(Argument(name="start_delay_ms", type_ref="duration_ms_t"),),
+        )
+        mission = Mission(
+            id="t", name="t",
+            header=MissionHeader(version="0", date="2026-01-01"),
+            parameter_types=dict(BUILT_IN_PARAMETER_TYPES),
+            argument_types=arg_types,
+            parameters={}, bitfield_types={}, sequence_containers={},
+            meta_commands={meta.id: meta},
+        )
+        walker = DeclarativeWalker(mission, plugins={})
+        inner = DeclarativeCommandOpsAdapter(
+            mission=mission, walker=walker,
+            packet_codec=_StubCodec(), framer=_StubFramer(),
+        )
+        self.wrapper = _MaverCommandOpsWrapper(inner=inner, mission=mission, codec=_StubCodec())
+
+    def test_old_arg_name_remapped_and_validates(self):
+        payload = {
+            "cmd_id": "ppm_sched_cmd",
+            "args": {"start_delay": 1000},
+            "packet": {},
+        }
+        with self.assertLogs("mav_gss_lib.missions.maveric", level="WARNING") as cm:
+            draft = self.wrapper.parse_input(payload)
+        # Warning emitted exactly once, mentions both keys.
+        self.assertTrue(any("start_delay" in r and "start_delay_ms" in r for r in cm.output))
+        # Draft now has the new key, no old key.
+        self.assertIn("start_delay_ms", draft.payload["args"])
+        self.assertNotIn("start_delay", draft.payload["args"])
+        self.assertEqual(draft.payload["args"]["start_delay_ms"], 1000)
+        # And it validates clean.
+        self.assertEqual(self.wrapper.validate(draft), [])
+
+    def test_remap_does_not_mutate_caller_payload(self):
+        # Caller's args dict must not be touched by the alias remap.
+        original_args = {"start_delay": 1000}
+        payload = {"cmd_id": "ppm_sched_cmd", "args": original_args, "packet": {}}
+        with self.assertLogs("mav_gss_lib.missions.maveric", level="WARNING"):
+            self.wrapper.parse_input(payload)
+        self.assertEqual(original_args, {"start_delay": 1000})
+        self.assertNotIn("start_delay_ms", original_args)
+
+    def test_new_arg_name_passes_through_without_warning(self):
+        payload = {
+            "cmd_id": "ppm_sched_cmd",
+            "args": {"start_delay_ms": 1000},
+            "packet": {},
+        }
+        # No warning expected. assertNoLogs is 3.10+; fall back to assertLogs
+        # against a sentinel logger to ensure none was emitted on ours.
+        import logging
+        logger = logging.getLogger("mav_gss_lib.missions.maveric")
+        prior_handlers = list(logger.handlers)
+        records: list[logging.LogRecord] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        cap = _Capture(level=logging.WARNING)
+        logger.addHandler(cap)
+        try:
+            draft = self.wrapper.parse_input(payload)
+        finally:
+            logger.removeHandler(cap)
+            logger.handlers = prior_handlers
+        self.assertEqual(records, [])
+        self.assertEqual(draft.payload["args"], {"start_delay_ms": 1000})
+
+
 if __name__ == "__main__":
     unittest.main()
