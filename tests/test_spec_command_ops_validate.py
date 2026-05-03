@@ -60,7 +60,7 @@ def _draft(cmd_id: str, args: dict[str, Any]) -> CommandDraft:
 
 class TestTypeDrivenValidRange(unittest.TestCase):
     def setUp(self):
-        year_t = IntegerArgumentType(name="year_2digit_t", size_bits=8, valid_range=(0.0, 99.0))
+        year_t = IntegerArgumentType(name="year_2digit_t", size_bits=8, valid_range=(0, 99))
         meta = MetaCommand(
             id="set_year",
             packet={"echo": "NONE", "ptype": "CMD"},
@@ -177,7 +177,7 @@ class TestImplicitSizeBitsRangeForIntegers(unittest.TestCase):
     def test_explicit_valid_range_wins_over_size_bits(self):
         # year_2digit_t is u8 (size_bits=8) BUT valid_range=[0,99];
         # explicit must override the implicit [0,255].
-        year_t = IntegerArgumentType(name="year_2digit_t", size_bits=8, valid_range=(0.0, 99.0))
+        year_t = IntegerArgumentType(name="year_2digit_t", size_bits=8, valid_range=(0, 99))
         meta = MetaCommand(
             id="set_year",
             packet={"echo": "NONE", "ptype": "CMD"},
@@ -198,7 +198,7 @@ class TestReservedSlotsViaTighterRange(unittest.TestCase):
 
     def setUp(self):
         sched_id_user_t = IntegerArgumentType(
-            name="sched_id_user_t", size_bits=8, valid_range=(16.0, 31.0),
+            name="sched_id_user_t", size_bits=8, valid_range=(16, 31),
         )
         meta = MetaCommand(
             id="set_sched",
@@ -218,7 +218,7 @@ class TestReservedSlotsViaTighterRange(unittest.TestCase):
 
 class TestMissingArgsStillRejected(unittest.TestCase):
     def setUp(self):
-        year_t = IntegerArgumentType(name="year_2digit_t", size_bits=8, valid_range=(0.0, 99.0))
+        year_t = IntegerArgumentType(name="year_2digit_t", size_bits=8, valid_range=(0, 99))
         meta = MetaCommand(
             id="set_year",
             packet={"echo": "NONE", "ptype": "CMD"},

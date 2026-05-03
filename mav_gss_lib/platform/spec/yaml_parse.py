@@ -213,7 +213,7 @@ def _build_argument_type(name: str, t) -> ArgumentType:
         return IntegerArgumentType(
             name=name, size_bits=t.size_bits, signed=t.signed,
             byte_order=t.byte_order, description=t.description,
-            valid_range=t.valid_range,
+            valid_range=(int(t.valid_range[0]), int(t.valid_range[1])) if t.valid_range is not None else None,
             valid_values=tuple(t.valid_values) if t.valid_values is not None else None,
         )
     if kind == "float":

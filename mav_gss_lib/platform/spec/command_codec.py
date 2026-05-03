@@ -247,7 +247,7 @@ class DeclarativeCommandOpsAdapter:
         out: list[ValidationIssue] = []
         if isinstance(t, IntegerArgumentType):
             if t.valid_range is not None:
-                lo, hi = int(t.valid_range[0]), int(t.valid_range[1])
+                lo, hi = t.valid_range
             else:
                 size = t.size_bits
                 if t.signed:

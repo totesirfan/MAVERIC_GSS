@@ -32,7 +32,7 @@ class IntegerArgumentType:
     signed: bool = False
     byte_order: ByteOrder = "little"
     description: str = ""
-    valid_range: tuple[float, float] | None = None
+    valid_range: tuple[int, int] | None = None
     valid_values: tuple[int, ...] | None = None
 
 

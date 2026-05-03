@@ -22,7 +22,7 @@ class TestIntegerArgumentType(unittest.TestCase):
 
     def test_carries_valid_range(self):
         from mav_gss_lib.platform.spec.argument_types import IntegerArgumentType
-        t = IntegerArgumentType(name="year_2digit_t", size_bits=8, valid_range=(0.0, 99.0))
+        t = IntegerArgumentType(name="year_2digit_t", size_bits=8, valid_range=(0, 99))
         self.assertEqual(t.valid_range, (0.0, 99.0))
 
     def test_carries_valid_values(self):
@@ -41,6 +41,20 @@ class TestIntegerArgumentType(unittest.TestCase):
         t = IntegerArgumentType(name="u8", size_bits=8)
         self.assertFalse(hasattr(t, "calibrator"))
         self.assertFalse(hasattr(t, "unit"))
+
+    def test_valid_range_is_typed_int_tuple(self):
+        # After 13f6176 the YAML parser rejects fractional bounds.
+        # The dataclass annotation reinforces that contract for any
+        # callers that build IntegerArgumentType directly (e.g. tests
+        # or future programmatic mission construction). A static type
+        # checker (mypy/pyright) will flag a tuple[float, float] here
+        # — runtime stays loose because dataclasses don't enforce
+        # annotations, but the YAML parse-time guard already covers
+        # the YAML path and the annotation is the contract.
+        import typing
+        from mav_gss_lib.platform.spec.argument_types import IntegerArgumentType
+        hints = typing.get_type_hints(IntegerArgumentType)
+        self.assertEqual(hints["valid_range"], tuple[int, int] | None)
 
 
 class TestStringArgumentType(unittest.TestCase):
