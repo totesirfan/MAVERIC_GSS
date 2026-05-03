@@ -181,6 +181,13 @@ def _build_argument_type(name: str, t) -> ArgumentType:
     if kind == "int":
         if t.valid_range is not None:
             lo, hi = t.valid_range
+            if not (float(lo).is_integer() and float(hi).is_integer()):
+                raise ParseError(
+                    f"argument_type {name!r}: valid_range [{lo}, {hi}] has "
+                    f"fractional bounds for kind=int; integer args canonicalize "
+                    f"to int wires, so non-integral bounds would round at validate "
+                    f"time and silently widen the accepted set"
+                )
             r_lo, r_hi = _representable_int_range(t.size_bits, t.signed)
             if lo < r_lo or hi > r_hi:
                 raise ParseError(

@@ -319,6 +319,22 @@ class TestValidRangeBoundedBySizeBits(unittest.TestCase):
             mission = parse_yaml(p, plugins={})
             self.assertIn("BadArg", mission.argument_types)
 
+    def test_fractional_int_valid_range_rejected(self):
+        # Integer wires canonicalize via str(int(value)). A type with
+        # valid_range=[0.5, 2.5] would round at validate-time and silently
+        # accept values outside the author's intent (e.g. 0 with truncated
+        # bounds [0, 2]). Reject at parse time.
+        import tempfile
+        from mav_gss_lib.platform.spec.errors import ParseError
+        from mav_gss_lib.platform.spec.yaml_parse import parse_yaml
+        with tempfile.TemporaryDirectory() as td:
+            p = _write_mission_with_arg_type(
+                td, {"kind": "int", "size_bits": 8, "valid_range": [0.5, 2.5]},
+            )
+            with self.assertRaises(ParseError) as ctx:
+                parse_yaml(p, plugins={})
+            self.assertIn("fractional", str(ctx.exception).lower())
+
 
 class TestCommandArgTypeRefValidation(unittest.TestCase):
     def _write_mission(self, tmp_path, *, parameter_types, argument_types, meta_commands):
