@@ -408,11 +408,11 @@ export function TxControlsPanel({
                   stage('cam_capture', {
                     filename: withJpg(fn),
                     quantity: qty,
-                    delay_s: delay,
+                    dt: delay,
                     focus,
                     exposure_us: exposure,
-                    k,
-                    thumb_k: thumbK,
+                    k_cap: k,
+                    k_thumb: thumbK,
                     quality,
                   });
                 }}

@@ -37,7 +37,7 @@ describe('TxArgRow', () => {
 
   it('omits the chip when valid_range is absent', () => {
     render(
-      <TxArgRow arg={{ name: 'cmd_args', type: 'LcdArgs' }}
+      <TxArgRow arg={{ name: 'cmd_args', type: 'EmbeddedCmdArgs' }}
                 value="" onChange={noop} onEnter={noop} disabled={false} />
     )
     expect(screen.queryByText(/[0-9]+–[0-9]+/)).toBeNull()

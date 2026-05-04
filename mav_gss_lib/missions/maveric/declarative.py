@@ -169,8 +169,9 @@ class _MaverCommandOpsWrapper:
         # Cheap first-token grab so we can look up the meta and decide
         # whether the LAST arg is a `to_end` string. If it is, switch to
         # split(maxsplit=N) so the trailing remainder keeps its original
-        # whitespace. This matters for TLE / LcdArgs / LogText where
-        # operator-typed double-spaces are load-bearing.
+        # whitespace. This matters for to_end string args (Tle / LogText /
+        # EmbeddedCmdArgs / MtqRegData / RpiCamArgs) where operator-typed
+        # double-spaces are load-bearing.
         head = stripped.split(maxsplit=1)
         if not head:
             raise ValueError("empty command input")
