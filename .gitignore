@@ -69,6 +69,8 @@ docs/superpowers/specs/
 .playwright-mcp/
 
 # === UI preview scratchpads (local-only, not shipped) ===
+docs/
+mav_gss_lib/web/dist-tracking-preview/
 docs/*-preview.html
 docs/vendor/
 docs/maveric.stl
