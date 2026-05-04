@@ -287,6 +287,31 @@ class TestAsciiTokenStringRejectsWhitespace(unittest.TestCase):
             [],
         )
 
+    def test_ascii_token_non_ascii_rejected(self):
+        # ASCII-only is a wire contract: CommandEncoder.encode_args
+        # does .encode("ascii") on the joined run. Catch non-ASCII at
+        # validate time so the operator gets a field error instead of a
+        # UnicodeEncodeError stack trace at encode.
+        issues = self.ops.validate(_draft("set_callsign", {"cs": "café"}))
+        self.assertTrue(
+            any("non-ASCII" in i.message and i.field == "cs" for i in issues),
+            f"expected non-ASCII rejection, got {issues}",
+        )
+
+    def test_to_end_non_ascii_rejected(self):
+        # `to_end` allows whitespace but NOT non-ASCII.
+        issues = self.ops.validate(_draft("log_msg", {"text": "café au lait"}))
+        self.assertTrue(
+            any("non-ASCII" in i.message and i.field == "text" for i in issues),
+            f"expected non-ASCII rejection, got {issues}",
+        )
+
+    def test_to_end_pure_ascii_with_punctuation_accepted(self):
+        self.assertEqual(
+            self.ops.validate(_draft("log_msg", {"text": "warn: T+30s, bus=24.1V."})),
+            [],
+        )
+
 
 class TestIsToEndArgumentHelper(unittest.TestCase):
     """Public helper is the single source of truth for `to_end` lookup.

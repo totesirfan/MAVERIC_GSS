@@ -75,7 +75,13 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
     if (!schema) return []
     let entries = Object.entries(schema).filter(([, def]) => !def.rx_only && !def.deprecated)
     if (selectedDestNode) {
-      entries = entries.filter(([, def]) => !def.nodes || def.nodes.length === 0 || def.nodes.includes(selectedDestNode))
+      // `nodes` is HeaderValue[] (str | number | bool) — current MAVERIC
+      // YAML uses symbolic names, but a future header that switches to
+      // numeric wire bytes would otherwise fail the strict-equality
+      // `includes` check and silently hide valid commands. Coerce both
+      // sides to string so a node typed `1` matches the chooser's node-
+      // name string.
+      entries = entries.filter(([, def]) => !def.nodes || def.nodes.length === 0 || def.nodes.some(n => String(n) === selectedDestNode))
     }
     return entries
   }, [schema, selectedDestNode])
@@ -108,7 +114,11 @@ export default function MavericTxBuilder({ onQueue, onClose, disabled }: Mission
     if (disabled) return
     if (!selectedCmd || !selectedDestNode) return
     const packet: Record<string, string> = {}
-    if (!cmdDef?.dest || cmdDef.dest !== selectedDestNode) packet.dest = selectedDestNode
+    // String-coerce cmdDef.dest for comparison: it's HeaderValue
+    // (str | int | bool) and selectedDestNode is the operator-picked
+    // node name. If the schema's fixed dest matches the chosen node we
+    // skip the override; otherwise we send the chosen one.
+    if (cmdDef?.dest == null || String(cmdDef.dest) !== selectedDestNode) packet.dest = selectedDestNode
     onQueue({
       cmd_id: selectedCmd,
       args: argValues,

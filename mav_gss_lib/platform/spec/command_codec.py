@@ -162,24 +162,38 @@ class DeclarativeCommandOpsAdapter:
 
         # String contract enforcement.
         #
-        # `ascii_token` is defined as a single whitespace-delimited
-        # token on the wire. The CLI parser already enforces this
-        # implicitly (it splits on whitespace and zips arg-by-token),
-        # but DICT/API input bypasses the CLI — and
-        # `AsciiArgumentEncoder.encode_ascii()` for strings just does
-        # `str(value)`. Without a validate-time check, a caller could
-        # pass `{"name": "foo bar"}` for an `ascii_token` arg and emit
-        # two wire tokens, breaking the downstream framer's positional
-        # decoding.
+        # The wire is ASCII end-to-end: the run-encoder
+        # (`runtime.py::CommandEncoder.encode_args`) does `.encode("ascii")`
+        # on the joined token string, so any non-ASCII codepoint raises
+        # UnicodeEncodeError deep in encode. Catch it here at validate
+        # time so the operator sees a clean field error
+        # ("log_text contains non-ASCII characters") instead of a stack
+        # trace. Apply to BOTH encodings — `to_end` strings get verbatim
+        # whitespace but still must be ASCII.
         #
-        # `to_end` strings, by contrast, are explicitly allowed to
-        # contain whitespace — that's their entire purpose. No check
-        # there.
+        # `ascii_token` adds the single-token rule on top: the CLI
+        # parser enforces it implicitly (split on whitespace, zip arg-
+        # by-token), but DICT/API input bypasses that. Without the
+        # whitespace check, a caller could pass `{"name": "foo bar"}`
+        # for an `ascii_token` arg and emit two wire tokens, breaking
+        # the downstream framer's positional decoding.
         #
         # Enum validation is a deferred follow-up.
         if isinstance(t, StringArgumentType):
+            s = str(value)
+            try:
+                s.encode("ascii")
+            except UnicodeEncodeError:
+                non_ascii = sorted({ch for ch in s if ord(ch) > 127})
+                return [ValidationIssue(
+                    message=(
+                        f"{arg.name}={value!r} contains non-ASCII characters "
+                        f"({''.join(non_ascii)!r}); the command wire is ASCII "
+                        f"end-to-end. Replace or transliterate before queueing."
+                    ),
+                    field=arg.name,
+                )]
             if t.encoding == "ascii_token":
-                s = str(value)
                 if any(ch.isspace() for ch in s):
                     return [ValidationIssue(
                         message=(
